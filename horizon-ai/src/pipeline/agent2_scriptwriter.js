@@ -63,6 +63,7 @@ export async function writeScript(niche, topic, loreContext, jobId) {
   if (!out.script || out.script.split(/\s+/).length < 60) {
     throw new Error("Script generation returned insufficient content");
   }
+  out._usage = { tokens: res.usage?.total_tokens || 0 };
   await logEvent(
     "Agent 2",
     `Script done — loop: "…${out.loop_tail}" → "${out.hook_word}…" | title: ${out.title}`,

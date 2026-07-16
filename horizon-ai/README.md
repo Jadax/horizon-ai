@@ -99,6 +99,28 @@ watermarked) is fine for local testing. Production uploads need
 your account is upgraded before relying on `v1` renders for real MythosVibe
 uploads, otherwise `v1` calls will fail rather than silently downgrade.
 
+## Cost tracker & retry (dashboard)
+
+The right-hand column now shows an **approximate spend tracker** — running
+totals of OpenAI tokens, ElevenLabs characters, and Shotstack render seconds
+across every job, converted to a rough dollar estimate, broken down per
+niche. These are *estimates only* based on approximate per-unit rates
+hardcoded in `src/index.js` (`RATES` constant) — check each provider's own
+dashboard for real billing, especially since Shotstack/ElevenLabs pricing
+varies by plan tier.
+
+Any job that lands on **Failed** now shows a **↻ Retry this niche** button
+directly in the pipeline queue — click it to kick off a fresh run for the
+same niche without re-triggering the whole loop. The failed job's error
+message is also shown inline so you can see why it failed before retrying
+(e.g. insufficient footage, a Shotstack timeout, a malformed script).
+
+**Migration note:** if your Supabase project was set up before this update,
+run the migration block at the bottom of `supabase/schema.sql` once (it's
+`alter table ... add column if not exists`, safe to re-run) to add the
+`openai_tokens`, `elevenlabs_characters`, and `shotstack_render_seconds`
+columns the cost tracker depends on.
+
 ## Compliance guardrails built in
 
 - **Footage:** only Pexels/Pixabay licensed clips ever enter the timeline;

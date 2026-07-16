@@ -130,6 +130,23 @@ button:disabled{opacity:.4;cursor:not-allowed}
 .job .topic{font-family:var(--mono);font-size:10.5px;color:var(--muted);margin-top:6px;
   overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .job .sched{font-family:var(--mono);font-size:10px;color:var(--emerald-dim);margin-top:4px}
+.job .retry-row{margin-top:8px}
+.retry-btn{font-family:var(--mono);font-size:10px;padding:5px 10px;border-radius:6px;
+  border:1px solid #7a1d1d;background:transparent;color:var(--red);cursor:pointer;transition:.15s}
+.retry-btn:hover{background:rgba(239,68,68,.12);box-shadow:0 0 10px rgba(239,68,68,.15)}
+
+/* ── Cost tracker ── */
+.cost-panel{margin-bottom:22px}
+.cost-row{display:flex;justify-content:space-between;align-items:center;
+  font-family:var(--mono);font-size:11px;padding:8px 12px;border:1px solid var(--border);
+  border-radius:8px;background:var(--panel);margin-bottom:6px}
+.cost-row .label{color:var(--muted)}
+.cost-row .val{color:var(--text)}
+.cost-niche-row{display:flex;justify-content:space-between;font-family:var(--mono);
+  font-size:10.5px;padding:6px 12px;color:var(--muted)}
+.cost-niche-row .n{color:var(--text)}
+.cost-note{font-family:var(--mono);font-size:9.5px;color:var(--muted);margin-top:6px;
+  line-height:1.5;padding:0 2px}
 
 @media (max-width:1100px){main{grid-template-columns:1fr}section{max-height:none}}
 </style>
@@ -195,6 +212,8 @@ button:disabled{opacity:.4;cursor:not-allowed}
   <section>
     <div class="sec-title">Console diagnostics <button onclick="loadDiag()" style="padding:3px 10px">↻</button></div>
     <div class="diag" id="diag"></div>
+    <div class="sec-title">Cost tracker <span id="costTotal" style="color:var(--emerald)"></span></div>
+    <div id="costPanel" class="cost-panel"></div>
     <div class="sec-title">Pipeline queue <button onclick="loadJobs()" style="padding:3px 10px">↻</button></div>
     <div id="jobs"></div>
   </section>
@@ -240,21 +259,55 @@ async function loadDiag(){
   ).join("");
 }
 
+// ── Cost tracker ──
+async function loadCosts(){
+  const res = await fetch("/api/costs",{headers:H});
+  if(!res.ok) return;
+  const c = await res.json();
+  document.getElementById("costTotal").textContent = "≈ $"+c.estTotalCost.toFixed(2)+" total (est.)";
+  const rows = [
+    ["OpenAI tokens", c.totals.openai_tokens.toLocaleString()],
+    ["ElevenLabs chars", c.totals.elevenlabs_characters.toLocaleString()],
+    ["Shotstack seconds", c.totals.shotstack_render_seconds.toFixed(0)],
+    ["Jobs run", c.jobCount],
+  ].map(([l,v])=>`<div class="cost-row"><span class="label">${l}</span><span class="val">${v}</span></div>`).join("");
+  const niches = Object.entries(c.byNiche)
+    .sort((a,b)=>b[1].estCost-a[1].estCost)
+    .map(([n,d])=>`<div class="cost-niche-row"><span class="n">${n}</span><span>${d.jobs} jobs · $${d.estCost.toFixed(2)}</span></div>`)
+    .join("");
+  document.getElementById("costPanel").innerHTML = rows + niches +
+    `<div class="cost-note">Estimates only, based on approximate per-unit rates — check each provider's dashboard for actual billing.</div>`;
+}
+
 // ── Jobs ──
 async function loadJobs(){
   const res = await fetch("/api/jobs",{headers:H});
   jobs = await res.json();
   document.getElementById("jobs").innerHTML = jobs.map(j =>
-    `<div class="job" onclick="selectJob('${j.id}')">
-      <div class="row1"><span class="niche">${j.niche}</span>
-        <span class="badge ${j.status.replace(/\s/g,'')}">${j.status.toUpperCase()}</span></div>
-      <div class="topic">${escapeHtml(j.topic||j.title||"—")}</div>
-      ${j.publish_schedule?`<div class="sched">⏱ ${j.target_region||""} → ${j.publish_schedule.slice(0,16).replace("T"," ")} UTC</div>`:""}
+    `<div class="job">
+      <div onclick="selectJob('${j.id}')">
+        <div class="row1"><span class="niche">${j.niche}</span>
+          <span class="badge ${j.status.replace(/\s/g,'')}">${j.status.toUpperCase()}</span></div>
+        <div class="topic">${escapeHtml(j.topic||j.title||"—")}</div>
+        ${j.publish_schedule?`<div class="sched">⏱ ${j.target_region||""} → ${j.publish_schedule.slice(0,16).replace("T"," ")} UTC</div>`:""}
+        ${j.status==="Failed"&&j.error?`<div class="sched" style="color:var(--red)">⚠ ${escapeHtml(j.error.slice(0,80))}</div>`:""}
+      </div>
+      ${j.status==="Failed"?`<div class="retry-row"><button class="retry-btn" onclick="event.stopPropagation();retryJobFn('${j.id}')">↻ Retry this niche</button></div>`:""}
     </div>`).join("");
   const sel = document.getElementById("jobSelect");
   sel.innerHTML = '<option value="">— select job —</option>' + jobs
     .filter(j=>j.rendered_video_url)
     .map(j=>`<option value="${j.id}">${j.niche} · ${(j.title||j.topic||"").slice(0,40)}</option>`).join("");
+}
+
+async function retryJobFn(id){
+  const msg=document.getElementById("runMsg");
+  msg.textContent="Retrying job…";
+  const res=await fetch("/api/jobs/"+id+"/retry",{method:"POST",headers:H});
+  const data=await res.json();
+  msg.textContent = res.ok ? "✓ Retry started" : "✗ "+(data.error||"retry failed");
+  setTimeout(()=>msg.textContent="",5000);
+  setTimeout(loadJobs,3000);
 }
 
 function selectJob(id){
@@ -337,8 +390,9 @@ async function runNiche(niche){
   setTimeout(loadJobs,3000);
 }
 
-loadDiag(); loadJobs();
+loadDiag(); loadJobs(); loadCosts();
 setInterval(loadJobs, 30_000);
+setInterval(loadCosts, 60_000);
 </script>
 </body>
 </html>

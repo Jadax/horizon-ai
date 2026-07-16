@@ -97,3 +97,17 @@ needed.
 4. `npm install`
 5. `npm start` to test locally, or just rely on the Railway deployment —
    local running is optional once Railway is confirmed stable
+
+## Changelog
+
+- **Per-niche run buttons** added to the dashboard (below the header) —
+  trigger Gaming/Lore, Aesthetic, Psychology, or Travel individually via
+  the existing `/api/run/:niche` route, instead of only "run everything."
+- **Cost tracker** panel added — approximate running spend across OpenAI,
+  ElevenLabs, and Shotstack, per-niche breakdown. Requires the
+  `openai_tokens` / `elevenlabs_characters` / `shotstack_render_seconds`
+  columns — run the migration block in `supabase/schema.sql` once if the
+  Supabase project predates this change.
+- **Retry button** on Failed jobs — one click re-runs the pipeline for that
+  job's niche via a new `/api/jobs/:id/retry` route, no need to hunt down
+  which niche failed and re-trigger manually.
