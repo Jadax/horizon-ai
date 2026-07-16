@@ -20,6 +20,7 @@ export async function runPipelineForNiche(niche) {
     .single();
   if (error) throw new Error(`Could not create pipeline_logs row: ${error.message}`);
   const jobId = job.id;
+  let usage = { openai_tokens: 0, elevenlabs_characters: 0, shotstack_render_seconds: 0 };
 
   try {
     // ── Agent 1: topic + licensed media ──
@@ -34,6 +35,7 @@ export async function runPipelineForNiche(niche) {
 
     // ── Agent 2: script + trim points ──
     const scriptOut = await writeScript(niche, topic, loreContext, jobId);
+    usage.openai_tokens += scriptOut._usage?.tokens || 0;
     const preset = niche.editing_style_preset;
     const cuts = await calculateTrims(scriptOut.script, clips, preset, jobId);
     await updateJob(jobId, {
@@ -43,6 +45,7 @@ export async function runPipelineForNiche(niche) {
       tags: scriptOut.tags,
       calculated_trim_points: cuts,
       status: "Synthesizing",
+      ...usage,
     });
 
     // ── Agent 3: voiceover + music ──
@@ -51,11 +54,13 @@ export async function runPipelineForNiche(niche) {
       niche.voice_profile_id,
       jobId
     );
+    usage.elevenlabs_characters += scriptOut.script.length;
     const musicTrack = await pickMusic(preset.music_energy, jobId);
     await updateJob(jobId, {
       voiceover_url: voiceoverUrl,
       music_track_id: musicTrack?.id || null,
       status: "Rendering",
+      ...usage,
     });
 
     // ── Agent 4: Shotstack render ──
@@ -69,10 +74,12 @@ export async function runPipelineForNiche(niche) {
       jobId,
     });
     const { renderId, url: renderedUrl } = await render(payload, jobId);
+    usage.shotstack_render_seconds += Number((duration + 1.5).toFixed(1));
     await updateJob(jobId, {
       shotstack_render_id: renderId,
       rendered_video_url: renderedUrl,
       status: config.autopilot ? "Rendered" : "Awaiting Approval",
+      ...usage,
     });
 
     // ── Agent 5: schedule + upload (autopilot only) ──
@@ -101,6 +108,26 @@ export async function runPipelineForNiche(niche) {
     await updateJob(jobId, { status: "Failed", error: err.message });
     return jobId;
   }
+}
+
+/** Re-run the pipeline for the same niche as a failed (or any) job. */
+export async function retryJob(jobId) {
+  const { data: job, error } = await supabase
+    .from("pipeline_logs")
+    .select("niche")
+    .eq("id", jobId)
+    .single();
+  if (error || !job) throw new Error("Original job not found");
+
+  const { data: niche, error: nErr } = await supabase
+    .from("niche_configurations")
+    .select("*")
+    .eq("niche_name", job.niche)
+    .single();
+  if (nErr || !niche) throw new Error(`Niche "${job.niche}" not found or inactive`);
+
+  await logEvent("Operator", `Retrying failed job as a fresh run for ${niche.niche_name}`);
+  return runPipelineForNiche(niche);
 }
 
 export async function runFullPipeline() {

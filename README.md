@@ -59,6 +59,68 @@ cron 03:00 UTC ─▶ Agent 1  Reddit/wiki trend scan + Pexels/Pixabay licensed 
 - `AUTOPILOT=false` — everything renders, then holds at **Awaiting Approval**;
   review in the dashboard, edit title/script, press *Approve → Schedule upload*.
 
+## Running the pipeline
+
+The dashboard header has **▶ RUN FULL LOOP**, which fires all active niches
+at once (same as the 03:00 UTC cron). Below the header, the **Run single
+niche** bar has one button per niche (Gaming/Lore, Aesthetic, Psychology,
+Travel) so you can test or trigger one at a time — useful while tuning a
+niche's footage keywords or voice, or when you just want one fresh video
+without spending render credits on all four.
+
+Both call the same backend routes a script or cron job would:
+```
+POST /api/run              → runs every active niche
+POST /api/run/:niche       → runs one niche, e.g. /api/run/Aesthetic
+```
+`:niche` must match a `niche_name` value in Supabase's `niche_configurations`
+table exactly, including the slash in `Gaming/Lore` (the dashboard buttons
+already encode this correctly).
+
+## Testing checklist (recommended before enabling Autopilot)
+
+1. Set `AUTOPILOT=false` and confirm it in the dashboard toggle.
+2. Confirm `music_library` has at least one track per energy level
+   (High / Suspense / Chill / Wonder) — otherwise renders succeed silently
+   without music.
+3. Click a single niche button (start with **Aesthetic** — lowest legal risk,
+   easiest to sanity-check visually) rather than Run Full Loop.
+4. Watch the Live Status Stream end-to-end — Agent 1 through Agent 4 usually
+   takes 3-8 minutes, most of it Shotstack render polling.
+5. When the job reaches **Awaiting Approval**, select it in the Preview
+   Platform dropdown and review: loop hook/tail flow, caption sync, footage
+   mood match, title/description/tags tone.
+6. Only after a few clean reviews, flip `AUTOPILOT=true` (Railway → Variables)
+   and let the daily cron run unattended.
+
+**Shotstack environment reminder:** `SHOTSTACK_ENV=stage` (sandbox, free,
+watermarked) is fine for local testing. Production uploads need
+`SHOTSTACK_ENV=v1` on Railway, which requires a paid Shotstack plan — confirm
+your account is upgraded before relying on `v1` renders for real MythosVibe
+uploads, otherwise `v1` calls will fail rather than silently downgrade.
+
+## Cost tracker & retry (dashboard)
+
+The right-hand column now shows an **approximate spend tracker** — running
+totals of OpenAI tokens, ElevenLabs characters, and Shotstack render seconds
+across every job, converted to a rough dollar estimate, broken down per
+niche. These are *estimates only* based on approximate per-unit rates
+hardcoded in `src/index.js` (`RATES` constant) — check each provider's own
+dashboard for real billing, especially since Shotstack/ElevenLabs pricing
+varies by plan tier.
+
+Any job that lands on **Failed** now shows a **↻ Retry this niche** button
+directly in the pipeline queue — click it to kick off a fresh run for the
+same niche without re-triggering the whole loop. The failed job's error
+message is also shown inline so you can see why it failed before retrying
+(e.g. insufficient footage, a Shotstack timeout, a malformed script).
+
+**Migration note:** if your Supabase project was set up before this update,
+run the migration block at the bottom of `supabase/schema.sql` once (it's
+`alter table ... add column if not exists`, safe to re-run) to add the
+`openai_tokens`, `elevenlabs_characters`, and `shotstack_render_seconds`
+columns the cost tracker depends on.
+
 ## Compliance guardrails built in
 
 - **Footage:** only Pexels/Pixabay licensed clips ever enter the timeline;

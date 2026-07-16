@@ -11,7 +11,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { config } from "./config.js";
 import { supabase, bus, getRecentEvents, logEvent, updateJob } from "./supabase.js";
-import { runFullPipeline, runPipelineForNiche } from "./pipeline/run.js";
+import { runFullPipeline, runPipelineForNiche, retryJob } from "./pipeline/run.js";
 import { uploadScheduled } from "./pipeline/agent5_upload.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -107,6 +107,51 @@ app.post("/api/jobs/:id/approve", async (req, res) => {
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
+});
+
+// Retry a failed (or any) job — re-runs the pipeline fresh for its niche
+app.post("/api/jobs/:id/retry", async (req, res) => {
+  try {
+    const newJobId = await retryJob(req.params.id);
+    res.json({ ok: true, newJobId, message: "Retry started" });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+// ── Cost tracker: approximate spend across all jobs ──────────────────────
+// Rate assumptions (update as pricing changes — these are estimates only,
+// not billing-accurate; check each provider's dashboard for real spend):
+//   OpenAI gpt-4o:      ~$5 / 1M input+output tokens (blended estimate)
+//   ElevenLabs:         ~$0.00003 / character (Creator tier ballpark)
+//   Shotstack:          ~$0.05 / rendered second (approx, varies by plan)
+const RATES = { openaiPerToken: 0.000005, elevenlabsPerChar: 0.00003, shotstackPerSecond: 0.05 };
+
+app.get("/api/costs", async (_req, res) => {
+  const { data, error } = await supabase
+    .from("pipeline_logs")
+    .select("niche, openai_tokens, elevenlabs_characters, shotstack_render_seconds, created_at");
+  if (error) return res.status(500).json({ error: error.message });
+
+  const totals = { openai_tokens: 0, elevenlabs_characters: 0, shotstack_render_seconds: 0 };
+  const byNiche = {};
+  for (const row of data) {
+    totals.openai_tokens += row.openai_tokens || 0;
+    totals.elevenlabs_characters += row.elevenlabs_characters || 0;
+    totals.shotstack_render_seconds += row.shotstack_render_seconds || 0;
+    byNiche[row.niche] = byNiche[row.niche] || { jobs: 0, estCost: 0 };
+    byNiche[row.niche].jobs += 1;
+    byNiche[row.niche].estCost +=
+      (row.openai_tokens || 0) * RATES.openaiPerToken +
+      (row.elevenlabs_characters || 0) * RATES.elevenlabsPerChar +
+      (row.shotstack_render_seconds || 0) * RATES.shotstackPerSecond;
+  }
+  const estTotalCost =
+    totals.openai_tokens * RATES.openaiPerToken +
+    totals.elevenlabs_characters * RATES.elevenlabsPerChar +
+    totals.shotstack_render_seconds * RATES.shotstackPerSecond;
+
+  res.json({ totals, estTotalCost, byNiche, jobCount: data.length, rates: RATES });
 });
 
 // Trigger runs manually

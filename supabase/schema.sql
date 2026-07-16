@@ -61,6 +61,10 @@ create table if not exists pipeline_logs (
   error text,
   target_region text,
   publish_schedule timestamptz,
+  -- usage/cost tracking (approximate; see DEPLOYMENT_NOTES.md for rate assumptions)
+  openai_tokens integer default 0,
+  elevenlabs_characters integer default 0,
+  shotstack_render_seconds numeric default 0,
   created_at timestamptz not null default now()
 );
 
@@ -130,3 +134,11 @@ on conflict (niche_name) do nothing;
 -- ── Storage bucket for music (create via dashboard or API) ──────────────
 -- Bucket: "music" (public). Upload royalty-free tracks and insert rows into
 -- music_library with the public URL and a license_note recording the source.
+
+-- ═══════════════════════════════════════════════════════════════════════
+-- MIGRATION — run this once if your project already existed before the
+-- usage/cost tracking columns were added. Safe to re-run (IF NOT EXISTS).
+-- ═══════════════════════════════════════════════════════════════════════
+alter table pipeline_logs add column if not exists openai_tokens integer default 0;
+alter table pipeline_logs add column if not exists elevenlabs_characters integer default 0;
+alter table pipeline_logs add column if not exists shotstack_render_seconds numeric default 0;
