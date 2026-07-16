@@ -74,7 +74,8 @@ export async function writeScript(niche, topic, loreContext, jobId) {
   });
 
   const out = JSON.parse(res.choices[0].message.content);
-  if (!out.script || out.script.split(/\s+/).length < 60) {
+  const minWords = wordClipMode ? 35 : 60;
+  if (!out.script || out.script.split(/\s+/).length < minWords) {
     throw new Error("Script generation returned insufficient content");
   }
   out._usage = { tokens: res.usage?.total_tokens || 0 };
