@@ -111,3 +111,73 @@ needed.
 - **Retry button** on Failed jobs — one click re-runs the pipeline for that
   job's niche via a new `/api/jobs/:id/retry` route, no need to hunt down
   which niche failed and re-trigger manually.
+- **Fixed slash-in-niche-name routing bug** — "Gaming/Lore" broke the old
+  `/api/run/:niche` URL-param route because of the literal `/`. Added
+  `/api/run-niche` (POST body instead of URL param) which the dashboard now
+  uses for all niche buttons; the old URL-param route is kept for
+  backwards compatibility with niches that don't contain a slash.
+- **Fixed Supabase 500s** — root cause was two separate misconfigurations:
+  (1) `SUPABASE_URL` had accidentally been set to the full REST endpoint
+  (`.../rest/v1/`) instead of the bare project URL, and (2) the Supabase
+  project's `service_role` role was missing table grants (Supabase's new
+  `sb_secret_...` key type doesn't automatically bypass RLS the way the
+  legacy JWT `service_role` key does — switched to the legacy key from
+  Settings → API Keys → "Legacy anon, service_role API keys" tab, and ran
+  explicit `GRANT` statements for `service_role` on all three tables).
+- **Reddit topic-harvesting replaced with RSS feeds** — Reddit deprecated
+  unauthenticated `.json` access entirely on May 28-30, 2026 (see
+  "Reddit API deprecation" section below). Agent 1 now sources topics
+  primarily from real publisher RSS feeds per niche (IGN, PC Gamer,
+  Psychology Today, Lonely Planet, etc.) plus Google Trends' official
+  public RSS feed, with Reddit kept only as a harmless best-effort bonus
+  source. Run `supabase/migration_rss_feeds.sql` once to add the `rss_feeds`
+  column and seed real feed URLs per niche.
+- **News niche + word-clip format added.** Catchy viral word-clip videos
+  (giant single-word/short-phrase captions synced to voiceover) built from
+  real breaking/trending news. New free, no-auth sources added to Agent 1:
+    - **GDELT Project** (api.gdeltproject.org) — a genuinely underused,
+      completely free global news dataset (backed by Google Jigsaw),
+      updated every 15 minutes across ~100 languages. Used for the News
+      niche specifically.
+    - **Google News RSS** (news.google.com/rss) — free, no auth, official
+      top-stories or topic-search feed. Also News-niche-specific.
+    - **YouTube Trending** (`videos.list?chart=mostPopular`) — reuses the
+      existing upload OAuth credentials for a read-only call (~1 quota
+      unit). Pulled for every niche as a "what's already working in
+      vertical format" signal, not just News.
+  `wordClipMode: true` in a niche's `editing_style_preset` switches Agent 4
+  from the usual 2-3 word active captions to giant single-word cards
+  (96px vs 34-46px), and Agent 2's script prompt shifts to short punchy
+  phrases (45-65 words) instead of flowing narration. Run
+  `supabase/migration_news_niche.sql` once to add the niche.
+- **Optional Hindi support added.** A new `language` column on
+  `niche_configurations` (default `'en'`) is read by Agent 2 to write the
+  script (and title/description) in Hindi when set to `'hi'`. No new voice
+  IDs needed — ElevenLabs' `eleven_multilingual_v2` model auto-detects
+  language from the script text itself. See the commented-out example at
+  the bottom of `migration_news_niche.sql` for creating a Hindi variant of
+  any niche (e.g. `News (Hindi)`).
+
+## Reddit API deprecation (May 2026) — why this mattered here
+
+Reddit shut down unauthenticated `.json` endpoint access on May 28-30,
+2026, breaking essentially every scraper and automation tool that relied
+on the old "append `.json` to any Reddit URL" trick — which is what
+Horizon AI's original Agent 1 design used. Self-service OAuth API
+registration had already been closed since November 2025 under Reddit's
+"Responsible Builder Policy"; the official API now requires manual
+approval and costs $0.24 per 1,000 calls with a **$12,000/year minimum
+commercial commitment** — not viable for a project this size.
+
+This wasn't a bug in our code or account — it was an industry-wide,
+simultaneous break affecting nearly every Reddit-dependent pipeline built
+before mid-2026. The fix was to stop depending on Reddit as the primary
+topic source and move to RSS feeds instead (see Changelog above), which
+are free, unauthenticated, and considerably more stable long-term since
+publishers have no equivalent incentive to lock down their own feeds.
+
+If a specific RSS feed URL ever starts failing (publishers do occasionally
+change their feed paths during a site redesign), the Live Status Stream
+will show a "RSS feed failed" warning naming the exact URL — search
+"<publisher name> RSS feed" to find the current one and update it via a
+Supabase `UPDATE` on that niche's `rss_feeds` array.

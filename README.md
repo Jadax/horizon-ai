@@ -5,7 +5,38 @@ harvest → licensed footage sourcing → GPT-4o looped script + trim points →
 ElevenLabs voiceover with word timestamps → Shotstack 9:16 render with active
 captions → region-scheduled private YouTube upload.
 
-**Niches:** Gaming/Lore · Aesthetic · Psychology · Travel
+**Niches:** Gaming/Lore · Aesthetic · Psychology · Travel · News
+
+## Topic sources (as of July 2026)
+
+Reddit deprecated unauthenticated `.json` access in May 2026 (commercial API
+access now costs $12k/year minimum) — see `DEPLOYMENT_NOTES.md` for the full
+story. Agent 1 now sources topics from, per niche:
+
+- **Publisher RSS feeds** (IGN, PC Gamer, Psychology Today, Lonely Planet,
+  BBC, etc.) — free, no auth, stable
+- **Google Trends** official RSS feed — broad cultural-relevance signal
+- **YouTube Trending** (`chart=mostPopular`) — what's already working in
+  vertical/short format, pulled for every niche
+- **GDELT Project** + **Google News RSS** — News niche only, two more free
+  no-auth sources for real breaking/trending stories
+- **Reddit** — kept as a harmless best-effort bonus, usually 403s now
+
+## News niche & word-clip format
+
+The News niche renders **giant single-word/short-phrase captions** (a
+"word-clip" style) instead of the usual 2-3 word active captions — set via
+`wordClipMode: true` in that niche's `editing_style_preset`. Script length
+shifts to short punchy phrases (45-65 words) rather than flowing narration.
+Any niche can opt into this style the same way.
+
+## Language support
+
+Niches have a `language` column (default `en`). Setting it to `hi` makes
+Agent 2 write the script, title, and description in Hindi — no separate
+voice IDs needed, since ElevenLabs' `eleven_multilingual_v2` model
+auto-detects language from the script text. See the commented example in
+`supabase/migration_news_niche.sql` for creating a Hindi variant of any niche.
 
 ## Architecture
 

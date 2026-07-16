@@ -173,6 +173,7 @@ button:disabled{opacity:.4;cursor:not-allowed}
   <button onclick="runNiche('Aesthetic')" class="niche-btn">🌅 Aesthetic</button>
   <button onclick="runNiche('Psychology')" class="niche-btn">🧠 Psychology</button>
   <button onclick="runNiche('Travel')" class="niche-btn">✈️ Travel</button>
+  <button onclick="runNiche('News')" class="niche-btn">📰 News</button>
   <span id="runMsg"></span>
 </div>
 
@@ -379,7 +380,7 @@ async function runNiche(niche){
   const msg=document.getElementById("runMsg");
   msg.textContent="Starting "+niche+"…";
   try{
-    const res=await fetch("/api/run/"+encodeURIComponent(niche),{method:"POST",headers:H});
+    const res=await fetch("/api/run-niche",{method:"POST",headers:H,body:JSON.stringify({niche})});
     const data=await res.json();
     msg.textContent=res.ok?"✓ "+data.message:"✗ "+(data.error||"failed to start");
   }catch(e){

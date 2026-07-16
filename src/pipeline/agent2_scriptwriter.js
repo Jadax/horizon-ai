@@ -17,13 +17,22 @@ const openai = new OpenAI({ apiKey: config.openaiKey });
 const SCRIPT_SYSTEM = `You are a short-form retention scriptwriter for faceless vertical video.
 Rules, non-negotiable:
 - Write in original words. If wiki/lore context is provided, PARAPHRASE it — never copy sentences.
-- Length: 100-125 words ≈ 45 seconds of narration at natural pace.
+- Length: 100-125 words ≈ 45 seconds of narration at natural pace. EXCEPTION: if
+  WORD_CLIP_MODE is true, write 45-65 words instead — short, punchy, built for
+  giant single-word/short-phrase captions rather than dense narration.
 - Line 1 is the hook: instant, high-tension, no throat-clearing, no "did you know".
 - THE LOOP: the script must end mid-sentence such that the final words flow
   grammatically straight back into the first word of the hook. Example:
   hook = "Nobody survives the Lands Between…" / ending = "…and that is why"
   → replay reads "…and that is why Nobody survives the Lands Between".
 - Simple spoken language. Short sentences. Every sentence earns the next.
+- If WORD_CLIP_MODE is true: favor short, punchy, highly quotable phrases (3-6
+  words per beat) over flowing narration — every phrase should work standalone
+  as a bold on-screen word/phrase card synced to the voiceover.
+- Write the script in the language specified by LANGUAGE (e.g. "en" = natural
+  spoken English, "hi" = natural conversational Hindi in Devanagari script).
+  Title/description/tags stay in LANGUAGE too, except tags may include common
+  English crossover terms if that's how people actually search.
 - No hashtags, no emoji, no stage directions in the script body.
 Respond ONLY with JSON:
 {
@@ -38,8 +47,13 @@ Respond ONLY with JSON:
 export async function writeScript(niche, topic, loreContext, jobId) {
   await logEvent("Agent 2", `Writing looped script for "${topic.title.slice(0, 60)}"…`, { jobId });
 
+  const language = niche.language || "en";
+  const wordClipMode = Boolean(niche.editing_style_preset?.wordClipMode);
+
   const context = [
     `NICHE: ${niche.niche_name}`,
+    `LANGUAGE: ${language}`,
+    `WORD_CLIP_MODE: ${wordClipMode}`,
     `TRENDING TOPIC: ${topic.title}`,
     topic.selftext ? `THREAD CONTEXT: ${topic.selftext}` : null,
     loreContext

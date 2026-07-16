@@ -18,7 +18,14 @@ create table if not exists niche_configurations (
   target_sources text[] not null default '{}',
   -- search terms used against Pexels/Pixabay to find licensed b-roll
   footage_keywords text[] not null default '{}',
+  -- publisher RSS feeds — the PRIMARY topic source since Reddit's
+  -- unauthenticated .json access was deprecated May 2026 (see
+  -- DEPLOYMENT_NOTES.md and migration_rss_feeds.sql)
+  rss_feeds text[] not null default '{}',
   voice_profile_id text not null,
+  -- 'en' or 'hi' — ElevenLabs' multilingual model auto-detects language
+  -- from the script text, no separate voice IDs needed per language
+  language text not null default 'en',
   editing_style_preset jsonb not null default '{}'::jsonb,
   created_at timestamptz not null default now()
 );
@@ -130,6 +137,13 @@ values
   }'::jsonb
 )
 on conflict (niche_name) do nothing;
+
+-- ── Follow-up migrations for a fully fresh setup ─────────────────────────
+-- Run these two files after this one to get the RSS-based topic sources
+-- and the News niche (both were added after this base schema; see
+-- DEPLOYMENT_NOTES.md for why):
+--   supabase/migration_rss_feeds.sql   — populates rss_feeds per niche
+--   supabase/migration_news_niche.sql  — adds the News/word-clip niche
 
 -- ── Storage bucket for music (create via dashboard or API) ──────────────
 -- Bucket: "music" (public). Upload royalty-free tracks and insert rows into

@@ -159,6 +159,23 @@ app.post("/api/run", (_req, res) => {
   runFullPipeline().catch((e) => console.error(e));
   res.json({ ok: true, message: "Full pipeline started" });
 });
+app.post("/api/run-niche", async (req, res) => {
+  const nicheName = req.body?.niche;
+  if (!nicheName) return res.status(400).json({ error: "Missing niche in request body" });
+  const { data: niche, error } = await supabase
+    .from("niche_configurations")
+    .select("*")
+    .eq("niche_name", nicheName)
+    .single();
+  if (error || !niche) {
+    return res.status(404).json({ error: `Unknown niche: "${nicheName}"` });
+  }
+  runPipelineForNiche(niche).catch((e) => console.error(e));
+  res.json({ ok: true, message: `Pipeline started for ${niche.niche_name}` });
+});
+// Legacy URL-param route kept for niches without slashes (e.g. Aesthetic,
+// Psychology, Travel). Gaming/Lore's slash makes this route unreliable for
+// it specifically — the dashboard now uses /api/run-niche above instead.
 app.post("/api/run/:niche", async (req, res) => {
   const { data: niche } = await supabase
     .from("niche_configurations")

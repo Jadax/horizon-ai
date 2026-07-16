@@ -15,12 +15,17 @@ const STYLE_FONTS = {
   "heavy-sans": { family: "Montserrat ExtraBold", size: 46 },
   minimal: { family: "Roboto", size: 34 },
   warm: { family: "Poppins", size: 42 },
+  "word-clip": { family: "Montserrat ExtraBold", size: 96 },
 };
 
 function captionClips(words, preset) {
-  // Group words into 2-3 word chunks — the "active caption" look
-  const chunkSize = preset.transitions === "fast-cut" ? 2 : 3;
-  const font = STYLE_FONTS[preset.caption.style] || STYLE_FONTS.minimal;
+  // Word-clip mode: one giant word/short-phrase per beat, punchy pacing.
+  // Otherwise: group words into 2-3 word chunks — the standard "active
+  // caption" look.
+  const chunkSize = preset.wordClipMode ? 1 : preset.transitions === "fast-cut" ? 2 : 3;
+  const font = preset.wordClipMode
+    ? STYLE_FONTS["word-clip"]
+    : STYLE_FONTS[preset.caption.style] || STYLE_FONTS.minimal;
   const clips = [];
   for (let i = 0; i < words.length; i += chunkSize) {
     const chunk = words.slice(i, i + chunkSize);
@@ -35,10 +40,10 @@ function captionClips(words, preset) {
           size: font.size,
           color: preset.caption.color,
         },
-        stroke: { color: "#000000", width: preset.caption.style === "minimal" ? 0 : 2 },
+        stroke: { color: "#000000", width: preset.caption.style === "minimal" ? 0 : 3 },
         alignment: { horizontal: "center" },
-        width: 900,
-        height: 200,
+        width: preset.wordClipMode ? 1000 : 900,
+        height: preset.wordClipMode ? 320 : 200,
       },
       start: Number(start.toFixed(2)),
       length: Number(Math.max(0.2, end - start).toFixed(2)),

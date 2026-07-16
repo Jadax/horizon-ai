@@ -7,6 +7,10 @@
  * - Uploads the resulting MP3 to Supabase Storage (Shotstack needs a URL).
  * - Picks a background track from music_library matching the niche's
  *   configured energy level.
+ * - Language: the "eleven_multilingual_v2" model auto-detects language from
+ *   the script text itself — no per-language voice ID needed. If a niche's
+ *   `language` is "hi", Agent 2 writes the script in Hindi and this same
+ *   voice profile will speak it correctly.
  */
 import { config } from "../config.js";
 import { supabase, logEvent } from "../supabase.js";
