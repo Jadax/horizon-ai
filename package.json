@@ -1,0 +1,24 @@
+{
+  "name": "horizon-ai",
+  "version": "1.0.0",
+  "description": "Autonomous faceless multi-niche short-form video creation and publishing engine",
+  "type": "module",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "node --watch src/index.js",
+    "pipeline:once": "node src/pipeline/run.js",
+    "auth:youtube": "node src/lib/youtubeAuth.js"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.45.0",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "googleapis": "^140.0.0",
+    "node-cron": "^3.0.3",
+    "openai": "^4.56.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
