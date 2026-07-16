@@ -1,0 +1,344 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>HORIZON AI — Command Center</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#0A0E1A;            /* deep charcoal-indigo (brief-pinned) */
+  --panel:#0E1424;
+  --panel-2:#121A2E;
+  --border:#1C2740;        /* micro-borders */
+  --emerald:#10B981;       /* neon-emerald status */
+  --emerald-dim:#0B7A57;
+  --amber:#F59E0B;
+  --red:#EF4444;
+  --text:#D7DEEF;
+  --muted:#5F6B8A;
+  --display:'Space Grotesk',sans-serif;
+  --mono:'JetBrains Mono',monospace;
+}
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:var(--bg);color:var(--text);font-family:var(--display);min-height:100vh}
+::selection{background:var(--emerald-dim);color:#fff}
+
+/* ── Header ── */
+header{display:flex;align-items:center;justify-content:space-between;
+  padding:18px 28px;border-bottom:1px solid var(--border)}
+.logo{display:flex;align-items:center;gap:12px}
+.logo .pulse{width:10px;height:10px;border-radius:50%;background:var(--emerald);
+  box-shadow:0 0 12px var(--emerald),0 0 28px rgba(16,185,129,.4);
+  animation:pulse 2.2s ease-in-out infinite}
+@keyframes pulse{50%{opacity:.35;box-shadow:0 0 4px var(--emerald)}}
+h1{font-size:17px;font-weight:700;letter-spacing:.24em}
+h1 span{color:var(--emerald)}
+.header-right{display:flex;align-items:center;gap:16px;font-family:var(--mono);font-size:11px;color:var(--muted)}
+.autopilot{display:flex;align-items:center;gap:8px;cursor:pointer;user-select:none;
+  border:1px solid var(--border);padding:7px 12px;border-radius:8px;transition:.2s}
+.autopilot.on{border-color:var(--emerald-dim);box-shadow:0 0 14px rgba(16,185,129,.15)}
+.autopilot .track{width:30px;height:16px;border-radius:9px;background:var(--panel-2);position:relative;transition:.2s}
+.autopilot.on .track{background:var(--emerald-dim)}
+.autopilot .knob{position:absolute;top:2px;left:2px;width:12px;height:12px;border-radius:50%;
+  background:var(--muted);transition:.2s}
+.autopilot.on .knob{left:16px;background:var(--emerald);box-shadow:0 0 8px var(--emerald)}
+
+/* ── Niche action bar ── */
+#niche-bar{display:flex;align-items:center;gap:10px;padding:12px 28px;
+  border-bottom:1px solid var(--border);background:var(--panel);flex-wrap:wrap}
+.niche-bar-label{font-family:var(--mono);font-size:10px;color:var(--muted);
+  letter-spacing:.15em;text-transform:uppercase;margin-right:4px}
+.niche-btn{font-family:var(--mono);font-size:11.5px;padding:8px 14px;border-radius:8px;
+  border:1px solid var(--border);background:var(--panel-2);color:var(--text);cursor:pointer;
+  transition:.15s;display:inline-flex;align-items:center;gap:6px}
+.niche-btn:hover{border-color:var(--emerald-dim);color:var(--emerald);
+  box-shadow:0 0 12px rgba(16,185,129,.12)}
+.niche-btn:disabled{opacity:.5;cursor:wait}
+#runMsg{font-family:var(--mono);font-size:11px;color:var(--emerald);margin-left:auto}
+
+/* ── Layout ── */
+main{display:grid;grid-template-columns:1fr 340px 1fr;gap:1px;background:var(--border);
+  min-height:calc(100vh - 110px)}
+section{background:var(--bg);padding:20px;overflow-y:auto;max-height:calc(100vh - 110px)}
+.sec-title{font-family:var(--mono);font-size:10px;letter-spacing:.22em;color:var(--muted);
+  text-transform:uppercase;margin-bottom:14px;display:flex;justify-content:space-between;align-items:center}
+
+/* ── Live stream ── */
+#stream{display:flex;flex-direction:column;gap:2px;font-family:var(--mono);font-size:11.5px}
+.evt{display:grid;grid-template-columns:56px 88px 1fr;gap:10px;padding:7px 10px;
+  border-left:2px solid transparent;border-radius:0 6px 6px 0;line-height:1.5;
+  animation:slide .25s ease}
+@keyframes slide{from{opacity:0;transform:translateX(-6px)}}
+.evt:nth-child(odd){background:var(--panel)}
+.evt .ts{color:var(--muted)}
+.evt .agent{color:var(--emerald);font-weight:600;white-space:nowrap}
+.evt.warn{border-left-color:var(--amber)} .evt.warn .agent{color:var(--amber)}
+.evt.error{border-left-color:var(--red)} .evt.error .agent{color:var(--red)}
+.evt .msg{color:var(--text);word-break:break-word}
+
+/* ── Preview column ── */
+.player-shell{border:1px solid var(--border);border-radius:16px;padding:10px;background:var(--panel);
+  box-shadow:0 0 0 1px rgba(16,185,129,.04),0 20px 60px rgba(0,0,0,.5)}
+video{width:100%;aspect-ratio:9/16;border-radius:10px;background:#000;display:block}
+.no-video{aspect-ratio:9/16;border-radius:10px;background:var(--panel-2);display:flex;align-items:center;
+  justify-content:center;color:var(--muted);font-family:var(--mono);font-size:11px;text-align:center;padding:20px}
+.job-nav{display:flex;gap:8px;margin-top:12px}
+.job-nav select{flex:1;background:var(--panel-2);border:1px solid var(--border);color:var(--text);
+  font-family:var(--mono);font-size:11px;padding:8px 10px;border-radius:8px;outline:none}
+button{background:var(--panel-2);border:1px solid var(--border);color:var(--text);
+  font-family:var(--mono);font-size:11px;padding:8px 14px;border-radius:8px;cursor:pointer;transition:.15s}
+button:hover{border-color:var(--emerald-dim);color:var(--emerald)}
+button.primary{background:var(--emerald-dim);border-color:var(--emerald);color:#fff}
+button.primary:hover{box-shadow:0 0 16px rgba(16,185,129,.35);color:#fff}
+button:disabled{opacity:.4;cursor:not-allowed}
+
+/* Script editor */
+.editor{margin-top:16px}
+.editor label{font-family:var(--mono);font-size:10px;color:var(--muted);letter-spacing:.15em;
+  display:block;margin:12px 0 5px;text-transform:uppercase}
+.editor input,.editor textarea{width:100%;background:var(--panel);border:1px solid var(--border);
+  border-radius:8px;color:var(--text);font-family:var(--mono);font-size:11.5px;padding:9px 11px;
+  outline:none;resize:vertical;transition:.15s}
+.editor input:focus,.editor textarea:focus{border-color:var(--emerald-dim);
+  box-shadow:0 0 10px rgba(16,185,129,.12)}
+.editor textarea{min-height:130px;line-height:1.6}
+.editor-actions{display:flex;gap:8px;margin-top:12px}
+.lock-note{font-family:var(--mono);font-size:10px;color:var(--amber);margin-top:8px;display:none}
+
+/* ── Right column: jobs + diagnostics ── */
+.diag{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:22px}
+.diag .chip{display:flex;align-items:center;gap:8px;border:1px solid var(--border);
+  border-radius:10px;padding:10px 12px;font-family:var(--mono);font-size:11px;background:var(--panel)}
+.dot{width:7px;height:7px;border-radius:50%;background:var(--muted);flex-shrink:0}
+.dot.ok{background:var(--emerald);box-shadow:0 0 8px var(--emerald)}
+.dot.bad{background:var(--red);box-shadow:0 0 8px var(--red)}
+
+.job{border:1px solid var(--border);border-radius:12px;padding:12px 14px;margin-bottom:8px;
+  background:var(--panel);cursor:pointer;transition:.15s}
+.job:hover{border-color:var(--emerald-dim)}
+.job .row1{display:flex;justify-content:space-between;align-items:center;gap:8px}
+.job .niche{font-size:12px;font-weight:700;letter-spacing:.04em}
+.badge{font-family:var(--mono);font-size:9.5px;padding:3px 9px;border-radius:20px;
+  border:1px solid var(--border);color:var(--muted);letter-spacing:.08em;white-space:nowrap}
+.badge.Scheduled{color:var(--emerald);border-color:var(--emerald-dim);
+  box-shadow:0 0 10px rgba(16,185,129,.18)}
+.badge.Rendering,.badge.Sourcing,.badge.Scripting,.badge.Synthesizing{color:var(--amber);border-color:#7a5b0b}
+.badge.Failed{color:var(--red);border-color:#7a1d1d}
+.badge.Rendered,.badge.AwaitingApproval{color:#7dd3fc;border-color:#155e75}
+.job .topic{font-family:var(--mono);font-size:10.5px;color:var(--muted);margin-top:6px;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.job .sched{font-family:var(--mono);font-size:10px;color:var(--emerald-dim);margin-top:4px}
+
+@media (max-width:1100px){main{grid-template-columns:1fr}section{max-height:none}}
+</style>
+</head>
+<body>
+<header>
+  <div class="logo">
+    <div class="pulse"></div>
+    <h1>HORIZON <span>AI</span></h1>
+  </div>
+  <div class="header-right">
+    <span id="clock"></span>
+    <div class="autopilot on" id="autopilot" onclick="toggleAutopilot()">
+      <span>AUTOPILOT</span>
+      <div class="track"><div class="knob"></div></div>
+    </div>
+    <button onclick="runAll()" class="primary">▶ RUN FULL LOOP</button>
+  </div>
+</header>
+
+<div id="niche-bar">
+  <span class="niche-bar-label">Run single niche:</span>
+  <button onclick="runNiche('Gaming/Lore')" class="niche-btn">🎮 Gaming/Lore</button>
+  <button onclick="runNiche('Aesthetic')" class="niche-btn">🌅 Aesthetic</button>
+  <button onclick="runNiche('Psychology')" class="niche-btn">🧠 Psychology</button>
+  <button onclick="runNiche('Travel')" class="niche-btn">✈️ Travel</button>
+  <span id="runMsg"></span>
+</div>
+
+<main>
+  <!-- ── LIVE STATUS STREAM ── -->
+  <section>
+    <div class="sec-title">Live status stream <span id="streamState">connecting…</span></div>
+    <div id="stream"></div>
+  </section>
+
+  <!-- ── PREVIEW + OVERRIDES ── -->
+  <section>
+    <div class="sec-title">Preview platform</div>
+    <div class="player-shell">
+      <div class="no-video" id="noVideo">No render selected.<br><br>Pick a job from the queue →</div>
+      <video id="player" controls style="display:none"></video>
+      <div class="job-nav">
+        <select id="jobSelect" onchange="selectJob(this.value)"><option>— select job —</option></select>
+      </div>
+    </div>
+    <div class="editor" id="editor" style="display:none">
+      <div class="lock-note" id="lockNote">⚠ Pause Autopilot to unlock manual overrides</div>
+      <label>Title (&lt;40 chars)</label>
+      <input id="fTitle" maxlength="100" />
+      <label>Narration script</label>
+      <textarea id="fScript"></textarea>
+      <label>Description</label>
+      <textarea id="fDesc" style="min-height:60px"></textarea>
+      <div class="editor-actions">
+        <button onclick="saveOverrides()" id="saveBtn">Save overrides</button>
+        <button onclick="approveJob()" class="primary" id="approveBtn">Approve → Schedule upload</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- ── DIAGNOSTICS + JOB QUEUE ── -->
+  <section>
+    <div class="sec-title">Console diagnostics <button onclick="loadDiag()" style="padding:3px 10px">↻</button></div>
+    <div class="diag" id="diag"></div>
+    <div class="sec-title">Pipeline queue <button onclick="loadJobs()" style="padding:3px 10px">↻</button></div>
+    <div id="jobs"></div>
+  </section>
+</main>
+
+<script>
+const KEY = localStorage.getItem("horizon_key") || prompt("Dashboard password:");
+localStorage.setItem("horizon_key", KEY);
+const H = { "Authorization": "Bearer " + KEY, "Content-Type": "application/json" };
+
+let autopilot = true, jobs = [], currentJob = null;
+
+// ── Clock ──
+setInterval(() => {
+  document.getElementById("clock").textContent =
+    new Date().toISOString().slice(11, 19) + " UTC";
+}, 1000);
+
+// ── SSE live stream ──
+const stream = document.getElementById("stream");
+const es = new EventSource("/api/stream?key=" + encodeURIComponent(KEY));
+es.onopen = () => document.getElementById("streamState").textContent = "● live";
+es.onerror = () => document.getElementById("streamState").textContent = "reconnecting…";
+es.onmessage = (m) => {
+  const e = JSON.parse(m.data);
+  const div = document.createElement("div");
+  div.className = "evt" + (e.level ? " " + e.level : "");
+  div.innerHTML = `<span class="ts">${e.ts.slice(11,19)}</span>
+    <span class="agent">${e.agent}</span>
+    <span class="msg">${escapeHtml(e.message)}</span>`;
+  stream.prepend(div);
+  while (stream.children.length > 200) stream.lastChild.remove();
+};
+function escapeHtml(s){return s.replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]))}
+
+// ── Diagnostics ──
+async function loadDiag(){
+  const res = await fetch("/api/diagnostics",{headers:H});
+  const checks = await res.json();
+  document.getElementById("diag").innerHTML = checks.map(c =>
+    `<div class="chip"><div class="dot ${c.ok?"ok":"bad"}"></div>${c.name}
+     <span style="margin-left:auto;color:${c.ok?"var(--emerald)":"var(--red)"}">${c.ok?"Connected":"Down"}</span></div>`
+  ).join("");
+}
+
+// ── Jobs ──
+async function loadJobs(){
+  const res = await fetch("/api/jobs",{headers:H});
+  jobs = await res.json();
+  document.getElementById("jobs").innerHTML = jobs.map(j =>
+    `<div class="job" onclick="selectJob('${j.id}')">
+      <div class="row1"><span class="niche">${j.niche}</span>
+        <span class="badge ${j.status.replace(/\s/g,'')}">${j.status.toUpperCase()}</span></div>
+      <div class="topic">${escapeHtml(j.topic||j.title||"—")}</div>
+      ${j.publish_schedule?`<div class="sched">⏱ ${j.target_region||""} → ${j.publish_schedule.slice(0,16).replace("T"," ")} UTC</div>`:""}
+    </div>`).join("");
+  const sel = document.getElementById("jobSelect");
+  sel.innerHTML = '<option value="">— select job —</option>' + jobs
+    .filter(j=>j.rendered_video_url)
+    .map(j=>`<option value="${j.id}">${j.niche} · ${(j.title||j.topic||"").slice(0,40)}</option>`).join("");
+}
+
+function selectJob(id){
+  currentJob = jobs.find(j=>j.id===id);
+  if(!currentJob) return;
+  const player = document.getElementById("player");
+  const noVideo = document.getElementById("noVideo");
+  if(currentJob.rendered_video_url){
+    player.src = currentJob.rendered_video_url;
+    player.style.display="block"; noVideo.style.display="none";
+  } else {
+    player.style.display="none"; noVideo.style.display="flex";
+    noVideo.innerHTML = "Render not ready<br>status: "+currentJob.status;
+  }
+  document.getElementById("jobSelect").value = id;
+  document.getElementById("editor").style.display="block";
+  document.getElementById("fTitle").value = currentJob.title||"";
+  document.getElementById("fScript").value = currentJob.script||"";
+  document.getElementById("fDesc").value = currentJob.description||"";
+  applyLockState();
+}
+
+function applyLockState(){
+  const locked = autopilot;
+  ["fTitle","fScript","fDesc"].forEach(id=>document.getElementById(id).disabled=locked);
+  document.getElementById("saveBtn").disabled = locked;
+  document.getElementById("lockNote").style.display = locked ? "block" : "none";
+}
+
+async function saveOverrides(){
+  if(!currentJob) return;
+  await fetch("/api/jobs/"+currentJob.id,{method:"PATCH",headers:H,body:JSON.stringify({
+    title:document.getElementById("fTitle").value,
+    script:document.getElementById("fScript").value,
+    description:document.getElementById("fDesc").value,
+  })});
+  loadJobs();
+}
+
+async function approveJob(){
+  if(!currentJob) return;
+  const btn=document.getElementById("approveBtn");
+  btn.disabled=true; btn.textContent="Uploading…";
+  const res=await fetch("/api/jobs/"+currentJob.id+"/approve",{method:"POST",headers:H});
+  btn.disabled=false; btn.textContent="Approve → Schedule upload";
+  if(!res.ok){ alert((await res.json()).error); }
+  loadJobs();
+}
+
+function toggleAutopilot(){
+  autopilot=!autopilot;
+  document.getElementById("autopilot").classList.toggle("on",autopilot);
+  applyLockState();
+}
+
+async function runAll(){
+  const msg=document.getElementById("runMsg");
+  msg.textContent="Starting full loop…";
+  const res=await fetch("/api/run",{method:"POST",headers:H});
+  const data=await res.json();
+  msg.textContent=res.ok?"✓ "+data.message:"✗ "+(data.error||"failed");
+  setTimeout(()=>msg.textContent="",5000);
+  setTimeout(loadJobs,3000);
+}
+
+async function runNiche(niche){
+  const btns=document.querySelectorAll(".niche-btn");
+  btns.forEach(b=>b.disabled=true);
+  const msg=document.getElementById("runMsg");
+  msg.textContent="Starting "+niche+"…";
+  try{
+    const res=await fetch("/api/run/"+encodeURIComponent(niche),{method:"POST",headers:H});
+    const data=await res.json();
+    msg.textContent=res.ok?"✓ "+data.message:"✗ "+(data.error||"failed to start");
+  }catch(e){
+    msg.textContent="✗ request failed";
+  }
+  btns.forEach(b=>b.disabled=false);
+  setTimeout(()=>msg.textContent="",6000);
+  setTimeout(loadJobs,3000);
+}
+
+loadDiag(); loadJobs();
+setInterval(loadJobs, 30_000);
+</script>
+</body>
+</html>

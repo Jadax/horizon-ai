@@ -1,0 +1,157 @@
+/**
+ * AGENT 4 — THE SHOTSTACK EDIT GENERATOR
+ *
+ * Compiles a Shotstack Edit API JSON payload from:
+ *   - trimmed licensed clips (Agent 1 + Agent 2's cut list)
+ *   - the ElevenLabs voiceover track
+ *   - the music_library background track (ducked per style preset)
+ *   - word-by-word active caption layers synced to voiceover timestamps
+ * Posts to Shotstack and polls until the render completes.
+ */
+import { config } from "../config.js";
+import { logEvent } from "../supabase.js";
+
+const STYLE_FONTS = {
+  "heavy-sans": { family: "Montserrat ExtraBold", size: 46 },
+  minimal: { family: "Roboto", size: 34 },
+  warm: { family: "Poppins", size: 42 },
+};
+
+function captionClips(words, preset) {
+  // Group words into 2-3 word chunks — the "active caption" look
+  const chunkSize = preset.transitions === "fast-cut" ? 2 : 3;
+  const font = STYLE_FONTS[preset.caption.style] || STYLE_FONTS.minimal;
+  const clips = [];
+  for (let i = 0; i < words.length; i += chunkSize) {
+    const chunk = words.slice(i, i + chunkSize);
+    const start = chunk[0].start;
+    const end = chunk[chunk.length - 1].end;
+    clips.push({
+      asset: {
+        type: "text",
+        text: chunk.map((w) => w.word).join(" ").toUpperCase(),
+        font: {
+          family: font.family,
+          size: font.size,
+          color: preset.caption.color,
+        },
+        stroke: { color: "#000000", width: preset.caption.style === "minimal" ? 0 : 2 },
+        alignment: { horizontal: "center" },
+        width: 900,
+        height: 200,
+      },
+      start: Number(start.toFixed(2)),
+      length: Number(Math.max(0.2, end - start).toFixed(2)),
+      position: preset.caption.position === "bottom" ? "bottom" : "center",
+      offset: preset.caption.position === "bottom" ? { y: 0.12 } : { y: 0 },
+      transition: preset.transitions === "fast-cut" ? undefined : { in: "fade", out: "fade" },
+    });
+  }
+  return clips;
+}
+
+function videoClips(cuts, preset, totalDuration) {
+  let cursor = 0;
+  const clips = [];
+  for (const cut of cuts) {
+    if (cursor >= totalDuration + 1.5) break;
+    const length = Math.min(cut.length, totalDuration + 2 - cursor);
+    clips.push({
+      asset: { type: "video", src: cut.url, trim: Number(cut.start.toFixed(2)), volume: 0 },
+      start: Number(cursor.toFixed(2)),
+      length: Number(length.toFixed(2)),
+      fit: "cover",
+      scale: 1,
+      effect: preset.zoom === "kenburns-fast" ? "zoomInSlow" : "zoomIn",
+      transition:
+        preset.transitions === "cross-dissolve"
+          ? { in: "fade", out: "fade" }
+          : undefined,
+    });
+    cursor += length;
+  }
+  return clips;
+}
+
+export function buildEditPayload({ cuts, voiceoverUrl, words, duration, musicTrack, preset, jobId }) {
+  const total = duration + 1.5;
+  const tracks = [
+    { clips: captionClips(words, preset) }, // top layer: captions
+    { clips: videoClips(cuts, preset, duration) }, // video layer
+    {
+      clips: [
+        {
+          asset: { type: "audio", src: voiceoverUrl, volume: 1 },
+          start: 0,
+          length: Number(duration.toFixed(2)),
+        },
+      ],
+    },
+  ];
+
+  if (musicTrack) {
+    // Shotstack volume is 0-1; convert the preset's dB duck to a linear approx
+    const db = preset.music_db ?? -18;
+    const volume = Number(Math.pow(10, db / 20).toFixed(3)); // -18dB ≈ 0.126
+    tracks.push({
+      clips: [
+        {
+          asset: { type: "audio", src: musicTrack.track_url, volume },
+          start: 0,
+          length: Number(total.toFixed(2)),
+          effect: "fadeOut",
+        },
+      ],
+    });
+  }
+
+  return {
+    timeline: { background: "#000000", tracks },
+    output: {
+      format: "mp4",
+      resolution: "hd",
+      aspectRatio: "9:16",
+      fps: 30,
+    },
+    callback: undefined,
+    disk: "local",
+  };
+}
+
+export async function render(payload, jobId) {
+  await logEvent("Agent 4", `Pushing edit JSON to Shotstack (${config.shotstack.env})…`, { jobId });
+  const res = await fetch(`${config.shotstack.baseUrl}/render`, {
+    method: "POST",
+    headers: {
+      "x-api-key": config.shotstack.key,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    throw new Error(`Shotstack submit → HTTP ${res.status}: ${(await res.text()).slice(0, 300)}`);
+  }
+  const { response } = await res.json();
+  const renderId = response.id;
+  await logEvent("Agent 4", `Render queued: ${renderId} — polling…`, { jobId });
+
+  // Poll every 10s, up to 15 minutes
+  for (let i = 0; i < 90; i++) {
+    await new Promise((r) => setTimeout(r, 10_000));
+    const poll = await fetch(`${config.shotstack.baseUrl}/render/${renderId}`, {
+      headers: { "x-api-key": config.shotstack.key },
+    });
+    const { response: status } = await poll.json();
+    if (status.status === "done") {
+      await logEvent("Agent 4", `Render complete → ${status.url}`, { jobId });
+      return { renderId, url: status.url };
+    }
+    if (status.status === "failed") {
+      throw new Error(`Shotstack render failed: ${status.error || "unknown"}`);
+    }
+    if (i % 3 === 0) {
+      await logEvent("Agent 4", `Render status: ${status.status}…`, { jobId });
+    }
+  }
+  throw new Error("Shotstack render timed out after 15 minutes");
+}
