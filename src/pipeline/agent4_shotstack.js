@@ -98,13 +98,22 @@ export function buildEditPayload({ cuts, voiceoverUrl, words, duration, musicTra
     // Shotstack volume is 0-1; convert the preset's dB duck to a linear approx
     const db = preset.music_db ?? -18;
     const volume = Number(Math.pow(10, db / 20).toFixed(3)); // -18dB ≈ 0.126
+    // NOTE: Shotstack's "effect" (fadeIn/fadeOut) is only valid on the
+    // timeline-level `soundtrack` object, NOT as a property on a regular
+    // audio clip inside a track — setting it there gets validated against
+    // the video/image zoom-effect enum instead and is rejected (this was
+    // the actual cause of the "expected zoomIn|zoomInSlow|..." error).
+    // A keyframed volume fade (like the offset animation Shotstack's docs
+    // show) may also be possible, but isn't confirmed for the volume
+    // property specifically — rather than guess and risk another
+    // validation failure, music ends on a static volume with a hard cut.
+    // Worth revisiting once actually confirmed against Shotstack's schema.
     tracks.push({
       clips: [
         {
           asset: { type: "audio", src: musicTrack.track_url, volume },
           start: 0,
           length: Number(total.toFixed(2)),
-          effect: "fadeOut",
         },
       ],
     });
