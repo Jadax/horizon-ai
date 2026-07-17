@@ -1442,3 +1442,38 @@ alter table music_library
 comment on column niche_configurations.social_rss_feeds is
   'Public or operator-authorised social RSS/Atom sources; never use for access-control bypassing.';
 
+
+-- ═══════════════════════════════════════════════════════════════════════
+-- SOURCE: migration_clip_jobs.sql
+-- ═══════════════════════════════════════════════════════════════════════
+-- Long-form clipper (Agent 6): turns a long-form video YOU HAVE RIGHTS TO
+-- (a manual upload, or a direct file URL to CC-licensed/public-domain
+-- footage) into a set of short vertical clips, using the same hook/pacing
+-- rubric as Agent 2's scriptwriting and the same Shotstack render pipeline
+-- as Agent 4. This is deliberately NOT a YouTube-URL scraper — source_type
+-- is constrained to 'upload' or 'cc_licensed' at the application layer, and
+-- a license_note is required for 'cc_licensed' so provenance is always on
+-- record.
+create table if not exists clip_jobs (
+  id uuid primary key default gen_random_uuid(),
+  source_type text not null check (source_type in ('upload','cc_licensed')),
+  source_url text not null,           -- public URL of the uploaded file or the CC-licensed direct file URL
+  source_label text,                  -- optional title / creator credit
+  license_note text,                  -- required for source_type='cc_licensed' (enforced in routes/clips.js)
+  niche text,                         -- optional: borrows that niche's caption style preset
+  status text not null default 'Transcribing',
+  transcript jsonb,                   -- word-level timestamps from Whisper
+  clip_plan jsonb,                    -- [{start,end,title,hook_score,reason}, ...]
+  rendered_clips jsonb not null default '[]'::jsonb, -- [{start,end,title,url,shotstack_render_id}, ...]
+  error text,
+  openai_tokens integer not null default 0,
+  shotstack_render_seconds numeric not null default 0,
+  created_at timestamptz not null default now()
+);
+
+alter table clip_jobs enable row level security;
+
+-- Storage: create a public "uploads" bucket in the Supabase dashboard
+-- (Storage → New bucket → name "uploads" → Public) for source video files,
+-- alongside the existing "renders" bucket Agent 3/4 already use.
+

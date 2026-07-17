@@ -18,7 +18,13 @@ const STYLE_FONTS = {
   "word-clip": { family: "Montserrat ExtraBold", size: 96 },
 };
 
-function captionClips(words, preset) {
+const DEFAULT_CLIP_PRESET = {
+  caption: { style: "heavy-sans", color: "#FFFFFF", position: "bottom" },
+  transitions: "cross-dissolve",
+  wordClipMode: false,
+};
+
+export function captionClips(words, preset) {
   // Word-clip mode: one giant word/short-phrase per beat, punchy pacing.
   // Otherwise: group words into 2-3 word chunks — the standard "active
   // caption" look.
@@ -128,6 +134,36 @@ export function buildEditPayload({ cuts, voiceoverUrl, words, duration, musicTra
       fps: 30,
     },
     callback: undefined,
+    disk: "local",
+  };
+}
+
+/**
+ * AGENT 6 SUPPORT — builds a single-clip edit payload for the long-form
+ * clipper: one trimmed segment of the SOURCE video (original audio kept —
+ * this is repurposing footage the operator already owns, not a fresh
+ * voiceover) plus a synced caption track. `words` must already be
+ * re-zeroed to be relative to the clip's own start (see agent6_clipper.js),
+ * not the source video's absolute timeline.
+ */
+export function buildClipPayload({ sourceUrl, clipStart, clipLength, words, preset, jobId }) {
+  const effectivePreset = { ...DEFAULT_CLIP_PRESET, ...preset };
+  const tracks = [
+    { clips: captionClips(words, effectivePreset) },
+    {
+      clips: [
+        {
+          asset: { type: "video", src: sourceUrl, trim: Number(clipStart.toFixed(2)) },
+          start: 0,
+          length: Number(clipLength.toFixed(2)),
+          fit: "cover",
+        },
+      ],
+    },
+  ];
+  return {
+    timeline: { background: "#000000", tracks },
+    output: { format: "mp4", resolution: "hd", aspectRatio: "9:16", fps: 30 },
     disk: "local",
   };
 }

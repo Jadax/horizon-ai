@@ -23,6 +23,7 @@ import { runRouter } from "./routes/run.js";
 import { trendingRouter } from "./routes/trending.js";
 import { costsRouter } from "./routes/costs.js";
 import { nichesRouter } from "./routes/niches.js";
+import { clipsRouter } from "./routes/clips.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -62,6 +63,7 @@ app.use("/api", runRouter);
 app.use("/api", trendingRouter);
 app.use("/api", costsRouter);
 app.use("/api", nichesRouter);
+app.use("/api", clipsRouter);
 
 // ── The 03:00 UTC set-and-forget loop ────────────────────────────────────
 cron.schedule(config.pipelineCron, () => {

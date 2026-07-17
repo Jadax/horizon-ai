@@ -131,6 +131,58 @@ h1 span{color:var(--emerald)}
 .channel-row select{background:var(--panel-2);border:1px solid var(--border);color:var(--emerald);
   font-family:var(--mono);font-size:10px;padding:4px 8px;border-radius:6px;outline:none}
 
+/* ── Overview: KPI row + charts ── */
+#overview{padding:18px 22px 0}
+.kpi-row{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:14px}
+.kpi-card{background:linear-gradient(160deg,var(--panel-2),var(--panel));border:1px solid var(--border);
+  border-radius:var(--radius);padding:16px 18px;box-shadow:var(--shadow-card);position:relative;overflow:hidden}
+.kpi-card::after{content:'';position:absolute;top:-30px;right:-30px;width:90px;height:90px;border-radius:50%;
+  background:radial-gradient(circle,var(--kpi-glow,rgba(16,185,129,.16)),transparent 70%)}
+.kpi-card .kl{font-family:var(--mono);font-size:10px;color:var(--muted);letter-spacing:.12em;
+  text-transform:uppercase}
+.kpi-card .kv{font-family:var(--display);font-size:30px;font-weight:700;color:var(--text);margin-top:8px;
+  line-height:1}
+.kpi-card .ks{font-family:var(--mono);font-size:10.5px;color:var(--text-dim);margin-top:8px}
+.kpi-card.c-emerald{--kpi-glow:rgba(16,185,129,.18)}
+.kpi-card.c-sky{--kpi-glow:rgba(56,189,248,.16)}
+.kpi-card.c-indigo{--kpi-glow:rgba(129,140,248,.16)}
+.kpi-card.c-amber{--kpi-glow:rgba(245,158,11,.16)}
+
+.overview-charts{display:grid;grid-template-columns:320px 1fr;gap:14px;margin-bottom:4px}
+.chart-card{background:linear-gradient(180deg,var(--panel),var(--bg) 340px);border:1px solid var(--border);
+  border-radius:var(--radius);box-shadow:var(--shadow-card);padding:18px 20px}
+.chart-card .sec-title{margin-top:0}
+.donut-wrap{display:flex;align-items:center;gap:18px}
+.donut-chart{position:relative;flex-shrink:0;width:150px;height:150px}
+#costDonut{flex-shrink:0}
+.donut-center{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;
+  justify-content:center;text-align:center;pointer-events:none}
+.donut-center .dv{font-family:var(--display);font-weight:700;font-size:16px;color:var(--text)}
+.donut-center .dl{font-family:var(--mono);font-size:7.5px;color:var(--muted);letter-spacing:.06em;
+  text-transform:uppercase;margin-top:2px}
+.donut-legend{display:flex;flex-direction:column;gap:7px;font-family:var(--mono);font-size:10.5px;
+  color:var(--text-dim);width:100%}
+.donut-legend .lg-row{display:flex;align-items:center;gap:7px;justify-content:space-between}
+.donut-legend .lg-name{display:flex;align-items:center;gap:7px;overflow:hidden;text-overflow:ellipsis;
+  white-space:nowrap}
+.donut-legend .lg-swatch{width:8px;height:8px;border-radius:2px;flex-shrink:0}
+.donut-legend .lg-pct{color:var(--muted)}
+.donut-empty{font-family:var(--mono);font-size:11px;color:var(--muted)}
+
+.leaderboard-card{overflow-x:auto}
+table.leaderboard{width:100%;border-collapse:collapse;font-family:var(--mono);font-size:11.5px}
+table.leaderboard th{text-align:left;color:var(--muted);font-weight:500;font-size:9.5px;letter-spacing:.1em;
+  text-transform:uppercase;padding:0 10px 10px;border-bottom:1px solid var(--border-soft)}
+table.leaderboard td{padding:10px;border-bottom:1px solid var(--border-soft);color:var(--text-dim)}
+table.leaderboard tr:last-child td{border-bottom:none}
+table.leaderboard tr:hover td{background:var(--panel-2)}
+table.leaderboard td.rank{color:var(--muted);width:24px}
+table.leaderboard td.name{color:var(--text);font-weight:600;font-family:var(--display);font-size:12px}
+table.leaderboard td.num{text-align:right;font-variant-numeric:tabular-nums}
+.rank-medal{font-size:13px}
+
+@media (max-width:1100px){.overview-charts{grid-template-columns:1fr}.kpi-row{grid-template-columns:1fr 1fr}}
+
 /* ── Layout ── */
 main{display:grid;grid-template-columns:1fr 380px 1fr;gap:18px;
   min-height:calc(100vh - 130px);padding:18px 22px 28px;align-items:start}
@@ -244,7 +296,37 @@ button:disabled{opacity:.4;cursor:not-allowed;background:var(--panel-2);box-shad
   line-height:1.5;padding:8px 10px;background:var(--panel);border-radius:var(--radius-sm);
   border:1px dashed var(--border)}
 
-@media (max-width:1100px){main{grid-template-columns:1fr}section{max-height:none}}
+/* ── Long-form clipper ── */
+#clipperWrap{padding:0 22px 26px}
+.clipper-note{font-family:var(--mono);font-size:11px;color:var(--muted);line-height:1.6;
+  margin:2px 0 16px;max-width:820px}
+.clipper-forms{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:14px}
+.clipper-form{display:flex;flex-direction:column;gap:8px;border:1px solid var(--border);
+  border-radius:var(--radius-sm);padding:14px;background:var(--panel)}
+.clipper-form label{font-family:var(--mono);font-size:10px;color:var(--muted);letter-spacing:.1em;
+  text-transform:uppercase}
+.clipper-form input,.clipper-form select{background:var(--panel-2);border:1px solid var(--border);
+  color:var(--text);font-family:var(--mono);font-size:11.5px;padding:9px 11px;border-radius:var(--radius-sm);
+  outline:none}
+.clipper-form input:focus,.clipper-form select:focus{border-color:var(--emerald-dim);
+  box-shadow:0 0 0 3px rgba(16,185,129,.12)}
+.clipper-msg{font-family:var(--mono);font-size:11px;color:var(--emerald);min-height:16px;margin-bottom:8px}
+.clip-jobs{display:flex;flex-direction:column;gap:10px}
+.clip-job{border:1px solid var(--border);border-radius:var(--radius-sm);padding:13px 15px;background:var(--panel)}
+.clip-job .cj-row1{display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap}
+.clip-job .cj-label{font-family:var(--display);font-weight:700;font-size:12.5px;color:var(--text)}
+.clip-job .cj-meta{font-family:var(--mono);font-size:10px;color:var(--muted);margin-top:5px}
+.clip-job .cj-error{font-family:var(--mono);font-size:10.5px;color:var(--red);margin-top:6px}
+.clip-results{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:10px;margin-top:12px}
+.clip-result{border:1px solid var(--border-soft);border-radius:var(--radius-sm);overflow:hidden;background:var(--panel-2)}
+.clip-result video{width:100%;aspect-ratio:9/16;display:block;background:#000}
+.clip-result .cr-info{padding:7px 9px}
+.clip-result .cr-title{font-size:10px;color:var(--text-dim);line-height:1.3;
+  display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.clip-result .cr-score{font-family:var(--mono);font-size:9px;color:var(--emerald);margin-top:4px}
+
+@media (max-width:1100px){main{grid-template-columns:1fr}section{max-height:none}
+  .clipper-forms{grid-template-columns:1fr}}
 </style>
 </head>
 <body>
@@ -277,6 +359,29 @@ button:disabled{opacity:.4;cursor:not-allowed;background:var(--panel-2);box-shad
   <button onclick="runNiche('Mindful/Calm')" class="niche-btn">🧘 Mindful</button>
   <span id="runMsg"></span>
   <button onclick="openTrending()" class="niche-btn trending-btn" style="margin-left:auto">🔥 Check What's Trending</button>
+</div>
+
+<div id="overview">
+  <div class="kpi-row" id="kpiRow"></div>
+  <div class="overview-charts">
+    <section class="chart-card">
+      <div class="sec-title"><span class="sec-heading">Spend by niche</span></div>
+      <div class="donut-wrap">
+        <div class="donut-chart">
+          <svg id="costDonut" viewBox="0 0 120 120" width="150" height="150"></svg>
+          <div class="donut-center" id="donutCenterText"></div>
+        </div>
+        <div class="donut-legend" id="donutLegend"></div>
+      </div>
+    </section>
+    <section class="chart-card leaderboard-card">
+      <div class="sec-title"><span class="sec-heading">Niche leaderboard</span><span style="text-transform:none;letter-spacing:0">All-time</span></div>
+      <table class="leaderboard">
+        <thead><tr><th>#</th><th>Niche</th><th>Jobs</th><th>Published</th><th>Est. cost</th></tr></thead>
+        <tbody id="leaderboardBody"></tbody>
+      </table>
+    </section>
+  </div>
 </div>
 
 <main>
@@ -329,6 +434,40 @@ button:disabled{opacity:.4;cursor:not-allowed;background:var(--panel-2);box-shad
   </section>
 </main>
 
+<!-- ── LONG-FORM CLIPPER (Agent 6) ── -->
+<div id="clipperWrap">
+  <section class="chart-card">
+    <div class="sec-title">
+      <span class="sec-heading">Long-form clipper</span>
+      <button onclick="loadClips()" style="padding:3px 10px">↻</button>
+    </div>
+    <p class="clipper-note">
+      Turns a long-form video you have rights to into hook-scored short clips.
+      Upload a file you own, or point at a direct CC-licensed/public-domain
+      file URL — YouTube links aren't accepted, this never scrapes video off
+      a page.
+    </p>
+    <div class="clipper-forms">
+      <form id="uploadForm" class="clipper-form" onsubmit="submitUpload(event)">
+        <label>Upload a video you own</label>
+        <input type="file" id="clipFile" accept="video/*" required />
+        <select id="clipUploadNiche"><option value="">Caption style: default</option></select>
+        <button type="submit" class="primary">Upload &amp; clip</button>
+      </form>
+      <form id="urlForm" class="clipper-form" onsubmit="submitFromUrl(event)">
+        <label>Or a direct CC-licensed file URL</label>
+        <input type="url" id="clipUrl" placeholder="https://…/video.mp4" required />
+        <input type="text" id="clipLicense" placeholder="License note (e.g. CC BY 4.0, source: …)" required />
+        <input type="text" id="clipSourceLabel" placeholder="Source label (optional)" />
+        <select id="clipUrlNiche"><option value="">Caption style: default</option></select>
+        <button type="submit" class="primary">Fetch &amp; clip</button>
+      </form>
+    </div>
+    <div id="clipperMsg" class="clipper-msg"></div>
+    <div id="clipJobs" class="clip-jobs"></div>
+  </section>
+</div>
+
 <!-- ── Trending Explorer modal ── -->
 <div class="modal-backdrop" id="trendingModal">
   <div class="modal">
@@ -347,6 +486,70 @@ localStorage.setItem("horizon_key", KEY);
 const H = { "Authorization": "Bearer " + KEY, "Content-Type": "application/json" };
 
 let autopilot = true, jobs = [], currentJob = null;
+let lastCosts = null, lastPublished = [], lastNiches = [];
+const PALETTE = ["#10B981","#38BDF8","#818CF8","#F59E0B","#F472B6","#34D399","#60A5FA","#FB923C","#A78BFA","#F87171"];
+
+// ── Overview: KPI cards + donut + leaderboard ──
+function renderOverview(){
+  if(!lastCosts) return;
+  const c = lastCosts;
+  const activeNiches = lastNiches.length ? lastNiches.filter(n=>n.active).length : null;
+
+  document.getElementById("kpiRow").innerHTML = [
+    ["Jobs run", c.jobCount, "emerald", `${Object.keys(c.byNiche).length} niches active this run`],
+    ["Est. total cost", "$"+c.estTotalCost.toFixed(2), "sky", "OpenAI + ElevenLabs + Shotstack"],
+    ["Videos published", lastPublished.length, "indigo", "Live on YouTube"],
+    ["Active niches", activeNiches===null ? "—" : activeNiches+" / "+lastNiches.length, "amber", "Configured in Supabase"],
+  ].map(([label,val,tone,sub])=>`
+    <div class="kpi-card c-${tone}">
+      <div class="kl">${label}</div>
+      <div class="kv">${val}</div>
+      <div class="ks">${sub}</div>
+    </div>`).join("");
+
+  // ── Donut: spend by niche ──
+  const entries = Object.entries(c.byNiche).sort((a,b)=>b[1].estCost-a[1].estCost);
+  const total = entries.reduce((s,[,d])=>s+d.estCost,0);
+  const svg = document.getElementById("costDonut");
+  const legend = document.getElementById("donutLegend");
+  document.getElementById("donutCenterText").innerHTML =
+    `<div class="dv">$${total.toFixed(2)}</div><div class="dl">total spend</div>`;
+  if(!total || !entries.length){
+    svg.innerHTML = `<circle cx="60" cy="60" r="50" fill="none" stroke="var(--panel-2)" stroke-width="14"/>`;
+    legend.innerHTML = `<div class="donut-empty">No spend recorded yet.</div>`;
+    return;
+  }
+  const R = 50, CIRC = 2*Math.PI*R;
+  let offset = 0;
+  const arcs = entries.map(([name,d],i)=>{
+    const frac = d.estCost/total;
+    const dash = Math.max(frac*CIRC, 0.5);
+    const arc = `<circle cx="60" cy="60" r="${R}" fill="none" stroke="${PALETTE[i%PALETTE.length]}"
+      stroke-width="14" stroke-dasharray="${dash} ${CIRC-dash}" stroke-dashoffset="${-offset}"
+      transform="rotate(-90 60 60)" stroke-linecap="butt"/>`;
+    offset += dash;
+    return arc;
+  }).join("");
+  svg.innerHTML = `<circle cx="60" cy="60" r="${R}" fill="none" stroke="var(--panel-2)" stroke-width="14"/>` + arcs;
+  legend.innerHTML = entries.map(([name,d],i)=>`
+    <div class="lg-row">
+      <span class="lg-name"><span class="lg-swatch" style="background:${PALETTE[i%PALETTE.length]}"></span>${escapeHtml(name)}</span>
+      <span class="lg-pct">${((d.estCost/total)*100).toFixed(0)}%</span>
+    </div>`).join("");
+
+  // ── Leaderboard: jobs + published + cost per niche ──
+  const pubByNiche = {};
+  for(const v of lastPublished) pubByNiche[v.niche] = (pubByNiche[v.niche]||0)+1;
+  const medals = ["🥇","🥈","🥉"];
+  document.getElementById("leaderboardBody").innerHTML = entries.map(([name,d],i)=>`
+    <tr>
+      <td class="rank">${medals[i] ? `<span class="rank-medal">${medals[i]}</span>` : i+1}</td>
+      <td class="name">${escapeHtml(name)}</td>
+      <td class="num">${d.jobs}</td>
+      <td class="num">${pubByNiche[name]||0}</td>
+      <td class="num">$${d.estCost.toFixed(2)}</td>
+    </tr>`).join("") || `<tr><td colspan="5" class="donut-empty">No jobs run yet.</td></tr>`;
+}
 
 // ── Clock ──
 setInterval(() => {
@@ -386,6 +589,8 @@ async function loadCosts(){
   const res = await fetch("/api/costs",{headers:H});
   if(!res.ok) return;
   const c = await res.json();
+  lastCosts = c;
+  renderOverview();
   document.getElementById("costTotal").textContent = "≈ $"+c.estTotalCost.toFixed(2)+" total (est.)";
   const rows = '<div class="cost-tiles">' + [
     ["OpenAI tokens", c.totals.openai_tokens.toLocaleString()],
@@ -543,6 +748,8 @@ async function loadPublished(){
   const res = await fetch("/api/jobs/published",{headers:H});
   if(!res.ok) return;
   const vids = await res.json();
+  lastPublished = vids;
+  renderOverview();
   const grid = document.getElementById("publishedGrid");
   if(!vids.length){
     grid.innerHTML = '<div class="no-published" style="grid-column:1/-1">No videos published yet — they\'ll appear here once uploads go out.</div>';
@@ -608,6 +815,8 @@ async function loadNiches(){
   if(chRes.ok){ knownChannels = (await chRes.json()).channels; }
   if(!nRes.ok) return;
   const niches = await nRes.json();
+  lastNiches = niches;
+  renderOverview();
   document.getElementById("channelPanel").innerHTML = niches.map(n => `
     <div class="channel-row">
       <span class="cn">${n.niche_name}</span>
@@ -631,8 +840,92 @@ async function setLanguage(niche, language){
     body:JSON.stringify({language})});
 }
 
-loadDiag(); loadJobs(); loadCosts(); loadPublished(); loadNiches();
+// ── Long-form clipper (Agent 6) ──
+function populateClipNicheSelects(){
+  const opts = '<option value="">Caption style: default</option>' +
+    TREND_NICHES.map(n=>`<option value="${n}">${n}</option>`).join("");
+  document.getElementById("clipUploadNiche").innerHTML = opts;
+  document.getElementById("clipUrlNiche").innerHTML = opts;
+}
+
+async function submitUpload(e){
+  e.preventDefault();
+  const fileInput = document.getElementById("clipFile");
+  const niche = document.getElementById("clipUploadNiche").value;
+  if(!fileInput.files[0]) return;
+  const msg = document.getElementById("clipperMsg");
+  msg.textContent = "Uploading (this can take a while for large files)…";
+  const fd = new FormData();
+  fd.append("video", fileInput.files[0]);
+  if(niche) fd.append("niche", niche);
+  try{
+    const res = await fetch("/api/clips/upload",{method:"POST",
+      headers:{Authorization:H.Authorization}, body:fd});
+    const data = await res.json();
+    msg.textContent = res.ok ? "✓ "+data.message : "✗ "+(data.error||"upload failed");
+    if(res.ok) fileInput.value = "";
+  }catch(err){ msg.textContent = "✗ upload failed"; }
+  setTimeout(()=>msg.textContent="",6000);
+  setTimeout(loadClips,2000);
+}
+
+async function submitFromUrl(e){
+  e.preventDefault();
+  const url = document.getElementById("clipUrl").value;
+  const license_note = document.getElementById("clipLicense").value;
+  const source_label = document.getElementById("clipSourceLabel").value;
+  const niche = document.getElementById("clipUrlNiche").value;
+  const msg = document.getElementById("clipperMsg");
+  msg.textContent = "Starting clipper job…";
+  try{
+    const res = await fetch("/api/clips/from-url",{method:"POST",headers:H,
+      body:JSON.stringify({url,license_note,source_label,niche})});
+    const data = await res.json();
+    msg.textContent = res.ok ? "✓ "+data.message : "✗ "+(data.error||"failed to start");
+    if(res.ok){ document.getElementById("urlForm").reset(); }
+  }catch(err){ msg.textContent = "✗ request failed"; }
+  setTimeout(()=>msg.textContent="",6000);
+  setTimeout(loadClips,2000);
+}
+
+async function loadClips(){
+  const res = await fetch("/api/clips",{headers:H});
+  if(!res.ok) return;
+  const clipJobs = await res.json();
+  const box = document.getElementById("clipJobs");
+  if(!clipJobs.length){
+    box.innerHTML = '<div class="donut-empty">No clipper jobs yet — upload a video above to try it.</div>';
+    return;
+  }
+  box.innerHTML = clipJobs.map(j => {
+    const results = (j.rendered_clips||[]).length ? `
+      <div class="clip-results">
+        ${j.rendered_clips.map(c=>`
+          <div class="clip-result">
+            <video src="${c.url}" controls preload="metadata"></video>
+            <div class="cr-info">
+              <div class="cr-title">${escapeHtml(c.title||"")}</div>
+              <div class="cr-score">hook ${c.hook_score}/10</div>
+            </div>
+          </div>`).join("")}
+      </div>` : "";
+    return `
+    <div class="clip-job">
+      <div class="cj-row1">
+        <span class="cj-label">${escapeHtml(j.source_label || j.source_type)}</span>
+        <span class="badge ${String(j.status||"").replace(/[\s/]/g,'')}">${(j.status||"").toUpperCase()}</span>
+      </div>
+      <div class="cj-meta">${j.source_type==="cc_licensed"?"CC-licensed":"Uploaded"} ${j.niche?"· "+j.niche:""} · ${(j.clip_plan||[]).length} candidate moment(s)</div>
+      ${j.error?`<div class="cj-error">⚠ ${escapeHtml(j.error)}</div>`:""}
+      ${results}
+    </div>`;
+  }).join("");
+}
+
+populateClipNicheSelects();
+loadDiag(); loadJobs(); loadCosts(); loadPublished(); loadNiches(); loadClips();
 setInterval(loadJobs, 30_000);
+setInterval(loadClips, 20_000);
 setInterval(loadCosts, 60_000);
 setInterval(loadPublished, 60_000);
 </script>
