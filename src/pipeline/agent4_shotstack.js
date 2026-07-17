@@ -133,8 +133,24 @@ export function buildEditPayload({ cuts, voiceoverUrl, words, duration, musicTra
 }
 
 export async function render(payload, jobId) {
-  await logEvent("Agent 4", `Pushing edit JSON to Shotstack (${config.shotstack.env})…`, { jobId });
-  const res = await fetch(`${config.shotstack.baseUrl}/render`, {
+  return renderWithBaseUrl(payload, jobId, config.shotstack.baseUrl, config.shotstack.env);
+}
+
+/**
+ * Forces a v1 (production, no watermark, paid) render regardless of the
+ * configured SHOTSTACK_ENV default. Used by the dashboard's "Render
+ * Production" action so day-to-day testing can stay on the free stage
+ * environment, and only videos you've actually approved incur real
+ * Shotstack cost — instead of every render defaulting to paid.
+ */
+export async function renderProduction(payload, jobId) {
+  const v1BaseUrl = config.shotstack.baseUrl.replace(/\/(stage|v1)$/, "/v1");
+  return renderWithBaseUrl(payload, jobId, v1BaseUrl, "v1 (forced)");
+}
+
+async function renderWithBaseUrl(payload, jobId, baseUrl, envLabel) {
+  await logEvent("Agent 4", `Pushing edit JSON to Shotstack (${envLabel})…`, { jobId });
+  const res = await fetch(`${baseUrl}/render`, {
     method: "POST",
     headers: {
       "x-api-key": config.shotstack.key,
@@ -152,7 +168,7 @@ export async function render(payload, jobId) {
   // Poll every 10s, up to 15 minutes
   for (let i = 0; i < 90; i++) {
     await new Promise((r) => setTimeout(r, 10_000));
-    const poll = await fetch(`${config.shotstack.baseUrl}/render/${renderId}`, {
+    const poll = await fetch(`${baseUrl}/render/${renderId}`, {
       headers: { "x-api-key": config.shotstack.key },
     });
     const { response: status } = await poll.json();

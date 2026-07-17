@@ -17,14 +17,14 @@ nichesRouter.get("/channels", (_req, res) => {
 nichesRouter.get("/niches", async (_req, res) => {
   const { data, error } = await supabase
     .from("niche_configurations")
-    .select("niche_name, active, target_channel, trend_region, target_duration_min_seconds, target_duration_max_seconds")
+    .select("niche_name, active, target_channel, trend_region, language, target_duration_min_seconds, target_duration_max_seconds")
     .order("niche_name");
   if (error) return res.status(500).json({ error: error.message });
   res.json(data);
 });
 
 nichesRouter.patch("/niches/:name", async (req, res) => {
-  const allowed = ["target_channel", "active", "trend_region"];
+  const allowed = ["target_channel", "active", "trend_region", "language"];
   const patch = Object.fromEntries(Object.entries(req.body).filter(([k]) => allowed.includes(k)));
   if (!Object.keys(patch).length) return res.status(400).json({ error: "No valid fields to update" });
 
@@ -36,4 +36,18 @@ nichesRouter.patch("/niches/:name", async (req, res) => {
 
   await logEvent("Operator", `Updated ${req.params.name}: ${JSON.stringify(patch)}`);
   res.json({ ok: true });
+});
+
+// Read-only view of the full feed_library reference database (see
+// supabase/migration_feed_library.sql) — includes categories with no
+// active niche today (Sports, Business, History, etc.), stored for
+// future use, never auto-harvested unless promoted into a niche's
+// rss_feeds array.
+nichesRouter.get("/feed-library", async (req, res) => {
+  const category = req.query.category;
+  let query = supabase.from("feed_library").select("*").order("category");
+  if (category) query = query.eq("category", category);
+  const { data, error } = await query;
+  if (error) return res.status(500).json({ error: error.message });
+  res.json(data);
 });

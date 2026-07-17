@@ -7,6 +7,7 @@ import express from "express";
 import { supabase, logEvent, updateJob } from "../supabase.js";
 import { retryJob } from "../pipeline/run.js";
 import { uploadScheduled } from "../pipeline/agent5_upload.js";
+import { buildEditPayload, renderProduction } from "../pipeline/agent4_shotstack.js";
 
 export const jobsRouter = express.Router();
 
@@ -68,6 +69,38 @@ jobsRouter.post("/jobs/:id/approve", async (req, res) => {
       status: result.held ? "Rendered" : "Scheduled",
     });
     res.json({ ok: true, ...result });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Re-render an already-approved job at full production quality (v1, no
+// watermark) without re-calling OpenAI/ElevenLabs — reuses the script,
+// trim points, voiceover, and music already generated and stored. Costs
+// only whatever Shotstack charges for one render, since day-to-day testing
+// stays on the free "stage" environment by default.
+jobsRouter.post("/jobs/:id/render-production", async (req, res) => {
+  const { data: job } = await supabase
+    .from("pipeline_logs")
+    .select("*")
+    .eq("id", req.params.id)
+    .single();
+  if (!job?.voiceover_words || !job?.calculated_trim_points) {
+    return res.status(400).json({ error: "Job is missing data needed to re-render (voiceover_words/calculated_trim_points)" });
+  }
+  try {
+    const payload = buildEditPayload({
+      cuts: job.calculated_trim_points,
+      voiceoverUrl: job.voiceover_url,
+      words: job.voiceover_words,
+      duration: job.duration_seconds,
+      musicTrack: job.music_track_url ? { track_url: job.music_track_url } : null,
+      preset: job.preset_snapshot || {},
+      jobId: job.id,
+    });
+    const { renderId, url } = await renderProduction(payload, job.id);
+    await updateJob(job.id, { rendered_video_url: url, shotstack_render_id: renderId });
+    res.json({ ok: true, url });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

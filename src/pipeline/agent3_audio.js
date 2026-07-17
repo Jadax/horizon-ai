@@ -29,7 +29,14 @@ export async function synthesizeVoiceover(script, voiceId, jobId, expectedMaxSec
       body: JSON.stringify({
         text: script,
         model_id: "eleven_multilingual_v2",
-        voice_settings: { stability: 0.5, similarity_boost: 0.75, style: 0.35 },
+        // Tuned for natural human warmth rather than a flat, obviously-
+        // synthetic read: stability in the 60-67% band avoids both cold
+        // monotony (too high) and unstable warble (too low); clarity
+        // locked 80-85% keeps articulation crisp without sounding
+        // over-processed; a mild style exaggeration (15-25%) lets the
+        // narrator naturally stress dramatic syllables instead of reading
+        // every word at the same weight.
+        voice_settings: { stability: 0.63, similarity_boost: 0.82, style: 0.2 },
       }),
     }
   );
@@ -38,14 +45,20 @@ export async function synthesizeVoiceover(script, voiceId, jobId, expectedMaxSec
   }
   const json = await res.json();
 
-  // Convert char-level alignment → word timestamps
+  // Convert char-level alignment → word timestamps.
+  // BUGFIX: previously only whitespace counted as a word boundary, so an
+  // em-dash or similar punctuation GPT sometimes writes without a
+  // surrounding space (e.g. "growth—no matter") merged into one caption
+  // token with no space between the words. Em/en-dashes now also count as
+  // boundaries, same as whitespace.
   const words = [];
   const chars = json.alignment?.characters || [];
   const starts = json.alignment?.character_start_times_seconds || [];
   const ends = json.alignment?.character_end_times_seconds || [];
+  const isBoundary = (ch) => /\s/.test(ch) || ch === "—" || ch === "–";
   let current = null;
   chars.forEach((ch, i) => {
-    if (/\s/.test(ch)) {
+    if (isBoundary(ch)) {
       if (current) words.push(current);
       current = null;
     } else {

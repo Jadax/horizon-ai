@@ -47,11 +47,19 @@ Decide, for THIS SPECIFIC TOPIC, not generically for the niche:
 3. footage_mood: pick 4-6 keywords from the AVAILABLE_KEYWORDS list that
    best match this specific topic's emotional register (e.g. a tense
    gaming-drama topic wants darker/moodier keywords than a wholesome one).
-4. reasoning: one sentence explaining the above three choices together.
+4. music_energy: pick exactly one of "High","Suspense","Chill","Wonder" —
+   whichever actually fits THIS topic's emotional register, not just the
+   niche's usual default. A somber or reflective story in an otherwise
+   high-energy niche should still get "Chill" or "Suspense" if that's what
+   actually fits; a triumphant or exciting story in a normally calm niche
+   can get "High" or "Wonder". Mismatched music undercuts otherwise good
+   narration, so take this as seriously as the other choices.
+5. reasoning: one sentence explaining all of the above together.
 
 Respond ONLY with JSON:
 {"word_clip_mode": true/false, "target_duration_seconds": number,
- "footage_mood": ["keyword1","keyword2",...], "reasoning": "..."}`;
+ "footage_mood": ["keyword1","keyword2",...],
+ "music_energy": "High"|"Suspense"|"Chill"|"Wonder", "reasoning": "..."}`;
 
 export async function decideFormat(niche, topic, jobId) {
   const minSeconds = niche.target_duration_min_seconds || 25;
@@ -91,6 +99,10 @@ export async function decideFormat(niche, topic, jobId) {
     if (!Array.isArray(decision.footage_mood) || !decision.footage_mood.length) {
       decision.footage_mood = niche.footage_keywords.slice(0, 5);
     }
+    const validEnergies = ["High", "Suspense", "Chill", "Wonder"];
+    if (!validEnergies.includes(decision.music_energy)) {
+      decision.music_energy = niche.editing_style_preset?.music_energy || "Chill";
+    }
     decision._usage = { tokens: res.usage?.total_tokens || 0 };
 
     await logEvent(
@@ -106,6 +118,7 @@ export async function decideFormat(niche, topic, jobId) {
       word_clip_mode: Boolean(niche.editing_style_preset?.wordClipMode),
       target_duration_seconds: Math.round((minSeconds + maxSeconds) / 2),
       footage_mood: niche.footage_keywords.slice(0, 5),
+      music_energy: niche.editing_style_preset?.music_energy || "Chill",
       reasoning: "Fallback to niche defaults (format decision call failed)",
       _usage: { tokens: 0 },
     };

@@ -226,6 +226,8 @@ button:disabled{opacity:.4;cursor:not-allowed}
   <button onclick="runNiche('News')" class="niche-btn">📰 News</button>
   <button onclick="runNiche('Food')" class="niche-btn">🍜 Food</button>
   <button onclick="runNiche('Viral')" class="niche-btn">😂 Viral</button>
+  <button onclick="runNiche('News India')" class="niche-btn">🇮🇳 News India</button>
+  <button onclick="runNiche('Mindful/Calm')" class="niche-btn">🧘 Mindful</button>
   <span id="runMsg"></span>
   <button onclick="openTrending()" class="niche-btn trending-btn" style="margin-left:auto">🔥 Check What's Trending</button>
 </div>
@@ -258,6 +260,7 @@ button:disabled{opacity:.4;cursor:not-allowed}
       <textarea id="fDesc" style="min-height:60px"></textarea>
       <div class="editor-actions">
         <button onclick="saveOverrides()" id="saveBtn">Save overrides</button>
+        <button onclick="renderProduction()" id="prodBtn">🎬 Render Production (no watermark)</button>
         <button onclick="approveJob()" class="primary" id="approveBtn">Approve → Schedule upload</button>
       </div>
     </div>
@@ -421,6 +424,19 @@ async function saveOverrides(){
   loadJobs();
 }
 
+async function renderProduction(){
+  if(!currentJob) return;
+  const btn=document.getElementById("prodBtn");
+  btn.disabled=true; btn.textContent="Rendering (v1)…";
+  const res=await fetch("/api/jobs/"+currentJob.id+"/render-production",{method:"POST",headers:H});
+  const data=await res.json();
+  btn.disabled=false; btn.textContent="🎬 Render Production (no watermark)";
+  if(!res.ok){ alert(data.error); return; }
+  currentJob.rendered_video_url = data.url;
+  document.getElementById("player").src = data.url;
+  loadJobs();
+}
+
 async function approveJob(){
   if(!currentJob) return;
   const btn=document.getElementById("approveBtn");
@@ -485,7 +501,7 @@ async function loadPublished(){
 }
 
 // ── Trending Explorer ──
-const TREND_NICHES = ["Gaming/Lore","Aesthetic","Psychology","Travel","News","Food","Viral"];
+const TREND_NICHES = ["Gaming/Lore","Aesthetic","Psychology","Travel","News","Food","Viral","News India","Mindful/Calm"];
 let activeTrendNiche = null;
 
 function openTrending(){
@@ -537,14 +553,24 @@ async function loadNiches(){
   document.getElementById("channelPanel").innerHTML = niches.map(n => `
     <div class="channel-row">
       <span class="cn">${n.niche_name}</span>
-      <select onchange="setChannel('${n.niche_name}', this.value)">
-        ${knownChannels.map(c=>`<option value="${c}" ${n.target_channel===c?"selected":""}>${c}</option>`).join("")}
-      </select>
+      <span style="display:flex;gap:6px">
+        <select onchange="setLanguage('${n.niche_name}', this.value)" title="Language">
+          <option value="en" ${n.language==="en"?"selected":""}>EN</option>
+          <option value="hi" ${n.language==="hi"?"selected":""}>HI</option>
+        </select>
+        <select onchange="setChannel('${n.niche_name}', this.value)" title="Channel">
+          ${knownChannels.map(c=>`<option value="${c}" ${n.target_channel===c?"selected":""}>${c}</option>`).join("")}
+        </select>
+      </span>
     </div>`).join("");
 }
 async function setChannel(niche, channel){
   await fetch("/api/niches/"+encodeURIComponent(niche),{method:"PATCH",headers:H,
     body:JSON.stringify({target_channel:channel})});
+}
+async function setLanguage(niche, language){
+  await fetch("/api/niches/"+encodeURIComponent(niche),{method:"PATCH",headers:H,
+    body:JSON.stringify({language})});
 }
 
 loadDiag(); loadJobs(); loadCosts(); loadPublished(); loadNiches();

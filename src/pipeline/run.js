@@ -33,7 +33,7 @@ export async function runPipelineForNiche(niche) {
     // Effective preset/duration for the rest of this run — the niche's
     // config is still the outer boundary, but every generation step below
     // uses the per-topic decision, not the niche's static default.
-    const preset = { ...niche.editing_style_preset, wordClipMode: decision.word_clip_mode };
+    const preset = { ...niche.editing_style_preset, wordClipMode: decision.word_clip_mode, music_energy: decision.music_energy };
     const effectiveNiche = {
       ...niche,
       target_duration_min_seconds: Math.max(15, decision.target_duration_seconds - 6),
@@ -77,7 +77,11 @@ export async function runPipelineForNiche(niche) {
     const musicTrack = await pickMusic(preset.music_energy, jobId);
     await updateJob(jobId, {
       voiceover_url: voiceoverUrl,
+      voiceover_words: words,
+      duration_seconds: duration,
       music_track_id: musicTrack?.id || null,
+      music_track_url: musicTrack?.track_url || null,
+      preset_snapshot: preset,
       status: "Rendering",
       ...usage,
     });

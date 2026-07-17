@@ -1,8 +1,26 @@
 /**
  * ROUTES: COST TRACKER — approximate spend across OpenAI, ElevenLabs, and
- * Shotstack, aggregated from pipeline_logs. Estimates only — see the RATES
- * comment below and check each provider's own billing dashboard for real
- * spend, which varies by your specific plan tier.
+ * Shotstack, aggregated from pipeline_logs.
+ *
+ * IMPORTANT HONESTY NOTE: the RATES below are rough placeholder estimates,
+ * not verified current pricing — if your actual bill doesn't match what
+ * this tracker shows, trust your provider's real dashboard, not this
+ * number, and update RATES to match. As of this writing the biggest real
+ * cost levers, in likely order of impact, are:
+ *   1. Video LENGTH — directly scales ElevenLabs characters, Shotstack
+ *      render seconds, and (a little) OpenAI tokens all at once. This is
+ *      why video length was tightened (Viral: strict 20-30s) — shorter
+ *      videos are the single biggest cost lever available.
+ *   2. Shotstack environment — `stage` is free (sandbox, watermarked);
+ *      `v1` is paid per render. Keep SHOTSTACK_ENV=stage for all daily/
+ *      test runs; use the dashboard's "Render Production" button (see
+ *      routes/jobs.js's /render-production) to pay for a real v1 render
+ *      only on videos you've actually approved, instead of paying v1
+ *      rates on every test run.
+ *   3. gpt-4o vs gpt-4o-mini — script/title writing uses gpt-4o (worth the
+ *      cost for quality); trim calculation and the format decision engine
+ *      both already use gpt-4o-mini (cheaper, appropriate for those more
+ *      mechanical tasks).
  */
 import express from "express";
 import { supabase } from "../supabase.js";
@@ -10,9 +28,9 @@ import { supabase } from "../supabase.js";
 export const costsRouter = express.Router();
 
 const RATES = {
-  openaiPerToken: 0.000005, // blended gpt-4o + gpt-4o-mini estimate
-  elevenlabsPerChar: 0.00003, // Creator-tier ballpark
-  shotstackPerSecond: 0.05, // approx, varies by plan
+  openaiPerToken: 0.000005, // blended gpt-4o + gpt-4o-mini estimate — VERIFY against platform.openai.com/usage
+  elevenlabsPerChar: 0.00003, // Creator-tier ballpark — VERIFY against your ElevenLabs plan's actual per-character rate
+  shotstackPerSecond: 0.05, // approx for v1 production renders; stage/sandbox renders are free — VERIFY against your Shotstack plan
 };
 
 costsRouter.get("/costs", async (_req, res) => {
