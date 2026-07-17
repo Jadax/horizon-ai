@@ -132,14 +132,18 @@ h1 span{color:var(--emerald)}
   font-family:var(--mono);font-size:10px;padding:4px 8px;border-radius:6px;outline:none}
 
 /* ── Layout ── */
-main{display:grid;grid-template-columns:1fr 360px 1fr;gap:1px;background:var(--border);
-  min-height:calc(100vh - 110px)}
-section{background:var(--bg);padding:22px 22px 32px;overflow-y:auto;max-height:calc(100vh - 110px)}
+main{display:grid;grid-template-columns:1fr 380px 1fr;gap:18px;
+  min-height:calc(100vh - 130px);padding:18px 22px 28px;align-items:start}
+section{background:linear-gradient(180deg,var(--panel),var(--bg) 340px);
+  border:1px solid var(--border);border-radius:var(--radius);box-shadow:var(--shadow-card);
+  padding:20px 20px 24px;overflow-y:auto;max-height:calc(100vh - 150px)}
 .sec-title{font-family:var(--mono);font-size:10px;letter-spacing:.2em;color:var(--muted);
-  text-transform:uppercase;margin:24px 0 14px;display:flex;justify-content:space-between;align-items:center;
+  text-transform:uppercase;margin:26px 0 14px;display:flex;justify-content:space-between;align-items:center;
   padding:0 0 10px 10px;border-bottom:1px solid var(--border-soft);border-left:2px solid var(--emerald-dim)}
 .sec-title:first-child{margin-top:0}
 .sec-title button{padding:4px 10px;font-size:10px;border-radius:6px}
+.sec-heading{font-family:var(--display);font-weight:700;font-size:14px;letter-spacing:0;
+  text-transform:none;color:var(--text)}
 
 /* ── Live stream ── */
 #stream{display:flex;flex-direction:column;gap:2px;font-family:var(--mono);font-size:11.5px}
@@ -194,13 +198,14 @@ button:disabled{opacity:.4;cursor:not-allowed;background:var(--panel-2);box-shad
 
 /* ── Right column: jobs + diagnostics ── */
 .diag{display:grid;grid-template-columns:1fr 1fr;gap:8px}
-.diag .chip{display:flex;align-items:center;gap:8px;border:1px solid var(--border);
-  border-radius:var(--radius-sm);padding:10px 12px;font-family:var(--mono);font-size:11px;
+.diag .chip{display:flex;align-items:center;gap:9px;border:1px solid var(--border);
+  border-radius:var(--radius-sm);padding:11px 12px;font-family:var(--mono);font-size:11px;
   background:var(--panel);transition:.15s}
-.diag .chip:hover{border-color:var(--border-soft);background:var(--panel-2)}
-.dot{width:7px;height:7px;border-radius:50%;background:var(--muted);flex-shrink:0}
-.dot.ok{background:var(--emerald);box-shadow:0 0 8px var(--emerald)}
-.dot.bad{background:var(--red);box-shadow:0 0 8px var(--red)}
+.diag .chip:hover{border-color:var(--border-soft);background:var(--panel-2);transform:translateY(-1px)}
+.dot{width:9px;height:9px;border-radius:50%;background:var(--muted);flex-shrink:0;
+  box-shadow:0 0 0 3px var(--panel-2)}
+.dot.ok{background:var(--emerald);box-shadow:0 0 0 3px var(--emerald-soft),0 0 8px var(--emerald)}
+.dot.bad{background:var(--red);box-shadow:0 0 0 3px rgba(239,68,68,.12),0 0 8px var(--red)}
 
 .job{border:1px solid var(--border);border-radius:12px;padding:13px 15px;margin-bottom:8px;
   background:var(--panel);cursor:pointer;transition:.15s;box-shadow:var(--shadow-card)}
@@ -225,11 +230,12 @@ button:disabled{opacity:.4;cursor:not-allowed;background:var(--panel-2);box-shad
 .retry-btn:hover{background:rgba(239,68,68,.12);box-shadow:0 0 10px rgba(239,68,68,.15)}
 
 /* ── Cost tracker ── */
-.cost-row{display:flex;justify-content:space-between;align-items:center;
-  font-family:var(--mono);font-size:11px;padding:9px 12px;border:1px solid var(--border);
-  border-radius:var(--radius-sm);background:var(--panel);margin-bottom:6px}
-.cost-row .label{color:var(--muted)}
-.cost-row .val{color:var(--text);font-weight:600}
+.cost-tiles{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px}
+.cost-tile{border:1px solid var(--border);border-radius:var(--radius-sm);padding:12px 13px;
+  background:linear-gradient(155deg,var(--panel-2),var(--panel));position:relative;overflow:hidden}
+.cost-tile .tv{font-family:var(--display);font-size:19px;font-weight:700;color:var(--text)}
+.cost-tile .tl{font-family:var(--mono);font-size:9px;color:var(--muted);letter-spacing:.08em;
+  text-transform:uppercase;margin-top:3px}
 .cost-niche-row{display:flex;justify-content:space-between;font-family:var(--mono);
   font-size:10.5px;padding:7px 12px;color:var(--muted);border-bottom:1px solid var(--border-soft)}
 .cost-niche-row:last-of-type{border-bottom:none}
@@ -381,12 +387,12 @@ async function loadCosts(){
   if(!res.ok) return;
   const c = await res.json();
   document.getElementById("costTotal").textContent = "≈ $"+c.estTotalCost.toFixed(2)+" total (est.)";
-  const rows = [
+  const rows = '<div class="cost-tiles">' + [
     ["OpenAI tokens", c.totals.openai_tokens.toLocaleString()],
     ["ElevenLabs chars", c.totals.elevenlabs_characters.toLocaleString()],
-    ["Shotstack seconds", c.totals.shotstack_render_seconds.toFixed(0)],
+    ["Shotstack sec", c.totals.shotstack_render_seconds.toFixed(0)],
     ["Jobs run", c.jobCount],
-  ].map(([l,v])=>`<div class="cost-row"><span class="label">${l}</span><span class="val">${v}</span></div>`).join("");
+  ].map(([l,v])=>`<div class="cost-tile"><div class="tv">${v}</div><div class="tl">${l}</div></div>`).join("") + '</div>';
   const niches = Object.entries(c.byNiche)
     .sort((a,b)=>b[1].estCost-a[1].estCost)
     .map(([n,d])=>`<div class="cost-niche-row"><span class="n">${n}</span><span>${d.jobs} jobs · $${d.estCost.toFixed(2)}</span></div>`)
