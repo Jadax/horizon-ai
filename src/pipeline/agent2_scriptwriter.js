@@ -108,6 +108,9 @@ watched, and kills channel trust).
   Title/description/tags stay in LANGUAGE too, except tags may include common
   English crossover terms if that's how people actually search.
 - No hashtags, no emoji, no stage directions in the script body.
+- HUMAN DELIVERY: write punctuation for a real performer. Use a short
+  sentence or comma for an intentional breath. Vary sentence length and
+  emphasis naturally; never write a chain of equally weighted slogans.
 
 ## TITLE ENGINEERING — follow this reasoning process before writing the title
 A title's only job is to make the exact video you're about to watch feel
@@ -156,8 +159,17 @@ Respond ONLY with JSON:
   "description": "2-sentence YouTube description that also stays specific to
     the actual script content, not generic hype",
   "tags": ["tag1", "..."] (12-15 high-CTR tags, mixing niche-specific and
-    tech-savvy-audience search terms)
-}`;
+    tech-savvy-audience search terms),
+  "visual_plan": [{"line":"exact phrase from the script", "query":"concrete licensed-stock search phrase", "intent":"what viewers see and why it proves the words"}]
+}
+
+VISUAL PLAN RULES: make 6-12 entries in narration order. Each query must
+describe a visible action, object, place, or emotion from its exact line.
+Never use filler terms such as "aesthetic", "cinematic", "calm", or an
+unrelated generic prop. If the line mentions writing a letter, query a hand
+writing on paper or sealing an envelope, never a candle. If no literal asset
+exists, use the closest truthful metaphor and explain why in intent. The
+visual plan is internal, never viewer-facing.`;
 
 export async function writeScript(niche, topic, loreContext, jobId) {
   await logEvent("Agent 2", `Writing looped script for "${topic.title.slice(0, 60)}"…`, { jobId });
@@ -210,6 +222,18 @@ export async function writeScript(niche, topic, loreContext, jobId) {
   if (!out.script || out.script.split(/\s+/).length < minWords) {
     throw new Error("Script generation returned insufficient content");
   }
+  if (!Array.isArray(out.visual_plan) || out.visual_plan.length < 4) {
+    throw new Error("Script generation returned no usable visual plan");
+  }
+  out.visual_plan = out.visual_plan
+    .filter((beat) => beat && typeof beat.query === "string" && typeof beat.line === "string")
+    .slice(0, 12)
+    .map((beat) => ({
+      line: beat.line.slice(0, 180),
+      query: beat.query.slice(0, 120),
+      intent: String(beat.intent || "Direct visual evidence for the narration").slice(0, 220),
+    }));
+  if (out.visual_plan.length < 4) throw new Error("Visual plan did not contain four valid beats");
 
   // Post-processing safety net: strip any em/en-dash that slipped through
   // and flag (don't silently rewrite) any AI-tell word that made it past
@@ -242,7 +266,16 @@ const TRIM_SYSTEM = `You are a video editor's timing brain. You receive:
 - a narration script (~45s)
 - a list of stock clips with their durations and the keyword each matched.
 Produce a cut list covering the FULL narration duration plus 2s tail:
-- Order clips so their subject matter follows the script's emotional arc.
+- SEMANTIC ALIGNMENT (the most important rule): each cut must match what the
+  script is literally saying AT THAT POINT in the reading order, not just the
+  general mood of the niche. Walk through the script in order and place each
+  clip's "keyword" against the specific phrase it's illustrating — if the
+  script says "the crowd went silent," the clip showing at that moment should
+  be crowd/tension-coded, not a random pretty landscape shot reused just to
+  fill time. Never place a clip purely because it's next in the list; place
+  it because its keyword genuinely fits the words being spoken right then.
+- Order clips so their subject matter follows the script's literal content
+  first, its emotional arc second.
 - PACING: for fast-cut styles, cut every 1.5-2.5 seconds — modern
   high-retention short-form video changes what's on screen constantly;
   anything slower reads as static and loses viewers. For slow
@@ -254,9 +287,13 @@ Produce a cut list covering the FULL narration duration plus 2s tail:
   per the pacing rule above.
 - Reuse a clip with a DIFFERENT start window if you run short — with
   faster cuts you'll need more total cut points to fill the same duration,
-  that's expected.
+  that's expected. A well-matched reused clip beats a mismatched fresh one.
+- In "reason", state which specific script phrase this cut illustrates, not
+  just "matches the mood."
+- Reject a clip when its semanticCue/visualIntent does not actually depict
+  the assigned script phrase. A beautiful but unrelated shot is a failure.
 Respond ONLY with JSON:
-{"cuts":[{"index":0,"start":2.5,"length":2.0,"reason":"..."}, ...],"total_seconds":47.0}
+{"cuts":[{"index":0,"start":2.5,"length":2.0,"reason":"illustrates '...'"}, ...],"total_seconds":47.0}
 index refers to the clip's position in the provided list.`;
 
 export async function calculateTrims(script, clips, stylePreset, jobId) {
@@ -265,6 +302,8 @@ export async function calculateTrims(script, clips, stylePreset, jobId) {
   const clipManifest = clips.map((c, i) => ({
     index: i,
     keyword: c.keyword,
+    semanticCue: c.semanticCue,
+    visualIntent: c.visualIntent,
     duration: c.duration,
   }));
 
@@ -297,7 +336,11 @@ export async function calculateTrims(script, clips, stylePreset, jobId) {
       const src = clips[c.index];
       const start = Math.max(0, Math.min(c.start, Math.max(0, src.duration - 4)));
       const length = Math.max(1.2, Math.min(c.length, src.duration - start));
-      return { url: src.url, start, length, credit: src.credit, provider: src.provider };
+      return {
+        url: src.url, start, length, credit: src.credit, provider: src.provider,
+        reason: String(c.reason || src.semanticCue || src.keyword).slice(0, 240),
+        semanticCue: src.semanticCue || src.keyword,
+      };
     });
 
   if (!validated.length) throw new Error("Trim calculation produced no usable cuts");

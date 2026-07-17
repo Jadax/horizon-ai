@@ -33,7 +33,12 @@ export async function runPipelineForNiche(niche) {
     // Effective preset/duration for the rest of this run — the niche's
     // config is still the outer boundary, but every generation step below
     // uses the per-topic decision, not the niche's static default.
-    const preset = { ...niche.editing_style_preset, wordClipMode: decision.word_clip_mode, music_energy: decision.music_energy };
+    const preset = {
+      ...niche.editing_style_preset,
+      wordClipMode: decision.word_clip_mode,
+      music_energy: decision.music_energy,
+      music_brief: decision.music_brief,
+    };
     const effectiveNiche = {
       ...niche,
       target_duration_min_seconds: Math.max(15, decision.target_duration_seconds - 6),
@@ -41,11 +46,14 @@ export async function runPipelineForNiche(niche) {
     };
 
     // ── Agent 1 continued: licensed footage, mood-matched to the decision ──
-    const clips = await harvestFootage(niche, jobId, 55, decision.footage_mood);
+    // Footage is deliberately sourced after the script's visual plan below.
+    // Keeping this initial update empty prevents generic niche b-roll from
+    // entering the edit simply because it was available first.
+    const initialClips = [];
     await updateJob(jobId, {
       topic: topic.title,
       source_url: topic.url,
-      sourced_media_urls: clips.map((c) => ({ url: c.url, provider: c.provider, license: c.license })),
+      sourced_media_urls: initialClips,
       format_decision: decision,
       status: "Scripting",
     });
@@ -53,9 +61,14 @@ export async function runPipelineForNiche(niche) {
     // ── Agent 2: script + trim points ──
     const scriptOut = await writeScript(effectiveNiche, topic, loreContext, jobId);
     usage.openai_tokens += scriptOut._usage?.tokens || 0;
+    const clips = await harvestFootage(niche, jobId, 55, decision.footage_mood, scriptOut.visual_plan);
     const cuts = await calculateTrims(scriptOut.script, clips, preset, jobId);
     usage.openai_tokens += cuts._usage?.tokens || 0;
     await updateJob(jobId, {
+      sourced_media_urls: clips.map((c) => ({
+        url: c.url, provider: c.provider, license: c.license,
+        semantic_cue: c.semanticCue, visual_intent: c.visualIntent,
+      })),
       script: scriptOut.script,
       title: scriptOut.title,
       title_reasoning: scriptOut.title_reasoning || null,
@@ -74,7 +87,7 @@ export async function runPipelineForNiche(niche) {
       decision.target_duration_seconds + 15 // small buffer before warning fires
     );
     usage.elevenlabs_characters += scriptOut.script.length;
-    const musicTrack = await pickMusic(preset.music_energy, jobId);
+    const musicTrack = await pickMusic(preset.music_energy, jobId, preset.music_brief);
     await updateJob(jobId, {
       voiceover_url: voiceoverUrl,
       voiceover_words: words,

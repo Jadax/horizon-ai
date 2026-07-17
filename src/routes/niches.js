@@ -24,9 +24,12 @@ nichesRouter.get("/niches", async (_req, res) => {
 });
 
 nichesRouter.patch("/niches/:name", async (req, res) => {
-  const allowed = ["target_channel", "active", "trend_region", "language"];
+  const allowed = ["target_channel", "active", "trend_region", "language", "social_rss_feeds"];
   const patch = Object.fromEntries(Object.entries(req.body).filter(([k]) => allowed.includes(k)));
   if (!Object.keys(patch).length) return res.status(400).json({ error: "No valid fields to update" });
+  if (patch.social_rss_feeds !== undefined && !Array.isArray(patch.social_rss_feeds)) {
+    return res.status(400).json({ error: "social_rss_feeds must be an array" });
+  }
 
   const { error } = await supabase
     .from("niche_configurations")

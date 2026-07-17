@@ -77,6 +77,14 @@ Sources currently wired, by niche:
 - **Gaming/Lore:** wiki lore-grounding via MediaWiki search (Fandom/wiki.gg)
 - **Reddit:** kept everywhere as a harmless best-effort bonus, usually 403s
 
+### Social-feed sourcing and quality gates
+
+Run [`supabase/migration_social_quality.sql`](supabase/migration_social_quality.sql) once to enable per-niche `social_rss_feeds`. YouTube supports native public channel Atom feeds. Twitch, X/Twitter, and Kick do not offer a reliable native public channel RSS feed, so Horizon accepts public RSS exports or feeds you are explicitly authorised to access; it does not scrape pages, copy videos, or bypass logins/paywalls.
+
+Set feeds with `PATCH /api/niches/:name` using `{"social_rss_feeds":[{"platform":"youtube","label":"Creator","url":"https://www.youtube.com/feeds/videos.xml?channel_id=CHANNEL_ID"}]}`. For an authorised protected feed, add its request headers to `SOCIAL_RSS_HEADERS` and reference its key with `auth_key`; never store a token in Supabase.
+
+The creation path now writes an ordered visual plan before sourcing b-roll. Each stock search is tied to an exact script line and carries that semantic cue into the cut list. This is the quality gate that prevents unrelated “pretty” filler clips. Music tracks can now be tagged with `mood_tags`, `bpm`, and `instrumental`, letting the per-topic format decision choose the closest track rather than randomly selecting within an energy bucket.
+
 ### Ad-hoc trend check (no pipeline run required)
 
 The dashboard's **🔥 Check What's Trending** button hits `/api/trending`,
@@ -461,6 +469,23 @@ needed.
    local running is optional once Railway is confirmed stable
 
 ## Changelog
+
+- **Declined an n8n/Apify workflow scraping Instagram Reels and TikTok**
+  to "reverse-engineer" specific real creators' videos into clone
+  blueprints (submitted as a JSON workflow file + a "Creative Director"
+  persona prompt + a demo GIF using recognizable copyrighted TV footage as
+  an example). Same category as the Apify/Nitter/Reddit-scraper asks
+  declined earlier — downloading a specific real video without
+  authorization and generating a blueprint meant to functionally
+  reproduce it is a sharper problem than general trend-following, not a
+  new category exempted by "reverse-engineering" framing. Not built.
+  **Adopted from the same source, separately:** the "No Random Filler"
+  principle — every visual should match what the script is literally
+  saying at that moment, not just the niche's general mood.
+  `TRIM_SYSTEM` in `agent2_scriptwriter.js` now requires line-level
+  semantic alignment (which specific phrase each cut illustrates) instead
+  of just emotional-arc-level footage ordering, applied to our existing
+  compliant Pexels/Pixabay pipeline — same idea, none of the scraping.
 
 - **Consolidated all 14 migration files into `supabase/COMPLETE_SETUP.sql`.**
   Every prior migration (schema.sql through migration_feed_library.sql) is

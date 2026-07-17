@@ -54,12 +54,16 @@ Decide, for THIS SPECIFIC TOPIC, not generically for the niche:
    actually fits; a triumphant or exciting story in a normally calm niche
    can get "High" or "Wonder". Mismatched music undercuts otherwise good
    narration, so take this as seriously as the other choices.
-5. reasoning: one sentence explaining all of the above together.
+5. music_brief: 2-4 mood tags, 1-3 instrumental genres, and a BPM range that
+   match the emotional arc. Prefer instrumental music beneath narration.
+6. reasoning: one sentence explaining all of the above together.
 
 Respond ONLY with JSON:
 {"word_clip_mode": true/false, "target_duration_seconds": number,
  "footage_mood": ["keyword1","keyword2",...],
- "music_energy": "High"|"Suspense"|"Chill"|"Wonder", "reasoning": "..."}`;
+  "music_energy": "High"|"Suspense"|"Chill"|"Wonder",
+  "music_brief":{"moods":["tense"],"genres":["ambient"],"bpm":[75,95]},
+  "reasoning": "..."}`;
 
 export async function decideFormat(niche, topic, jobId) {
   const minSeconds = niche.target_duration_min_seconds || 25;
@@ -103,6 +107,12 @@ export async function decideFormat(niche, topic, jobId) {
     if (!validEnergies.includes(decision.music_energy)) {
       decision.music_energy = niche.editing_style_preset?.music_energy || "Chill";
     }
+    const musicBrief = decision.music_brief || {};
+    decision.music_brief = {
+      moods: Array.isArray(musicBrief.moods) ? musicBrief.moods.slice(0, 4) : [decision.music_energy.toLowerCase()],
+      genres: Array.isArray(musicBrief.genres) ? musicBrief.genres.slice(0, 3) : [],
+      bpm: Array.isArray(musicBrief.bpm) && musicBrief.bpm.length === 2 ? musicBrief.bpm.map(Number) : [70, 120],
+    };
     decision._usage = { tokens: res.usage?.total_tokens || 0 };
 
     await logEvent(
@@ -119,6 +129,7 @@ export async function decideFormat(niche, topic, jobId) {
       target_duration_seconds: Math.round((minSeconds + maxSeconds) / 2),
       footage_mood: niche.footage_keywords.slice(0, 5),
       music_energy: niche.editing_style_preset?.music_energy || "Chill",
+      music_brief: { moods: [niche.editing_style_preset?.music_energy?.toLowerCase() || "chill"], genres: [], bpm: [70, 120] },
       reasoning: "Fallback to niche defaults (format decision call failed)",
       _usage: { tokens: 0 },
     };

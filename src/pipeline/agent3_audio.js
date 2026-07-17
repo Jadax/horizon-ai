@@ -104,7 +104,7 @@ export async function synthesizeVoiceover(script, voiceId, jobId, expectedMaxSec
   return { voiceoverUrl: data.publicUrl, words, duration };
 }
 
-export async function pickMusic(energyLevel, jobId) {
+export async function pickMusic(energyLevel, jobId, brief = {}) {
   const { data, error } = await supabase
     .from("music_library")
     .select("*")
@@ -116,7 +116,28 @@ export async function pickMusic(energyLevel, jobId) {
     });
     return null;
   }
-  const track = data[Math.floor(Math.random() * data.length)];
-  await logEvent("Agent 3", `Music: "${track.title || "untitled"}" (${energyLevel})`, { jobId });
+  const wantedMoods = (brief.moods || []).map((v) => String(v).toLowerCase());
+  const wantedGenres = (brief.genres || []).map((v) => String(v).toLowerCase());
+  const [bpmLow, bpmHigh] = Array.isArray(brief.bpm) ? brief.bpm.map(Number) : [0, Infinity];
+  const scoreTrack = (track) => {
+    const moods = Array.isArray(track.mood_tags) ? track.mood_tags.map((v) => String(v).toLowerCase()) : [];
+    const genre = String(track.genre || "").toLowerCase();
+    let score = 0;
+    score += wantedMoods.filter((mood) => moods.includes(mood)).length * 4;
+    score += wantedGenres.some((wanted) => genre.includes(wanted)) ? 3 : 0;
+    score += Number.isFinite(Number(track.bpm)) && Number(track.bpm) >= bpmLow && Number(track.bpm) <= bpmHigh ? 2 : 0;
+    score += track.instrumental === true ? 1 : 0;
+    return score + Math.random() * 0.25;
+  };
+  // Score once per candidate. Calling Math.random inside the sort comparator
+  // makes comparisons non-transitive and can accidentally bury the best fit.
+  const track = data
+    .map((candidate) => ({ candidate, score: scoreTrack(candidate) }))
+    .sort((a, b) => b.score - a.score)[0].candidate;
+  await logEvent(
+    "Agent 3",
+    `Music: "${track.title || "untitled"}" (${energyLevel}; moods: ${(brief.moods || []).join(", ") || "any"})`,
+    { jobId }
+  );
   return track;
 }

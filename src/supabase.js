@@ -42,4 +42,5 @@ export async function updateJob(jobId, patch) {
     .eq("id", jobId);
   if (error) console.error("[supabase] updateJob failed:", error.message);
   bus.emit("job", { jobId, ...patch });
+  return { error };
 }

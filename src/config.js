@@ -1,5 +1,14 @@
 import "dotenv/config";
 
+function parseJsonEnv(name, fallback) {
+  try {
+    return process.env[name] ? JSON.parse(process.env[name]) : fallback;
+  } catch {
+    console.warn(`[config] ${name} is not valid JSON â€” ignoring`);
+    return fallback;
+  }
+}
+
 const required = [
   "OPENAI_API_KEY",
   "ELEVENLABS_API_KEY",
@@ -31,6 +40,10 @@ export const config = {
   },
   pexelsKey: process.env.PEXELS_API_KEY,
   pixabayKey: process.env.PIXABAY_API_KEY,
+  // Map a social feed's `auth_key` to request headers. This permits an
+  // operator-authorised private RSS feed while keeping credentials out of
+  // Supabase. Example: {"creator_feed":{"Authorization":"Bearer ..."}}.
+  socialFeedHeaders: parseJsonEnv("SOCIAL_RSS_HEADERS", {}),
   google: {
     clientId: process.env.GOOGLE_CLIENT_ID,
     clientSecret: process.env.GOOGLE_CLIENT_SECRET,

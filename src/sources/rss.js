@@ -16,8 +16,14 @@ const parser = new Parser({ headers: { "User-Agent": UA }, timeout: 10000 });
  * @param {number} limit - max items to return
  * @returns {Promise<Array<{title,url,selftext,pubDate,score,num_comments}>>}
  */
-export async function fetchRSSFeed(feedUrl, limit = 8) {
-  const feed = await parser.parseURL(feedUrl);
+export async function fetchRSSFeed(feedUrl, limit = 8, headers = {}) {
+  // rss-parser's shared parser is ideal for normal public feeds. A small
+  // per-request parser lets an owner attach credentials to an RSS feed they
+  // are explicitly entitled to read, without putting those secrets in the
+  // database alongside a niche configuration.
+  const requestHeaders = Object.keys(headers || {}).length ? { ...parser.options.headers, ...headers } : null;
+  const activeParser = requestHeaders ? new Parser({ headers: requestHeaders, timeout: 10000 }) : parser;
+  const feed = await activeParser.parseURL(feedUrl);
   return (feed.items || []).slice(0, limit).map((item) => ({
     title: item.title || "",
     url: item.link || feedUrl,

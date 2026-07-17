@@ -10,6 +10,7 @@
 import { config } from "../config.js";
 import { logEvent } from "../supabase.js";
 import { fetchRSSFeed } from "../sources/rss.js";
+import { fetchSocialRSSFeeds, normaliseSocialFeeds } from "../sources/socialRss.js";
 import { fetchGoogleTrends, fetchGoogleNews } from "../sources/googleTrends.js";
 import { fetchGDELT } from "../sources/gdelt.js";
 import { fetchYouTubeTrending } from "../sources/youtubeTrending.js";
@@ -40,6 +41,22 @@ export async function harvestAllCandidates(niche, jobId = null) {
       await log(`RSS ${new URL(feedUrl).hostname}: ${items.length} candidates`);
     } catch (err) {
       await log(`RSS feed failed (${feedUrl}): ${err.message}`, "warn");
+    }
+  }
+
+  // Platform-specific public/authorised feeds. These are RSS/Atom sources,
+  // not HTML scrapers: no login bypassing, paywall circumvention, or copying
+  // platform video assets into the render pipeline.
+  const socialFeeds = normaliseSocialFeeds(niche.social_rss_feeds);
+  if (socialFeeds.length) {
+    const results = await fetchSocialRSSFeeds(socialFeeds, config.socialFeedHeaders);
+    for (const result of results) {
+      if (result.error) {
+        await log(`Social RSS feed failed: ${result.error.message}`, "warn");
+        continue;
+      }
+      candidates.push(...tag(result.items, result.source));
+      await log(`${result.source}: ${result.items.length} candidates`);
     }
   }
 
@@ -196,13 +213,18 @@ async function searchPixabay(keyword, perPage = 3) {
   }));
 }
 
-export async function harvestFootage(niche, jobId, minTotalSeconds = 55, priorityKeywords = null) {
+export async function harvestFootage(niche, jobId, minTotalSeconds = 55, priorityKeywords = null, visualQueries = []) {
   await logEvent("Agent 1", `Sourcing licensed b-roll for ${niche.niche_name}…`, { jobId });
   // If the Format Decision Engine picked a mood-matched keyword subset for
   // this specific topic, search those first, then fill in with the rest
   // of the niche's keywords (shuffled) if more footage is still needed.
+  const scriptedQueries = Array.isArray(visualQueries)
+    ? visualQueries.map((q) => q?.query).filter((q) => typeof q === "string" && q.trim()).slice(0, 12)
+    : [];
   const rest = niche.footage_keywords.filter((k) => !priorityKeywords?.includes(k));
-  const keywords = priorityKeywords?.length
+  const keywords = scriptedQueries.length
+    ? [...scriptedQueries, ...rest.sort(() => Math.random() - 0.5)]
+    : priorityKeywords?.length
     ? [...priorityKeywords, ...rest.sort(() => Math.random() - 0.5)]
     : [...niche.footage_keywords].sort(() => Math.random() - 0.5);
   const clips = [];
@@ -213,7 +235,8 @@ export async function harvestFootage(niche, jobId, minTotalSeconds = 55, priorit
     const found = [...(await searchPexels(kw)), ...(await searchPixabay(kw))]
       .filter((c) => c.url && c.duration >= 4);
     for (const clip of found.slice(0, 2)) {
-      clips.push({ ...clip, keyword: kw });
+      const matchingBrief = visualQueries.find((q) => q?.query === kw);
+      clips.push({ ...clip, keyword: kw, semanticCue: matchingBrief?.line || kw, visualIntent: matchingBrief?.intent || null });
       total += Math.min(clip.duration, 8);
       if (total >= minTotalSeconds) break;
     }

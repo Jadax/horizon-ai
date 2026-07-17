@@ -33,13 +33,36 @@ jobsRouter.get("/jobs/published", async (_req, res) => {
   res.json(data);
 });
 
-// Manual overrides (script/title/description editing while paused)
+// Manual overrides (title/description are safe after a render). A completed
+// video's script must never be edited in place: its voiceover, captions and
+// rendered timeline are already derived from the old script. Accepting that
+// edit would show one story in the dashboard and publish another one.
 jobsRouter.patch("/jobs/:id", async (req, res) => {
   const allowed = ["script", "title", "description", "tags", "status"];
   const patch = Object.fromEntries(
     Object.entries(req.body).filter(([k]) => allowed.includes(k))
   );
-  await updateJob(req.params.id, patch);
+  if (!Object.keys(patch).length) {
+    return res.status(400).json({ error: "No editable fields were supplied" });
+  }
+
+  const { data: job, error: lookupError } = await supabase
+    .from("pipeline_logs")
+    .select("id, script, voiceover_url, rendered_video_url, status")
+    .eq("id", req.params.id)
+    .single();
+  if (lookupError || !job) return res.status(404).json({ error: "Job not found" });
+
+  const scriptChanged = typeof patch.script === "string" && patch.script !== job.script;
+  if (scriptChanged && (job.voiceover_url || job.rendered_video_url)) {
+    return res.status(409).json({
+      error: "This video has already been voiced or rendered. Script changes require a fresh run so narration, captions, and visuals remain in sync.",
+      action: "retry",
+    });
+  }
+
+  const { error: updateError } = await updateJob(req.params.id, patch);
+  if (updateError) return res.status(500).json({ error: updateError.message });
   await logEvent("Operator", `Manual override applied to job ${req.params.id.slice(0, 8)}`);
   res.json({ ok: true });
 });
@@ -53,6 +76,9 @@ jobsRouter.post("/jobs/:id/approve", async (req, res) => {
     .single();
   if (!job?.rendered_video_url)
     return res.status(400).json({ error: "Job has no rendered video" });
+  if (["Scheduled", "Published"].includes(job.status)) {
+    return res.status(409).json({ error: "This job has already been scheduled or published." });
+  }
   try {
     const result = await uploadScheduled({
       videoUrl: job.rendered_video_url,

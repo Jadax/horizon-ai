@@ -256,6 +256,7 @@ button:disabled{opacity:.4;cursor:not-allowed}
       <div id="titleReasoning" class="title-reasoning"></div>
       <label>Narration script</label>
       <textarea id="fScript"></textarea>
+      <div class="lock-note" id="scriptNote" style="display:none">Script is locked after voiceover/rendering to keep narration, captions, and visuals in sync. Use “Retry this niche” to make a revised video.</div>
       <label>Description</label>
       <textarea id="fDesc" style="min-height:60px"></textarea>
       <div class="editor-actions">
@@ -409,18 +410,28 @@ function selectJob(id){
 
 function applyLockState(){
   const locked = autopilot;
-  ["fTitle","fScript","fDesc"].forEach(id=>document.getElementById(id).disabled=locked);
+  const scriptLocked = locked || Boolean(currentJob?.voiceover_url || currentJob?.rendered_video_url);
+  ["fTitle","fDesc"].forEach(id=>document.getElementById(id).disabled=locked);
+  document.getElementById("fScript").disabled=scriptLocked;
   document.getElementById("saveBtn").disabled = locked;
   document.getElementById("lockNote").style.display = locked ? "block" : "none";
+  document.getElementById("scriptNote").style.display = !locked && scriptLocked ? "block" : "none";
 }
 
 async function saveOverrides(){
   if(!currentJob) return;
-  await fetch("/api/jobs/"+currentJob.id,{method:"PATCH",headers:H,body:JSON.stringify({
+  const res = await fetch("/api/jobs/"+currentJob.id,{method:"PATCH",headers:H,body:JSON.stringify({
     title:document.getElementById("fTitle").value,
     script:document.getElementById("fScript").value,
     description:document.getElementById("fDesc").value,
   })});
+  if(!res.ok){
+    const data = await res.json();
+    alert(data.error || "Could not save changes");
+    return;
+  }
+  currentJob.title = document.getElementById("fTitle").value;
+  currentJob.description = document.getElementById("fDesc").value;
   loadJobs();
 }
 
