@@ -40,6 +40,9 @@ export const config = {
   },
   pexelsKey: process.env.PEXELS_API_KEY,
   pixabayKey: process.env.PIXABAY_API_KEY,
+  // A render is blocked when footage cannot be visually verified against its
+  // exact narration beat. Disable only for local diagnostics.
+  visualQualityGate: (process.env.VISUAL_QUALITY_GATE || "true").toLowerCase() === "true",
   // Map a social feed's `auth_key` to request headers. This permits an
   // operator-authorised private RSS feed while keeping credentials out of
   // Supabase. Example: {"creator_feed":{"Authorization":"Bearer ..."}}.

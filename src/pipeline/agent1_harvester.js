@@ -8,6 +8,7 @@
  * src/sources/*.js for the individual integrations.
  */
 import { config } from "../config.js";
+import OpenAI from "openai";
 import { logEvent } from "../supabase.js";
 import { fetchRSSFeed } from "../sources/rss.js";
 import { fetchSocialRSSFeeds, normaliseSocialFeeds } from "../sources/socialRss.js";
@@ -17,6 +18,8 @@ import { fetchYouTubeTrending } from "../sources/youtubeTrending.js";
 import { fetchMastodonHashtag, fetchLemmyHot } from "../sources/fediverse.js";
 import { fetchTopReddit, searchWiki } from "../sources/reddit.js";
 import { rankCandidates, recalibrateWeights } from "../lib/trendScoring.js";
+
+const openai = new OpenAI({ apiKey: config.openaiKey });
 
 // ── Topic harvesting ──────────────────────────────────────────────────────
 
@@ -168,7 +171,7 @@ export async function harvestTopic(niche, jobId) {
 
 // ── Licensed footage sourcing (unchanged — Pexels/Pixabay only) ──────────
 
-async function searchPexels(keyword, perPage = 3) {
+async function searchPexels(keyword, perPage = 8) {
   if (!config.pexelsKey) return [];
   const url = `https://api.pexels.com/videos/search?query=${encodeURIComponent(
     keyword
@@ -188,10 +191,43 @@ async function searchPexels(keyword, perPage = 3) {
       width: file.width,
       height: file.height,
       provider: "pexels",
+      previewUrl: v.image,
       license: "Pexels License (free commercial use)",
       credit: v.user?.name,
     };
   });
+}
+
+/** Pexels search labels are noisy, so the actual preview must pass QA. */
+async function verifyVisualMatches(brief, candidates) {
+  if (!config.visualQualityGate) return { clips: candidates, tokens: 0 };
+  const reviewable = candidates.filter((clip) => clip.previewUrl);
+  if (!reviewable.length) return { clips: [], tokens: 0 };
+  const content = [
+    {
+      type: "text",
+      text: `You are the final visual-continuity reviewer for a premium vertical video.\nSPOKEN LINE: ${brief.line}\nREQUIRED VISUAL: ${brief.query}\nWHY: ${brief.intent || "The image must directly prove the narration."}\n\nInspect every numbered candidate preview. Accept only a candidate that visibly depicts the literal subject, action, setting, or truthful visual metaphor needed for this exact line. Reject generic lifestyle, dancing, phones, scenery, candles, or any image that merely shares a broad mood or country. Do not infer unseen facts.\n\nReturn JSON only: {"accepted":[{"index":0,"score":0,"reason":"..."}]}. Score 0-10; include only clips scoring 8 or higher.`,
+    },
+    ...reviewable.flatMap((clip, index) => [
+      { type: "text", text: `Candidate ${index}` },
+      { type: "image_url", image_url: { url: clip.previewUrl, detail: "low" } },
+    ]),
+  ];
+  const res = await openai.chat.completions.create({
+    model: "gpt-4o-mini",
+    temperature: 0,
+    response_format: { type: "json_object" },
+    messages: [{ role: "user", content }],
+  });
+  const result = JSON.parse(res.choices[0].message.content || "{}");
+  const accepted = (result.accepted || [])
+    .filter((item) => Number(item.score) >= 8 && reviewable[Number(item.index)])
+    .map((item) => ({
+      ...reviewable[Number(item.index)],
+      visualScore: Number(item.score),
+      visualReview: String(item.reason || "Verified against narration beat").slice(0, 240),
+    }));
+  return { clips: accepted, tokens: res.usage?.total_tokens || 0 };
 }
 
 async function searchPixabay(keyword, perPage = 3) {
@@ -208,6 +244,11 @@ async function searchPixabay(keyword, perPage = 3) {
     width: v.videos?.large?.width,
     height: v.videos?.large?.height,
     provider: "pixabay",
+    // Pixabay doesn't return a direct thumbnail URL in the videos payload,
+    // but every hit's picture_id maps to a stable Vimeo CDN thumbnail —
+    // needed so these candidates are reviewable by the visual QA gate
+    // instead of being silently dropped for lacking a previewUrl.
+    previewUrl: v.picture_id ? `https://i.vimeocdn.com/video/${v.picture_id}_640x360.jpg` : null,
     license: "Pixabay Content License (free commercial use)",
     credit: v.user,
   }));
@@ -229,13 +270,34 @@ export async function harvestFootage(niche, jobId, minTotalSeconds = 55, priorit
     : [...niche.footage_keywords].sort(() => Math.random() - 0.5);
   const clips = [];
   let total = 0;
+  let visualTokens = 0;
 
   for (const kw of keywords) {
     if (total >= minTotalSeconds) break;
     const found = [...(await searchPexels(kw)), ...(await searchPixabay(kw))]
       .filter((c) => c.url && c.duration >= 4);
-    for (const clip of found.slice(0, 2)) {
-      const matchingBrief = visualQueries.find((q) => q?.query === kw);
+    const matchingBrief = visualQueries.find((q) => q?.query === kw);
+
+    // VISUAL QUALITY GATE: a keyword match on Pexels/Pixabay's noisy tags
+    // does NOT mean the actual footage depicts the script beat (this is
+    // exactly how an unrelated "dancers"/"beetle" clip ends up narrating a
+    // cricket story — the tag matched, the pixels didn't). Every candidate
+    // must pass a GPT-4o-mini vision check against the specific line it's
+    // meant to illustrate before it's eligible for the edit.
+    const { clips: verified, tokens } = await verifyVisualMatches(
+      { line: matchingBrief?.line || kw, query: kw, intent: matchingBrief?.intent },
+      found
+    );
+    visualTokens += tokens;
+    if (verified.length < found.length) {
+      await logEvent(
+        "Agent 1",
+        `"${kw}" → ${found.length} candidates, ${verified.length} passed visual QA`,
+        { jobId }
+      );
+    }
+
+    for (const clip of verified.slice(0, 2)) {
       clips.push({ ...clip, keyword: kw, semanticCue: matchingBrief?.line || kw, visualIntent: matchingBrief?.intent || null });
       total += Math.min(clip.duration, 8);
       if (total >= minTotalSeconds) break;
@@ -245,9 +307,10 @@ export async function harvestFootage(niche, jobId, minTotalSeconds = 55, priorit
 
   if (clips.length < 3) {
     throw new Error(
-      "Insufficient licensed footage — check PEXELS_API_KEY / PIXABAY_API_KEY or broaden footage_keywords"
+      "Insufficient licensed footage passed visual QA — check PEXELS_API_KEY / PIXABAY_API_KEY, broaden footage_keywords, or temporarily disable VISUAL_QUALITY_GATE for diagnostics"
     );
   }
   await logEvent("Agent 1", `Media locked: ${clips.length} clips, ~${Math.round(total)}s of coverage`, { jobId });
+  clips._usage = { tokens: visualTokens };
   return clips;
 }

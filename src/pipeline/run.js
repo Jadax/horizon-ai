@@ -62,6 +62,7 @@ export async function runPipelineForNiche(niche) {
     const scriptOut = await writeScript(effectiveNiche, topic, loreContext, jobId);
     usage.openai_tokens += scriptOut._usage?.tokens || 0;
     const clips = await harvestFootage(niche, jobId, 55, decision.footage_mood, scriptOut.visual_plan);
+    usage.openai_tokens += clips._usage?.tokens || 0;
     const cuts = await calculateTrims(scriptOut.script, clips, preset, jobId);
     usage.openai_tokens += cuts._usage?.tokens || 0;
     await updateJob(jobId, {
