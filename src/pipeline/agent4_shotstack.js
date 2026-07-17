@@ -168,6 +168,82 @@ export function buildClipPayload({ sourceUrl, clipStart, clipLength, words, pres
   };
 }
 
+const IMPACT_FONT = { family: "Montserrat ExtraBold", size: 78 };
+
+/**
+ * ACTION MODE — for source footage with little/no dialogue (gameplay,
+ * sports, reaction compilations) where a spoken "hook" doesn't exist to
+ * score. The retention mechanic here isn't words, it's pace: a hard
+ * punch-in zoom snapped exactly on the highlight beat (two consecutive
+ * trims of the SAME source clip, the second one zoomed, rather than a
+ * gradual zoom that wouldn't land ON the moment), a big bold text call-out,
+ * and an optional one-shot sound effect layered on top of the original
+ * game/crowd audio (never replacing it).
+ *
+ * `peakOffset` and every entry in `impactCues`/`sfxCue` are seconds
+ * relative to the CLIP's own start (already re-zeroed by agent6_clipper.js),
+ * matching the same convention `words` uses in buildClipPayload above.
+ */
+export function buildActionClipPayload({ sourceUrl, clipStart, clipLength, peakOffset, impactCues = [], sfxCue = null, jobId }) {
+  const safePeak = Math.min(Math.max(peakOffset, 0.5), clipLength - 0.5);
+
+  const videoClips = [
+    {
+      asset: { type: "video", src: sourceUrl, trim: Number(clipStart.toFixed(2)) },
+      start: 0,
+      length: Number(safePeak.toFixed(2)),
+      fit: "cover",
+    },
+    {
+      // The punch: same source, continuing exactly where the first segment
+      // left off, but with a zoom effect so the highlight beat visibly
+      // "hits" instead of playing at a flat, static framing.
+      asset: { type: "video", src: sourceUrl, trim: Number((clipStart + safePeak).toFixed(2)) },
+      start: Number(safePeak.toFixed(2)),
+      length: Number((clipLength - safePeak).toFixed(2)),
+      fit: "cover",
+      effect: "zoomIn",
+    },
+  ];
+
+  const textClips = impactCues.map((cue) => ({
+    asset: {
+      type: "text",
+      text: String(cue.text || "").toUpperCase(),
+      font: { family: IMPACT_FONT.family, size: IMPACT_FONT.size, color: "#FFFFFF" },
+      stroke: { color: "#000000", width: 4 },
+      alignment: { horizontal: "center" },
+      width: 1000,
+      height: 300,
+    },
+    start: Number(Math.max(0, cue.offset).toFixed(2)),
+    length: Number(Math.min(1.4, clipLength - cue.offset).toFixed(2)),
+    position: "top",
+    offset: { y: -0.2 },
+    transition: { in: "fade", out: "fade" },
+  }));
+
+  const tracks = [{ clips: textClips }, { clips: videoClips }];
+
+  if (sfxCue?.url) {
+    tracks.push({
+      clips: [
+        {
+          asset: { type: "audio", src: sfxCue.url, volume: 0.9 },
+          start: Number(Math.max(0, sfxCue.offset).toFixed(2)),
+          length: Number(Math.min(3, clipLength - sfxCue.offset).toFixed(2)),
+        },
+      ],
+    });
+  }
+
+  return {
+    timeline: { background: "#000000", tracks },
+    output: { format: "mp4", resolution: "hd", aspectRatio: "9:16", fps: 30 },
+    disk: "local",
+  };
+}
+
 export async function render(payload, jobId) {
   return renderWithBaseUrl(payload, jobId, config.shotstack.baseUrl, config.shotstack.env);
 }

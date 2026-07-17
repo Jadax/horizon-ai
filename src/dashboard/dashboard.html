@@ -8,35 +8,35 @@
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
 <style>
 :root{
-  --bg:#0A0E1A;            /* deep charcoal-indigo (brief-pinned) */
-  --bg-grad:radial-gradient(1200px 600px at 15% -10%,rgba(16,185,129,.07),transparent 60%),
-            radial-gradient(900px 500px at 100% 0%,rgba(99,102,241,.06),transparent 55%),
-            #0A0E1A;
-  --panel:#0E1424;
-  --panel-2:#121A2E;
-  --panel-3:#161F38;
-  --border:#1C2740;        /* micro-borders */
-  --border-soft:#16203a;
-  --emerald:#10B981;       /* neon-emerald status */
-  --emerald-dim:#0B7A57;
-  --emerald-soft:rgba(16,185,129,.1);
-  --indigo:#818CF8;
-  --amber:#F59E0B;
-  --red:#EF4444;
-  --sky:#38BDF8;
-  --text:#E7ECF7;
-  --text-dim:#AAB4CC;
-  --muted:#6B7797;
+  --bg:#F4F6FB;            /* soft cool-white, not stark #fff */
+  --bg-grad:radial-gradient(1200px 600px at 15% -10%,rgba(5,150,105,.05),transparent 60%),
+            radial-gradient(900px 500px at 100% 0%,rgba(99,102,241,.05),transparent 55%),
+            #F4F6FB;
+  --panel:#FFFFFF;
+  --panel-2:#F1F4FA;
+  --panel-3:#E4E9F3;
+  --border:#E2E7F1;        /* micro-borders */
+  --border-soft:#EBEEF6;
+  --emerald:#059669;       /* deepened for AA contrast on white */
+  --emerald-dim:#047857;
+  --emerald-soft:rgba(5,150,105,.09);
+  --indigo:#6366F1;
+  --amber:#D97706;
+  --red:#DC2626;
+  --sky:#0284C7;
+  --text:#101828;
+  --text-dim:#475467;
+  --muted:#8A93A6;
   --display:'Space Grotesk',sans-serif;
   --mono:'JetBrains Mono',monospace;
   --radius:14px;
   --radius-sm:9px;
-  --shadow-card:0 1px 0 rgba(255,255,255,.02) inset,0 10px 30px rgba(0,0,0,.28);
+  --shadow-card:0 1px 0 rgba(255,255,255,.6) inset,0 6px 20px rgba(16,24,40,.06);
 }
 *{margin:0;padding:0;box-sizing:border-box}
 body{background:var(--bg-grad);color:var(--text);font-family:var(--display);min-height:100vh;
   -webkit-font-smoothing:antialiased}
-::selection{background:var(--emerald-dim);color:#fff}
+::selection{background:var(--emerald);color:#fff}
 ::-webkit-scrollbar{width:9px;height:9px}
 ::-webkit-scrollbar-track{background:transparent}
 ::-webkit-scrollbar-thumb{background:var(--panel-3);border-radius:20px;border:2px solid var(--bg)}
@@ -45,11 +45,11 @@ body{background:var(--bg-grad);color:var(--text);font-family:var(--display);min-
 /* ── Header ── */
 header{display:flex;align-items:center;justify-content:space-between;
   padding:16px 28px;border-bottom:1px solid var(--border);
-  background:linear-gradient(180deg,rgba(14,20,36,.9),rgba(10,14,26,.7));
+  background:linear-gradient(180deg,rgba(255,255,255,.92),rgba(244,246,251,.75));
   backdrop-filter:blur(10px);position:sticky;top:0;z-index:20}
 .logo{display:flex;align-items:center;gap:12px}
 .logo .pulse{width:9px;height:9px;border-radius:50%;background:var(--emerald);
-  box-shadow:0 0 12px var(--emerald),0 0 28px rgba(16,185,129,.4);
+  box-shadow:0 0 12px var(--emerald),0 0 28px rgba(5,150,105,.4);
   animation:pulse 2.2s ease-in-out infinite}
 @keyframes pulse{50%{opacity:.35;box-shadow:0 0 4px var(--emerald)}}
 h1{font-size:17px;font-weight:700;letter-spacing:.22em}
@@ -59,7 +59,7 @@ h1 span{color:var(--emerald)}
 .header-right{display:flex;align-items:center;gap:14px;font-family:var(--mono);font-size:11px;color:var(--muted)}
 .autopilot{display:flex;align-items:center;gap:8px;cursor:pointer;user-select:none;
   border:1px solid var(--border);padding:7px 12px;border-radius:20px;transition:.2s;background:var(--panel)}
-.autopilot.on{border-color:var(--emerald-dim);box-shadow:0 0 14px rgba(16,185,129,.15);background:var(--emerald-soft)}
+.autopilot.on{border-color:var(--emerald-dim);box-shadow:0 0 14px rgba(5,150,105,.15);background:var(--emerald-soft)}
 .autopilot .track{width:30px;height:16px;border-radius:9px;background:var(--panel-2);position:relative;transition:.2s}
 .autopilot.on .track{background:var(--emerald-dim)}
 .autopilot .knob{position:absolute;top:2px;left:2px;width:12px;height:12px;border-radius:50%;
@@ -75,11 +75,11 @@ h1 span{color:var(--emerald)}
   border:1px solid var(--border);background:var(--panel-2);color:var(--text-dim);cursor:pointer;
   transition:.15s;display:inline-flex;align-items:center;gap:6px}
 .niche-btn:hover{border-color:var(--emerald-dim);color:var(--emerald);background:var(--emerald-soft);
-  box-shadow:0 0 12px rgba(16,185,129,.12);transform:translateY(-1px)}
+  box-shadow:0 0 12px rgba(5,150,105,.12);transform:translateY(-1px)}
 .niche-btn:active{transform:translateY(0)}
 .niche-btn:disabled{opacity:.45;cursor:wait;transform:none}
-.trending-btn{border-color:#7a1d1d;color:#ff8a80;background:rgba(239,68,68,.06)}
-.trending-btn:hover{border-color:#ff6b5e;color:#ff6b5e;box-shadow:0 0 14px rgba(255,107,94,.2);background:rgba(239,68,68,.1)}
+.trending-btn{border-color:#FCA5A5;color:#B91C1C;background:rgba(220,38,38,.06)}
+.trending-btn:hover{border-color:#DC2626;color:#DC2626;box-shadow:0 4px 14px rgba(220,38,38,.15);background:rgba(220,38,38,.1)}
 #runMsg{font-family:var(--mono);font-size:11px;color:var(--emerald)}
 
 /* ── Trending Explorer modal ── */
@@ -88,12 +88,12 @@ h1 span{color:var(--emerald)}
 .modal-backdrop.open{display:flex}
 .modal{background:var(--bg-grad);border:1px solid var(--border);border-radius:18px;
   width:min(900px,100%);max-height:85vh;overflow-y:auto;padding:26px;
-  box-shadow:0 30px 80px rgba(0,0,0,.6)}
+  box-shadow:0 30px 80px rgba(16,24,40,.25)}
 .modal-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:18px}
 .modal-header h2{font-family:var(--mono);font-size:13px;letter-spacing:.15em;color:var(--text)}
 .modal-close{background:none;border:none;color:var(--muted);font-size:22px;cursor:pointer;padding:4px 10px;
   border-radius:8px;transition:.15s;line-height:1}
-.modal-close:hover{color:var(--red);background:rgba(239,68,68,.1)}
+.modal-close:hover{color:var(--red);background:rgba(220,38,38,.1)}
 .trend-niche-tabs{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:18px}
 .trend-tab{font-family:var(--mono);font-size:10.5px;padding:7px 13px;border-radius:20px;
   border:1px solid var(--border);background:var(--panel-2);color:var(--muted);cursor:pointer;transition:.15s}
@@ -137,14 +137,14 @@ h1 span{color:var(--emerald)}
 .kpi-card{background:linear-gradient(160deg,var(--panel-2),var(--panel));border:1px solid var(--border);
   border-radius:var(--radius);padding:16px 18px;box-shadow:var(--shadow-card);position:relative;overflow:hidden}
 .kpi-card::after{content:'';position:absolute;top:-30px;right:-30px;width:90px;height:90px;border-radius:50%;
-  background:radial-gradient(circle,var(--kpi-glow,rgba(16,185,129,.16)),transparent 70%)}
+  background:radial-gradient(circle,var(--kpi-glow,rgba(5,150,105,.16)),transparent 70%)}
 .kpi-card .kl{font-family:var(--mono);font-size:10px;color:var(--muted);letter-spacing:.12em;
   text-transform:uppercase}
 .kpi-card .kv{font-family:var(--display);font-size:30px;font-weight:700;color:var(--text);margin-top:8px;
   line-height:1}
 .kpi-card .ks{font-family:var(--mono);font-size:10.5px;color:var(--text-dim);margin-top:8px}
-.kpi-card.c-emerald{--kpi-glow:rgba(16,185,129,.18)}
-.kpi-card.c-sky{--kpi-glow:rgba(56,189,248,.16)}
+.kpi-card.c-emerald{--kpi-glow:rgba(5,150,105,.18)}
+.kpi-card.c-sky{--kpi-glow:rgba(2,132,199,.16)}
 .kpi-card.c-indigo{--kpi-glow:rgba(129,140,248,.16)}
 .kpi-card.c-amber{--kpi-glow:rgba(245,158,11,.16)}
 
@@ -227,7 +227,7 @@ button{background:var(--panel-2);border:1px solid var(--border);color:var(--text
 button:hover{border-color:var(--emerald-dim);color:var(--emerald);background:var(--emerald-soft)}
 button.primary{background:linear-gradient(135deg,var(--emerald),var(--emerald-dim));border-color:var(--emerald);color:#04140d;
   font-weight:700}
-button.primary:hover{box-shadow:0 0 20px rgba(16,185,129,.4);color:#04140d;filter:brightness(1.06)}
+button.primary:hover{box-shadow:0 0 20px rgba(5,150,105,.4);color:#04140d;filter:brightness(1.06)}
 button:disabled{opacity:.4;cursor:not-allowed;background:var(--panel-2);box-shadow:none;filter:none}
 
 /* Script editor */
@@ -238,7 +238,7 @@ button:disabled{opacity:.4;cursor:not-allowed;background:var(--panel-2);box-shad
   border-radius:var(--radius-sm);color:var(--text);font-family:var(--mono);font-size:11.5px;padding:10px 12px;
   outline:none;resize:vertical;transition:.15s}
 .editor input:focus,.editor textarea:focus{border-color:var(--emerald-dim);
-  box-shadow:0 0 0 3px rgba(16,185,129,.12)}
+  box-shadow:0 0 0 3px rgba(5,150,105,.12)}
 .editor input:disabled,.editor textarea:disabled{opacity:.5;cursor:not-allowed}
 .editor textarea{min-height:130px;line-height:1.6}
 .editor-actions{display:flex;gap:8px;margin-top:14px;flex-wrap:wrap}
@@ -246,7 +246,7 @@ button:disabled{opacity:.4;cursor:not-allowed;background:var(--panel-2);box-shad
   background:var(--emerald-soft);border:1px solid var(--emerald-dim);border-radius:var(--radius-sm);
   padding:9px 11px;margin-top:6px;line-height:1.5}
 .lock-note{font-family:var(--mono);font-size:10px;color:var(--amber);margin-top:8px;display:none;
-  background:rgba(245,158,11,.08);border:1px solid #7a5b0b;border-radius:var(--radius-sm);padding:8px 10px}
+  background:rgba(245,158,11,.08);border:1px solid #FDE68A;border-radius:var(--radius-sm);padding:8px 10px}
 
 /* ── Right column: jobs + diagnostics ── */
 .diag{display:grid;grid-template-columns:1fr 1fr;gap:8px}
@@ -257,7 +257,7 @@ button:disabled{opacity:.4;cursor:not-allowed;background:var(--panel-2);box-shad
 .dot{width:9px;height:9px;border-radius:50%;background:var(--muted);flex-shrink:0;
   box-shadow:0 0 0 3px var(--panel-2)}
 .dot.ok{background:var(--emerald);box-shadow:0 0 0 3px var(--emerald-soft),0 0 8px var(--emerald)}
-.dot.bad{background:var(--red);box-shadow:0 0 0 3px rgba(239,68,68,.12),0 0 8px var(--red)}
+.dot.bad{background:var(--red);box-shadow:0 0 0 3px rgba(220,38,38,.12),0 0 8px var(--red)}
 
 .job{border:1px solid var(--border);border-radius:12px;padding:13px 15px;margin-bottom:8px;
   background:var(--panel);cursor:pointer;transition:.15s;box-shadow:var(--shadow-card)}
@@ -268,18 +268,18 @@ button:disabled{opacity:.4;cursor:not-allowed;background:var(--panel-2);box-shad
   border:1px solid var(--border);color:var(--muted);letter-spacing:.08em;white-space:nowrap;
   background:var(--panel-2)}
 .badge.Scheduled{color:var(--emerald);border-color:var(--emerald-dim);background:var(--emerald-soft);
-  box-shadow:0 0 10px rgba(16,185,129,.18)}
-.badge.Rendering,.badge.Sourcing,.badge.Scripting,.badge.Synthesizing{color:var(--amber);border-color:#7a5b0b;
+  box-shadow:0 0 10px rgba(5,150,105,.18)}
+.badge.Rendering,.badge.Sourcing,.badge.Scripting,.badge.Synthesizing{color:var(--amber);border-color:#FDE68A;
   background:rgba(245,158,11,.08)}
-.badge.Failed{color:var(--red);border-color:#7a1d1d;background:rgba(239,68,68,.08)}
-.badge.Rendered,.badge.AwaitingApproval{color:var(--sky);border-color:#155e75;background:rgba(56,189,248,.08)}
+.badge.Failed{color:var(--red);border-color:#FCA5A5;background:rgba(220,38,38,.08)}
+.badge.Rendered,.badge.AwaitingApproval{color:var(--sky);border-color:#BAE6FD;background:rgba(2,132,199,.08)}
 .job .topic{font-family:var(--mono);font-size:10.5px;color:var(--text-dim);margin-top:7px;
   overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .job .sched{font-family:var(--mono);font-size:10px;color:var(--emerald-dim);margin-top:4px}
 .job .retry-row{margin-top:9px}
 .retry-btn{font-family:var(--mono);font-size:10px;padding:5px 10px;border-radius:6px;
-  border:1px solid #7a1d1d;background:transparent;color:var(--red);cursor:pointer;transition:.15s}
-.retry-btn:hover{background:rgba(239,68,68,.12);box-shadow:0 0 10px rgba(239,68,68,.15)}
+  border:1px solid #FCA5A5;background:transparent;color:var(--red);cursor:pointer;transition:.15s}
+.retry-btn:hover{background:rgba(220,38,38,.12);box-shadow:0 0 10px rgba(220,38,38,.15)}
 
 /* ── Cost tracker ── */
 .cost-tiles{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px}
@@ -300,7 +300,7 @@ button:disabled{opacity:.4;cursor:not-allowed;background:var(--panel-2);box-shad
 #clipperWrap{padding:0 22px 26px}
 .clipper-note{font-family:var(--mono);font-size:11px;color:var(--muted);line-height:1.6;
   margin:2px 0 16px;max-width:820px}
-.clipper-forms{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:14px}
+.clipper-forms{display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px;margin-bottom:14px}
 .clipper-form{display:flex;flex-direction:column;gap:8px;border:1px solid var(--border);
   border-radius:var(--radius-sm);padding:14px;background:var(--panel)}
 .clipper-form label{font-family:var(--mono);font-size:10px;color:var(--muted);letter-spacing:.1em;
@@ -309,7 +309,7 @@ button:disabled{opacity:.4;cursor:not-allowed;background:var(--panel-2);box-shad
   color:var(--text);font-family:var(--mono);font-size:11.5px;padding:9px 11px;border-radius:var(--radius-sm);
   outline:none}
 .clipper-form input:focus,.clipper-form select:focus{border-color:var(--emerald-dim);
-  box-shadow:0 0 0 3px rgba(16,185,129,.12)}
+  box-shadow:0 0 0 3px rgba(5,150,105,.12)}
 .clipper-msg{font-family:var(--mono);font-size:11px;color:var(--emerald);min-height:16px;margin-bottom:8px}
 .clip-jobs{display:flex;flex-direction:column;gap:10px}
 .clip-job{border:1px solid var(--border);border-radius:var(--radius-sm);padding:13px 15px;background:var(--panel)}
@@ -442,10 +442,13 @@ button:disabled{opacity:.4;cursor:not-allowed;background:var(--panel-2);box-shad
       <button onclick="loadClips()" style="padding:3px 10px">↻</button>
     </div>
     <p class="clipper-note">
-      Turns a long-form video you have rights to into hook-scored short clips.
-      Upload a file you own, or point at a direct CC-licensed/public-domain
-      file URL — YouTube links aren't accepted, this never scrapes video off
-      a page.
+      Turns a long-form video you have rights to into short clips — talk-heavy
+      sources get hook-scored dialogue clips with captions; gameplay/action
+      sources with little speech automatically switch to audio-peak highlight
+      detection with punch-in zooms and impact text instead. YouTube/Twitch/
+      Kick links aren't accepted (none of them offer an official download API,
+      even to the video's owner) — download your own video from that
+      platform's own export feature first, then upload it below.
     </p>
     <div class="clipper-forms">
       <form id="uploadForm" class="clipper-form" onsubmit="submitUpload(event)">
@@ -461,6 +464,13 @@ button:disabled{opacity:.4;cursor:not-allowed;background:var(--panel-2);box-shad
         <input type="text" id="clipSourceLabel" placeholder="Source label (optional)" />
         <select id="clipUrlNiche"><option value="">Caption style: default</option></select>
         <button type="submit" class="primary">Fetch &amp; clip</button>
+      </form>
+      <form id="vimeoForm" class="clipper-form" onsubmit="submitFromVimeo(event)">
+        <label>Or your own Vimeo video</label>
+        <input type="url" id="clipVimeoUrl" placeholder="https://vimeo.com/…" required />
+        <select id="clipVimeoNiche"><option value="">Caption style: default</option></select>
+        <button type="submit" class="primary">Fetch &amp; clip</button>
+        <span style="font-family:var(--mono);font-size:9.5px;color:var(--muted)">Requires VIMEO_ACCESS_TOKEN — see .env.example</span>
       </form>
     </div>
     <div id="clipperMsg" class="clipper-msg"></div>
@@ -846,6 +856,7 @@ function populateClipNicheSelects(){
     TREND_NICHES.map(n=>`<option value="${n}">${n}</option>`).join("");
   document.getElementById("clipUploadNiche").innerHTML = opts;
   document.getElementById("clipUrlNiche").innerHTML = opts;
+  document.getElementById("clipVimeoNiche").innerHTML = opts;
 }
 
 async function submitUpload(e){
@@ -883,6 +894,23 @@ async function submitFromUrl(e){
     const data = await res.json();
     msg.textContent = res.ok ? "✓ "+data.message : "✗ "+(data.error||"failed to start");
     if(res.ok){ document.getElementById("urlForm").reset(); }
+  }catch(err){ msg.textContent = "✗ request failed"; }
+  setTimeout(()=>msg.textContent="",6000);
+  setTimeout(loadClips,2000);
+}
+
+async function submitFromVimeo(e){
+  e.preventDefault();
+  const url = document.getElementById("clipVimeoUrl").value;
+  const niche = document.getElementById("clipVimeoNiche").value;
+  const msg = document.getElementById("clipperMsg");
+  msg.textContent = "Resolving Vimeo download link…";
+  try{
+    const res = await fetch("/api/clips/from-vimeo",{method:"POST",headers:H,
+      body:JSON.stringify({url,niche})});
+    const data = await res.json();
+    msg.textContent = res.ok ? "✓ "+data.message : "✗ "+(data.error||"failed to start");
+    if(res.ok){ document.getElementById("vimeoForm").reset(); }
   }catch(err){ msg.textContent = "✗ request failed"; }
   setTimeout(()=>msg.textContent="",6000);
   setTimeout(loadClips,2000);

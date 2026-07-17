@@ -1447,23 +1447,28 @@ comment on column niche_configurations.social_rss_feeds is
 -- SOURCE: migration_clip_jobs.sql
 -- ═══════════════════════════════════════════════════════════════════════
 -- Long-form clipper (Agent 6): turns a long-form video YOU HAVE RIGHTS TO
--- (a manual upload, or a direct file URL to CC-licensed/public-domain
--- footage) into a set of short vertical clips, using the same hook/pacing
--- rubric as Agent 2's scriptwriting and the same Shotstack render pipeline
--- as Agent 4. This is deliberately NOT a YouTube-URL scraper — source_type
--- is constrained to 'upload' or 'cc_licensed' at the application layer, and
--- a license_note is required for 'cc_licensed' so provenance is always on
--- record.
+-- into a set of short vertical clips, using either a hook/pacing rubric
+-- (talk-heavy source) or audio-peak highlight detection (gameplay/action
+-- source with little dialogue), rendered through the same Shotstack
+-- pipeline Agent 4 uses. This is deliberately NOT a YouTube/Twitch/Kick
+-- scraper — none of those platforms expose an official download API even
+-- to the video's own owner, so source_type is constrained to:
+--   'upload'      — a file the operator uploaded themselves
+--   'cc_licensed' — a direct file URL to CC-licensed/public-domain footage
+--                   (license_note required, enforced in routes/clips.js)
+--   'vimeo_own'   — fetched via the Vimeo API using the operator's own
+--                   personal access token, which Vimeo only honors for
+--                   videos that token's account actually owns
 create table if not exists clip_jobs (
   id uuid primary key default gen_random_uuid(),
-  source_type text not null check (source_type in ('upload','cc_licensed')),
-  source_url text not null,           -- public URL of the uploaded file or the CC-licensed direct file URL
+  source_type text not null check (source_type in ('upload','cc_licensed','vimeo_own')),
+  source_url text not null,           -- public URL of the uploaded file, the CC-licensed direct file URL, or the resolved Vimeo download link
   source_label text,                  -- optional title / creator credit
   license_note text,                  -- required for source_type='cc_licensed' (enforced in routes/clips.js)
   niche text,                         -- optional: borrows that niche's caption style preset
   status text not null default 'Transcribing',
-  transcript jsonb,                   -- word-level timestamps from Whisper
-  clip_plan jsonb,                    -- [{start,end,title,hook_score,reason}, ...]
+  transcript jsonb,                   -- word-level timestamps from Whisper (empty for action-mode sources)
+  clip_plan jsonb,                    -- [{mode,start,end,title,hook_score,reason,peakOffset?}, ...]
   rendered_clips jsonb not null default '[]'::jsonb, -- [{start,end,title,url,shotstack_render_id}, ...]
   error text,
   openai_tokens integer not null default 0,
@@ -1471,7 +1476,35 @@ create table if not exists clip_jobs (
   created_at timestamptz not null default now()
 );
 
+-- Widen an existing deployment's constraint too (CREATE TABLE IF NOT EXISTS
+-- above is a no-op once the table already exists from an earlier run).
+alter table clip_jobs drop constraint if exists clip_jobs_source_type_check;
+alter table clip_jobs add constraint clip_jobs_source_type_check
+  check (source_type in ('upload','cc_licensed','vimeo_own'));
+
 alter table clip_jobs enable row level security;
+
+-- Sound-effect stingers for action-mode clips (gameplay highlights etc).
+-- Mirrors music_library's pattern exactly — an empty table just means no
+-- stinger gets layered in, same graceful degradation as pickMusic(). Stock
+-- it yourself with royalty-free one-shot SFX (Pixabay's sound-effects
+-- library is the same free-commercial-use source already used for
+-- footage/music) uploaded to Supabase Storage.
+create table if not exists sfx_library (
+  id uuid primary key default gen_random_uuid(),
+  track_url text not null,            -- public MP3/WAV in Supabase Storage
+  title text,
+  tags text[] not null default '{}',  -- e.g. {'impact','whoosh','clutch','fail'}
+  license_note text,
+  created_at timestamptz not null default now()
+);
+
+alter table sfx_library enable row level security;
+
+-- Example inventory record (replace with a public URL to a CC0/royalty-free SFX you sourced):
+-- insert into sfx_library (track_url, title, tags, license_note)
+-- values ('https://YOUR_PROJECT.supabase.co/storage/v1/object/public/sfx/impact-hit.mp3',
+--         'Impact Hit', array['impact','clutch'], 'Licensed from: Pixabay Sound Effects (free for commercial use)');
 
 -- Storage: create a public "uploads" bucket in the Supabase dashboard
 -- (Storage → New bucket → name "uploads" → Public) for source video files,

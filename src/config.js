@@ -40,6 +40,10 @@ export const config = {
   },
   pexelsKey: process.env.PEXELS_API_KEY,
   pixabayKey: process.env.PIXABAY_API_KEY,
+  // Long-form clipper (Agent 6): personal access token for YOUR OWN Vimeo
+  // account — Vimeo's API only returns a download link for videos that
+  // token owns, so this can't be pointed at third-party videos.
+  vimeoAccessToken: process.env.VIMEO_ACCESS_TOKEN,
   // A render is blocked when footage cannot be visually verified against its
   // exact narration beat. Disable only for local diagnostics.
   visualQualityGate: (process.env.VISUAL_QUALITY_GATE || "true").toLowerCase() === "true",
