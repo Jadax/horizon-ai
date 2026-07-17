@@ -15,7 +15,7 @@
 import { config } from "../config.js";
 import { supabase, logEvent } from "../supabase.js";
 
-export async function synthesizeVoiceover(script, voiceId, jobId) {
+export async function synthesizeVoiceover(script, voiceId, jobId, expectedMaxSeconds = 58) {
   await logEvent("Agent 3", `Synthesizing voiceover (voice ${voiceId})…`, { jobId });
 
   const res = await fetch(
@@ -58,6 +58,22 @@ export async function synthesizeVoiceover(script, voiceId, jobId) {
 
   const audioBuffer = Buffer.from(json.audio_base64, "base64");
   const duration = words.length ? words[words.length - 1].end : 45;
+
+  // SHORTS/TIKTOK LENGTH DISCIPLINE: YouTube technically allows Shorts up
+  // to 3 minutes and TikTok up to 10 minutes, but the loop mechanic this
+  // product is built around — and virality/retention generally — both
+  // favor staying well under 60s. Script length is already constrained
+  // upstream (Agent 2: ~45s normal, ~25-35s word-clip mode), so this is a
+  // safety net that surfaces the problem rather than silently shipping an
+  // overlong render if a script ever comes back longer than intended.
+  if (duration > expectedMaxSeconds) {
+    await logEvent(
+      "Agent 3",
+      `⚠ Voiceover is ${Math.round(duration)}s — longer than this niche's ${expectedMaxSeconds}s target. Consider tightening Agent 2's word count, or this may be intentional for a longer-form niche.`,
+      { jobId, level: "warn" }
+    );
+  }
+
 
   // Upload to Supabase Storage so Shotstack can fetch it
   const path = `voiceovers/${jobId}.mp3`;

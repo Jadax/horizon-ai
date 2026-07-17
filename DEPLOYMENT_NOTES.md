@@ -100,6 +100,102 @@ needed.
 
 ## Changelog
 
+- **Comprehensive workflow expansion: multi-channel routing, flexible
+  duration, Viral niche, performance feedback loop.**
+  - `target_channel` added to `niche_configurations` + `pipeline_logs`.
+    `GOOGLE_CHANNELS` env var (JSON map of channel key → refresh token)
+    lets different niches upload to different YouTube channels — set once
+    per additional channel, then reassign any niche to it from the
+    dashboard's new **Channel Routing** panel (no redeploy needed).
+  - `target_duration_min_seconds` / `target_duration_max_seconds` per
+    niche replace the old fixed ~45s target. Most niches stay TikTok/
+    Shorts length; Gaming/Lore (up to 90s) and Food (up to 75s) can run
+    longer when a topic genuinely needs it. Agent 2's loop mechanic
+    auto-disables past ~70s since it's a short-form retention trick, not
+    something that fits a 2-minute video.
+  - `lore_wiki_apis` generalizes the old hardcoded Elden Ring wiki lookup
+    to a configurable list per niche. Gaming/Lore now also pulls from
+    Lexicanum (Warhammer 40k's real MediaWiki-powered fan wiki) alongside
+    Elden Ring's wiki.gg, plus Warhammer Community's official RSS feed.
+  - **New Viral/Memes niche** — sourced from KnowYourMeme's RSS feed,
+    Mastodon meme tags, Lemmy, and Google Trends, turned into ORIGINAL
+    narrated commentary over licensed stock or word-clip visuals. This
+    niche deliberately never re-embeds someone else's clip, screenshot, or
+    meme image — same compliance principle as every other niche here.
+  - **Performance feedback loop** (`src/lib/performanceTracker.js` +
+    `recalibrateFromPerformance` in `trendScoring.js`) — a 6-hourly cron
+    now pulls real YouTube view/like/comment counts for published videos
+    (via the cheap `videos.list?part=statistics` call, no separate
+    Analytics API needed) and nudges the trend engine's source-reliability
+    weights based on ACTUAL performance, not just harvest-time
+    corroboration. This closes part of the "future step" gap flagged in
+    the original trend-scoring changelog entry below.
+  - Author metadata added: `package.json`'s `author` field and every
+    uploaded video's description now credit "Tushant Sharma" / "A
+    MythosVibe production."
+  - **Explicitly declined and NOT built, on request**: (1) deliberately
+    scraping sources in violation of their ToS, and (2) ripping/reposting
+    influencer or tournament gameplay clips from YouTube/Kick/Twitch. Both
+    were requested directly in this session; both carry real copyright/ToS
+    risk regardless of a clip's popularity or platform, and building either
+    would undermine the compliance work already done to move this project
+    off Reddit's aggressive lockdown. See the README's "What's NOT wired
+    in, and why" section for the full reasoning and the compliant
+    alternatives built instead (esports-press RSS narrated over licensed
+    stock, rather than actual gameplay/broadcast clips).
+
+- **Major restructuring: code split into src/sources/, src/lib/, src/routes/.**
+  `agent1_harvester.js` and `index.js` had grown into large monoliths as
+  features accumulated. Harvesting integrations moved to one small file
+  each under `src/sources/` (rss.js, googleTrends.js, gdelt.js,
+  youtubeTrending.js, fediverse.js, reddit.js); the trend-scoring logic
+  moved to `src/lib/trendScoring.js`; and `index.js`'s routes split into
+  `src/routes/jobs.js`, `run.js`, `trending.js`, `costs.js`. `index.js`
+  itself dropped from ~245 lines to ~65 — now just auth, the SSE stream,
+  cron, and mounting the route modules. Adding a new harvesting source or
+  route going forward means adding one small file, not editing a monolith.
+- **Trend-scoring engine added** (`src/lib/trendScoring.js`) — replaces the
+  old ad-hoc "sort by engagement score" logic with a real scoring model:
+  cross-source corroboration (same story appearing across multiple
+  independent sources = likely rising, not yet peaked), freshness decay,
+  specificity, and per-source reliability weights that self-adjust over
+  time and persist in a new `trend_rules` table. See the header comment in
+  that file for exactly what "self-updating" means today vs. the future
+  step (closing the loop against real YouTube Analytics performance data).
+- **Massively expanded harvesting sources.** Added: GDELT (global news
+  dataset), Google News RSS, YouTube Trending (reuses existing upload
+  OAuth), Mastodon hashtags, and Lemmy communities — all free, no-auth,
+  genuine "hidden gem" sources most pipelines never touch. Every existing
+  niche's RSS feed list roughly tripled (see
+  `migration_harvesting_expansion.sql`), and **India-focused sources**
+  (Times of India, NDTV, Hindustan Times) were added to News — India is the
+  single largest Shorts-consuming market and was previously unaddressed.
+- **Food niche added** (Japanese, Korean, global) — Just One Cookbook,
+  Maangchi, Serious Eats, Bon Appétit, Korean Bapsang RSS feeds.
+- **Ad-hoc trend explorer** — dashboard's 🔥 "Check What's Trending" button
+  hits the new `/api/trending` route, which runs the same harvesting
+  sources and returns the full ranked candidate list without running the
+  rest of the pipeline (zero OpenAI/ElevenLabs/Shotstack cost).
+- **Published Videos widget** — thumbnail grid on the dashboard showing
+  everything that's actually gone live on YouTube, linking directly to
+  each video (`/api/jobs/published`).
+- **Token efficiency: trim-point calculation moved to gpt-4o-mini.** That
+  step is mechanical timing/ordering, not creative writing — no quality
+  tradeoff that matters, real cost reduction. Script/title writing stays on
+  gpt-4o where reasoning quality matters.
+- **Shorts-length safety net** — Agent 3 now logs a warning if a voiceover
+  comes back over 58s, since virality for both YouTube Shorts and TikTok
+  strongly favors staying well under 60s regardless of what the platforms
+  technically allow.
+- **Honest scope boundaries documented** (see README's "What's NOT wired
+  in" section): Instagram/TikTok scraping and actual esports
+  broadcast/gameplay clip ripping (Dota 2/CS2/EWC/TI) are deliberately not
+  implemented — no free, ToS-compliant path exists for either, and both
+  would reintroduce the exact copyright/ToS risk this project moved away
+  from with Reddit. Esports content is instead covered via press RSS
+  (Dexerto, Dot Esports, etc.) narrated over licensed stock footage — same
+  pattern as the existing Gaming/Lore content.
+
 - **Per-niche run buttons** added to the dashboard (below the header) —
   trigger Gaming/Lore, Aesthetic, Psychology, or Travel individually via
   the existing `/api/run/:niche` route, instead of only "run everything."
@@ -132,6 +228,23 @@ needed.
   public RSS feed, with Reddit kept only as a harmless best-effort bonus
   source. Run `supabase/migration_rss_feeds.sql` once to add the `rss_feeds`
   column and seed real feed URLs per niche.
+- **Titling logic overhauled.** Agent 2's title generation used to just say
+  "clickbaity title under 40 chars" — too vague to reliably produce titles
+  that are both catchy AND actually about the video. The new system prompt
+  makes the model work through an explicit process every time: (1) pull the
+  single most concrete, specific fact/claim from the script itself — never a
+  vague category; (2) pick one proven title pattern that genuinely fits that
+  fact (curiosity gap, specific number/stakes, contrarian reframe, direct
+  consequence, or insider callout naming something the audience already
+  recognizes); (3) calibrate wording for a tech-savvy audience that already
+  knows the niche's basics and will bounce off "you won't believe" style
+  vagueness; (4) verify the title's claim actually appears in the script
+  before finalizing — the script is never stretched to fit a punchier title,
+  only the reverse. The model also returns a `title_reasoning` field (which
+  hook it pulled, which pattern, why it fits) stored in `pipeline_logs` and
+  shown in the dashboard's script editor, so you can spot-check the logic
+  behind any title rather than just trusting the output blind. Run
+  `supabase/migration_title_reasoning.sql` once for existing projects.
 - **News niche + word-clip format added.** Catchy viral word-clip videos
   (giant single-word/short-phrase captions synced to voiceover) built from
   real breaking/trending news. New free, no-auth sources added to Agent 1:

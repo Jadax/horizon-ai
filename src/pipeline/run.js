@@ -6,6 +6,7 @@
 import { supabase, logEvent, updateJob } from "../supabase.js";
 import { config } from "../config.js";
 import { harvestTopic, harvestFootage } from "./agent1_harvester.js";
+import { decideFormat } from "./formatDecision.js";
 import { writeScript, calculateTrims } from "./agent2_scriptwriter.js";
 import { synthesizeVoiceover, pickMusic } from "./agent3_audio.js";
 import { buildEditPayload, render } from "./agent4_shotstack.js";
@@ -15,7 +16,7 @@ export async function runPipelineForNiche(niche) {
   // Create the job row
   const { data: job, error } = await supabase
     .from("pipeline_logs")
-    .insert({ niche: niche.niche_name, status: "Sourcing" })
+    .insert({ niche: niche.niche_name, status: "Sourcing", target_channel: niche.target_channel || "primary" })
     .select()
     .single();
   if (error) throw new Error(`Could not create pipeline_logs row: ${error.message}`);
@@ -23,24 +24,41 @@ export async function runPipelineForNiche(niche) {
   let usage = { openai_tokens: 0, elevenlabs_characters: 0, shotstack_render_seconds: 0 };
 
   try {
-    // ── Agent 1: topic + licensed media ──
+    // ── Agent 1: topic ──
     const { topic, loreContext } = await harvestTopic(niche, jobId);
-    const clips = await harvestFootage(niche, jobId);
+
+    // ── Format Decision Engine: how should THIS topic be presented? ──
+    const decision = await decideFormat(niche, topic, jobId);
+    usage.openai_tokens += decision._usage?.tokens || 0;
+    // Effective preset/duration for the rest of this run — the niche's
+    // config is still the outer boundary, but every generation step below
+    // uses the per-topic decision, not the niche's static default.
+    const preset = { ...niche.editing_style_preset, wordClipMode: decision.word_clip_mode };
+    const effectiveNiche = {
+      ...niche,
+      target_duration_min_seconds: Math.max(15, decision.target_duration_seconds - 6),
+      target_duration_max_seconds: decision.target_duration_seconds + 4,
+    };
+
+    // ── Agent 1 continued: licensed footage, mood-matched to the decision ──
+    const clips = await harvestFootage(niche, jobId, 55, decision.footage_mood);
     await updateJob(jobId, {
       topic: topic.title,
       source_url: topic.url,
       sourced_media_urls: clips.map((c) => ({ url: c.url, provider: c.provider, license: c.license })),
+      format_decision: decision,
       status: "Scripting",
     });
 
     // ── Agent 2: script + trim points ──
-    const scriptOut = await writeScript(niche, topic, loreContext, jobId);
+    const scriptOut = await writeScript(effectiveNiche, topic, loreContext, jobId);
     usage.openai_tokens += scriptOut._usage?.tokens || 0;
-    const preset = niche.editing_style_preset;
     const cuts = await calculateTrims(scriptOut.script, clips, preset, jobId);
+    usage.openai_tokens += cuts._usage?.tokens || 0;
     await updateJob(jobId, {
       script: scriptOut.script,
       title: scriptOut.title,
+      title_reasoning: scriptOut.title_reasoning || null,
       description: scriptOut.description,
       tags: scriptOut.tags,
       calculated_trim_points: cuts,
@@ -52,7 +70,8 @@ export async function runPipelineForNiche(niche) {
     const { voiceoverUrl, words, duration } = await synthesizeVoiceover(
       scriptOut.script,
       niche.voice_profile_id,
-      jobId
+      jobId,
+      decision.target_duration_seconds + 15 // small buffer before warning fires
     );
     usage.elevenlabs_characters += scriptOut.script.length;
     const musicTrack = await pickMusic(preset.music_energy, jobId);
@@ -90,6 +109,7 @@ export async function runPipelineForNiche(niche) {
         description: scriptOut.description,
         tags: scriptOut.tags,
         jobId,
+        targetChannel: niche.target_channel,
       });
       await updateJob(jobId, {
         youtube_video_id: result.videoId,

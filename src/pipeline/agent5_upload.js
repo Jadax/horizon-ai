@@ -6,10 +6,14 @@
  * - Downloads the Shotstack render and uploads to YouTube as PRIVATE with
  *   publishAt set — YouTube flips it public at the scheduled instant, which
  *   is the quota-friendly "private draft, scheduled" pattern.
+ * - MULTI-CHANNEL: each niche can target a different YouTube channel via
+ *   its `target_channel` value (see config.js's getChannelToken and the
+ *   dashboard's Channel Routing panel). Single-channel setups need zero
+ *   extra config — everything defaults to the "primary" channel.
  */
 import { google } from "googleapis";
 import { Readable } from "node:stream";
-import { config } from "../config.js";
+import { config, getChannelToken } from "../config.js";
 import { logEvent } from "../supabase.js";
 
 // Local peak windows (hour of day, local time) per region — Shorts evening peaks
@@ -39,29 +43,32 @@ export function nextPublishSlot() {
   return { region: region.name, publishAt: slot };
 }
 
-function youtubeClient() {
+function youtubeClient(channelKey) {
   const oauth2 = new google.auth.OAuth2(
     config.google.clientId,
     config.google.clientSecret,
     config.google.redirectUri
   );
-  oauth2.setCredentials({ refresh_token: config.google.refreshToken });
+  oauth2.setCredentials({ refresh_token: getChannelToken(channelKey) });
   return google.youtube({ version: "v3", auth: oauth2 });
 }
 
-export async function uploadScheduled({ videoUrl, title, description, tags, jobId }) {
+export async function uploadScheduled({ videoUrl, title, description, tags, jobId, targetChannel }) {
   const { region, publishAt } = nextPublishSlot();
+  const channelKey = targetChannel || "primary";
   await logEvent(
     "Agent 5",
-    `Target: ${region} peak window → publishes ${publishAt.toISOString()}`,
+    `Target: ${region} peak window → publishes ${publishAt.toISOString()} (channel: ${channelKey})`,
     { jobId }
   );
 
-  if (!config.google.refreshToken) {
-    await logEvent("Agent 5", "No GOOGLE_REFRESH_TOKEN — run `npm run auth:youtube` first. Holding video.", {
-      jobId,
-      level: "warn",
-    });
+  const token = getChannelToken(channelKey);
+  if (!token) {
+    await logEvent(
+      "Agent 5",
+      `No refresh token for channel "${channelKey}" — run \`npm run auth:youtube\` (or add it to GOOGLE_CHANNELS). Holding video.`,
+      { jobId, level: "warn" }
+    );
     return { region, publishAt, videoId: null, held: true };
   }
 
@@ -69,7 +76,7 @@ export async function uploadScheduled({ videoUrl, title, description, tags, jobI
   const videoRes = await fetch(videoUrl);
   if (!videoRes.ok) throw new Error(`Could not fetch render for upload: HTTP ${videoRes.status}`);
 
-  const yt = youtubeClient();
+  const yt = youtubeClient(channelKey);
   await logEvent("Agent 5", `Uploading to YouTube as private + scheduled…`, { jobId });
 
   const { data } = await yt.videos.insert({
@@ -77,7 +84,7 @@ export async function uploadScheduled({ videoUrl, title, description, tags, jobI
     requestBody: {
       snippet: {
         title: title.slice(0, 100),
-        description: `${description}\n\n#Shorts`,
+        description: `${description}\n\n#Shorts\n\nA MythosVibe production — Tushant Sharma`,
         tags: tags?.slice(0, 15),
         categoryId: "24", // Entertainment
       },

@@ -56,7 +56,54 @@ h1 span{color:var(--emerald)}
 .niche-btn:hover{border-color:var(--emerald-dim);color:var(--emerald);
   box-shadow:0 0 12px rgba(16,185,129,.12)}
 .niche-btn:disabled{opacity:.5;cursor:wait}
-#runMsg{font-family:var(--mono);font-size:11px;color:var(--emerald);margin-left:auto}
+.trending-btn{border-color:#7a1d1d;color:#ff8a80}
+.trending-btn:hover{border-color:#ff6b5e;color:#ff6b5e;box-shadow:0 0 14px rgba(255,107,94,.2)}
+#runMsg{font-family:var(--mono);font-size:11px;color:var(--emerald)}
+
+/* ── Trending Explorer modal ── */
+.modal-backdrop{position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:100;
+  display:none;align-items:center;justify-content:center;padding:24px}
+.modal-backdrop.open{display:flex}
+.modal{background:var(--bg);border:1px solid var(--border);border-radius:16px;
+  width:min(900px,100%);max-height:85vh;overflow-y:auto;padding:24px;
+  box-shadow:0 30px 80px rgba(0,0,0,.6)}
+.modal-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:16px}
+.modal-header h2{font-family:var(--mono);font-size:13px;letter-spacing:.15em;color:var(--text)}
+.modal-close{background:none;border:none;color:var(--muted);font-size:20px;cursor:pointer;padding:4px 10px}
+.trend-niche-tabs{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:16px}
+.trend-tab{font-family:var(--mono);font-size:10.5px;padding:6px 12px;border-radius:20px;
+  border:1px solid var(--border);background:var(--panel-2);color:var(--muted);cursor:pointer}
+.trend-tab.active{color:var(--emerald);border-color:var(--emerald-dim)}
+.trend-item{border:1px solid var(--border);border-radius:10px;padding:10px 14px;margin-bottom:8px;
+  background:var(--panel)}
+.trend-item .row1{display:flex;justify-content:space-between;gap:10px;align-items:baseline}
+.trend-item .ttitle{font-size:12.5px;color:var(--text);line-height:1.4}
+.trend-item .tmeta{font-family:var(--mono);font-size:9.5px;color:var(--muted);white-space:nowrap}
+.trend-item .tscore{color:var(--emerald);font-weight:700}
+.trend-item a{color:var(--muted);text-decoration:none;font-size:10px}
+.trend-item a:hover{color:var(--emerald)}
+.trend-loading{font-family:var(--mono);font-size:11px;color:var(--muted);padding:30px;text-align:center}
+
+/* ── Published Videos widget ── */
+.published-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.pub-card{border:1px solid var(--border);border-radius:10px;overflow:hidden;background:var(--panel);
+  text-decoration:none;display:block;transition:.15s}
+.pub-card:hover{border-color:var(--emerald-dim)}
+.pub-card img{width:100%;aspect-ratio:16/9;object-fit:cover;display:block;background:var(--panel-2)}
+.pub-card .pub-info{padding:8px 10px}
+.pub-card .pub-title{font-size:10.5px;color:var(--text);line-height:1.3;
+  display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.pub-card .pub-meta{font-family:var(--mono);font-size:9px;color:var(--muted);margin-top:4px}
+.no-published{font-family:var(--mono);font-size:11px;color:var(--muted);padding:20px 0;text-align:center}
+
+/* ── Channel Routing panel ── */
+.channel-panel{margin-bottom:22px}
+.channel-row{display:flex;align-items:center;justify-content:space-between;gap:8px;
+  font-family:var(--mono);font-size:11px;padding:8px 12px;border:1px solid var(--border);
+  border-radius:8px;background:var(--panel);margin-bottom:6px}
+.channel-row .cn{color:var(--text)}
+.channel-row select{background:var(--panel-2);border:1px solid var(--border);color:var(--emerald);
+  font-family:var(--mono);font-size:10px;padding:4px 8px;border-radius:6px;outline:none}
 
 /* ── Layout ── */
 main{display:grid;grid-template-columns:1fr 340px 1fr;gap:1px;background:var(--border);
@@ -105,6 +152,9 @@ button:disabled{opacity:.4;cursor:not-allowed}
   box-shadow:0 0 10px rgba(16,185,129,.12)}
 .editor textarea{min-height:130px;line-height:1.6}
 .editor-actions{display:flex;gap:8px;margin-top:12px}
+.title-reasoning{font-family:var(--mono);font-size:10.5px;color:var(--emerald-dim);
+  background:rgba(16,185,129,.06);border:1px solid var(--emerald-dim);border-radius:8px;
+  padding:8px 10px;margin-top:6px;line-height:1.5}
 .lock-note{font-family:var(--mono);font-size:10px;color:var(--amber);margin-top:8px;display:none}
 
 /* ── Right column: jobs + diagnostics ── */
@@ -174,7 +224,10 @@ button:disabled{opacity:.4;cursor:not-allowed}
   <button onclick="runNiche('Psychology')" class="niche-btn">🧠 Psychology</button>
   <button onclick="runNiche('Travel')" class="niche-btn">✈️ Travel</button>
   <button onclick="runNiche('News')" class="niche-btn">📰 News</button>
+  <button onclick="runNiche('Food')" class="niche-btn">🍜 Food</button>
+  <button onclick="runNiche('Viral')" class="niche-btn">😂 Viral</button>
   <span id="runMsg"></span>
+  <button onclick="openTrending()" class="niche-btn trending-btn" style="margin-left:auto">🔥 Check What's Trending</button>
 </div>
 
 <main>
@@ -198,6 +251,7 @@ button:disabled{opacity:.4;cursor:not-allowed}
       <div class="lock-note" id="lockNote">⚠ Pause Autopilot to unlock manual overrides</div>
       <label>Title (&lt;40 chars)</label>
       <input id="fTitle" maxlength="100" />
+      <div id="titleReasoning" class="title-reasoning"></div>
       <label>Narration script</label>
       <textarea id="fScript"></textarea>
       <label>Description</label>
@@ -213,12 +267,28 @@ button:disabled{opacity:.4;cursor:not-allowed}
   <section>
     <div class="sec-title">Console diagnostics <button onclick="loadDiag()" style="padding:3px 10px">↻</button></div>
     <div class="diag" id="diag"></div>
+    <div class="sec-title">Channel routing <button onclick="loadNiches()" style="padding:3px 10px">↻</button></div>
+    <div id="channelPanel" class="channel-panel"></div>
     <div class="sec-title">Cost tracker <span id="costTotal" style="color:var(--emerald)"></span></div>
     <div id="costPanel" class="cost-panel"></div>
     <div class="sec-title">Pipeline queue <button onclick="loadJobs()" style="padding:3px 10px">↻</button></div>
     <div id="jobs"></div>
+    <div class="sec-title" style="margin-top:22px">Published videos <button onclick="loadPublished()" style="padding:3px 10px">↻</button></div>
+    <div id="publishedGrid" class="published-grid"></div>
   </section>
 </main>
+
+<!-- ── Trending Explorer modal ── -->
+<div class="modal-backdrop" id="trendingModal">
+  <div class="modal">
+    <div class="modal-header">
+      <h2>🔥 WHAT'S TRENDING RIGHT NOW</h2>
+      <button class="modal-close" onclick="closeTrending()">×</button>
+    </div>
+    <div class="trend-niche-tabs" id="trendTabs"></div>
+    <div id="trendResults"><div class="trend-loading">Select a niche to scan its live sources…</div></div>
+  </div>
+</div>
 
 <script>
 const KEY = localStorage.getItem("horizon_key") || prompt("Dashboard password:");
@@ -290,6 +360,7 @@ async function loadJobs(){
         <div class="row1"><span class="niche">${j.niche}</span>
           <span class="badge ${j.status.replace(/\s/g,'')}">${j.status.toUpperCase()}</span></div>
         <div class="topic">${escapeHtml(j.topic||j.title||"—")}</div>
+        ${j.format_decision?`<div class="sched" style="color:var(--emerald-dim)">🎬 ${j.format_decision.word_clip_mode?"word-clip":"narrated"} · ${j.format_decision.target_duration_seconds}s · ${escapeHtml((j.format_decision.reasoning||"").slice(0,90))}</div>`:""}
         ${j.publish_schedule?`<div class="sched">⏱ ${j.target_region||""} → ${j.publish_schedule.slice(0,16).replace("T"," ")} UTC</div>`:""}
         ${j.status==="Failed"&&j.error?`<div class="sched" style="color:var(--red)">⚠ ${escapeHtml(j.error.slice(0,80))}</div>`:""}
       </div>
@@ -326,6 +397,8 @@ function selectJob(id){
   document.getElementById("jobSelect").value = id;
   document.getElementById("editor").style.display="block";
   document.getElementById("fTitle").value = currentJob.title||"";
+  document.getElementById("titleReasoning").textContent = currentJob.title_reasoning
+    ? "💡 "+currentJob.title_reasoning : "";
   document.getElementById("fScript").value = currentJob.script||"";
   document.getElementById("fDesc").value = currentJob.description||"";
   applyLockState();
@@ -391,9 +464,93 @@ async function runNiche(niche){
   setTimeout(loadJobs,3000);
 }
 
-loadDiag(); loadJobs(); loadCosts();
+// ── Published Videos widget ──
+async function loadPublished(){
+  const res = await fetch("/api/jobs/published",{headers:H});
+  if(!res.ok) return;
+  const vids = await res.json();
+  const grid = document.getElementById("publishedGrid");
+  if(!vids.length){
+    grid.innerHTML = '<div class="no-published" style="grid-column:1/-1">No videos published yet — they\'ll appear here once uploads go out.</div>';
+    return;
+  }
+  grid.innerHTML = vids.map(v => `
+    <a class="pub-card" href="https://youtube.com/watch?v=${v.youtube_video_id}" target="_blank" rel="noopener">
+      <img src="https://img.youtube.com/vi/${v.youtube_video_id}/hqdefault.jpg" loading="lazy" alt=""/>
+      <div class="pub-info">
+        <div class="pub-title">${escapeHtml(v.title||v.niche)}</div>
+        <div class="pub-meta">${v.niche} · ${v.target_region||""} · ${(v.publish_schedule||"").slice(0,10)}</div>
+      </div>
+    </a>`).join("");
+}
+
+// ── Trending Explorer ──
+const TREND_NICHES = ["Gaming/Lore","Aesthetic","Psychology","Travel","News","Food","Viral"];
+let activeTrendNiche = null;
+
+function openTrending(){
+  document.getElementById("trendingModal").classList.add("open");
+  document.getElementById("trendTabs").innerHTML = TREND_NICHES.map(n =>
+    `<div class="trend-tab" onclick="scanTrending('${n}')" id="tab-${n.replace('/','')}">${n}</div>`).join("");
+}
+function closeTrending(){
+  document.getElementById("trendingModal").classList.remove("open");
+}
+document.getElementById("trendingModal").addEventListener("click", (e)=>{
+  if(e.target.id === "trendingModal") closeTrending();
+});
+async function scanTrending(niche){
+  activeTrendNiche = niche;
+  document.querySelectorAll(".trend-tab").forEach(t=>t.classList.remove("active"));
+  document.getElementById("tab-"+niche.replace("/","")).classList.add("active");
+  const box = document.getElementById("trendResults");
+  box.innerHTML = '<div class="trend-loading">Scanning live sources for '+niche+'… (RSS, Google Trends, YouTube Trending, fediverse)</div>';
+  try{
+    const res = await fetch("/api/trending?niche="+encodeURIComponent(niche),{headers:H});
+    const data = await res.json();
+    if(!res.ok){ box.innerHTML = '<div class="trend-loading">✗ '+(data.error||"scan failed")+'</div>'; return; }
+    const items = data.results[niche] || [];
+    if(!items.length){ box.innerHTML = '<div class="trend-loading">No candidates found — sources may be rate-limited, try again shortly.</div>'; return; }
+    box.innerHTML = items.map(i => `
+      <div class="trend-item">
+        <div class="row1">
+          <span class="ttitle">${escapeHtml(i.title)}</span>
+          <span class="tmeta"><span class="tscore">${i.trendScore}</span> pts · ${i.corroboratedBy}× corroborated</span>
+        </div>
+        <div class="tmeta">${escapeHtml(i.source)} ${i.url?' · <a href="'+i.url+'" target="_blank" rel="noopener">open ↗</a>':''}</div>
+      </div>`).join("");
+  }catch(e){
+    box.innerHTML = '<div class="trend-loading">✗ request failed</div>';
+  }
+}
+
+// ── Channel Routing ──
+let knownChannels = ["primary"];
+async function loadNiches(){
+  const [chRes, nRes] = await Promise.all([
+    fetch("/api/channels",{headers:H}),
+    fetch("/api/niches",{headers:H}),
+  ]);
+  if(chRes.ok){ knownChannels = (await chRes.json()).channels; }
+  if(!nRes.ok) return;
+  const niches = await nRes.json();
+  document.getElementById("channelPanel").innerHTML = niches.map(n => `
+    <div class="channel-row">
+      <span class="cn">${n.niche_name}</span>
+      <select onchange="setChannel('${n.niche_name}', this.value)">
+        ${knownChannels.map(c=>`<option value="${c}" ${n.target_channel===c?"selected":""}>${c}</option>`).join("")}
+      </select>
+    </div>`).join("");
+}
+async function setChannel(niche, channel){
+  await fetch("/api/niches/"+encodeURIComponent(niche),{method:"PATCH",headers:H,
+    body:JSON.stringify({target_channel:channel})});
+}
+
+loadDiag(); loadJobs(); loadCosts(); loadPublished(); loadNiches();
 setInterval(loadJobs, 30_000);
 setInterval(loadCosts, 60_000);
+setInterval(loadPublished, 60_000);
 </script>
 </body>
 </html>

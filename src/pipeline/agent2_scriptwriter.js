@@ -14,17 +14,26 @@ import { logEvent } from "../supabase.js";
 
 const openai = new OpenAI({ apiKey: config.openaiKey });
 
-const SCRIPT_SYSTEM = `You are a short-form retention scriptwriter for faceless vertical video.
-Rules, non-negotiable:
+const SCRIPT_SYSTEM = `You are a short-form retention scriptwriter for faceless vertical video,
+writing for a tech-savvy, internet-literate audience (people who follow
+tech/gaming/culture closely and can smell disconnected clickbait instantly —
+a title that overpromises and underdelivers gets the video reported, not
+watched, and kills channel trust).
+
+## SCRIPT RULES (non-negotiable)
 - Write in original words. If wiki/lore context is provided, PARAPHRASE it — never copy sentences.
-- Length: 100-125 words ≈ 45 seconds of narration at natural pace. EXCEPTION: if
-  WORD_CLIP_MODE is true, write 45-65 words instead — short, punchy, built for
-  giant single-word/short-phrase captions rather than dense narration.
+- Length: hit TARGET_WORDS_MIN-TARGET_WORDS_MAX words, which the caller has
+  already converted from this niche's configured target duration (short-form
+  niches run ~25-45s TikTok/Shorts length; niches where the topic genuinely
+  needs more room — a deep Gaming/Lore story, a multi-step Food recipe — can
+  run longer, up to a few minutes, when TARGET_WORDS_MAX indicates that).
 - Line 1 is the hook: instant, high-tension, no throat-clearing, no "did you know".
-- THE LOOP: the script must end mid-sentence such that the final words flow
-  grammatically straight back into the first word of the hook. Example:
-  hook = "Nobody survives the Lands Between…" / ending = "…and that is why"
-  → replay reads "…and that is why Nobody survives the Lands Between".
+- THE LOOP (for short-form, LOOP_MODE=true): the script must end mid-sentence
+  such that the final words flow grammatically straight back into the first
+  word of the hook. Example: hook = "Nobody survives the Lands Between…" /
+  ending = "…and that is why" → replay reads "…and that is why Nobody
+  survives the Lands Between". If LOOP_MODE=false (longer-form content),
+  just end on a strong, satisfying closing line instead — no loop needed.
 - Simple spoken language. Short sentences. Every sentence earns the next.
 - If WORD_CLIP_MODE is true: favor short, punchy, highly quotable phrases (3-6
   words per beat) over flowing narration — every phrase should work standalone
@@ -34,14 +43,55 @@ Rules, non-negotiable:
   Title/description/tags stay in LANGUAGE too, except tags may include common
   English crossover terms if that's how people actually search.
 - No hashtags, no emoji, no stage directions in the script body.
+
+## TITLE ENGINEERING — follow this reasoning process before writing the title
+A title's only job is to make the exact video you're about to watch feel
+essential to click — never a different, more dramatic video than the one
+that actually plays. Work through these steps:
+
+1. IDENTIFY THE SPECIFIC HOOK. Pull the single most concrete, surprising, or
+   consequential fact/claim/detail from the script itself — a real name, a
+   real number, a real mechanism, a real turn — not a vague category
+   ("something shocking happened"). If the script doesn't contain one
+   concrete hook-able detail, the topic was too thin; reach for the most
+   specific true thing it does say.
+2. PICK ONE PROVEN PATTERN that fits that specific hook (don't force a
+   pattern that doesn't fit the content):
+   - Curiosity gap: names the subject, withholds the resolution ("The One
+     Setting Elden Ring Never Explains")
+   - Specific number/stakes: a real figure from the script ("$130M Reason
+     Reddit Killed Its Own API")
+   - Contrarian/reframe: challenges an assumption the audience already holds
+   - Direct consequence: states what changes/breaks/ends because of the fact
+   - Insider callout: names a specific tool/mechanic/entity a tech-savvy
+     viewer already recognizes, signaling "this is for you specifically"
+3. CALIBRATE TO A TECH-SAVVY AUDIENCE. Assume the viewer already knows the
+   basics of the niche — skip "explain like I'm 5" framing, use precise
+   terminology the community actually uses, and never oversell a routine
+   fact as history-making. Confidence and specificity read as credible;
+   vague superlatives ("insane," "you won't believe," "this changes
+   everything") read as bait and get scrolled past by this audience.
+4. VERIFY BEFORE FINALIZING: does the title's specific claim actually appear
+   in the script, word-for-word in substance? If the title promises
+   something the script doesn't deliver, rewrite the title to match the
+   script — never the reverse, and never stretch the script's claim to fit
+   a punchier title.
+5. Keep it under 40 characters where possible; if the specific hook genuinely
+   needs more room to stay accurate, prioritize accuracy over the limit.
+
 Respond ONLY with JSON:
 {
   "script": "...",
   "hook_word": "first word of script",
   "loop_tail": "the final mid-sentence fragment",
-  "title": "clickbaity title under 40 chars",
-  "description": "2-sentence YouTube description",
-  "tags": ["tag1", "..."] (12-15 high-CTR tags)
+  "title": "the finished title, following the process above",
+  "title_reasoning": "1-2 sentences: which specific hook you pulled from the
+    script, which pattern you used, and why it fits this audience — this is
+    for internal review, never shown to viewers",
+  "description": "2-sentence YouTube description that also stays specific to
+    the actual script content, not generic hype",
+  "tags": ["tag1", "..."] (12-15 high-CTR tags, mixing niche-specific and
+    tech-savvy-audience search terms)
 }`;
 
 export async function writeScript(niche, topic, loreContext, jobId) {
@@ -50,10 +100,27 @@ export async function writeScript(niche, topic, loreContext, jobId) {
   const language = niche.language || "en";
   const wordClipMode = Boolean(niche.editing_style_preset?.wordClipMode);
 
+  // Duration → word-count range. ~2.3 words/sec is a natural spoken pace.
+  // Defaults preserve the original behavior (45s / 25-35s word-clip) for
+  // any niche that hasn't set explicit min/max — longer-form niches
+  // (Gaming/Lore deep-dives, Food multi-step recipes) can configure a
+  // higher target_duration_max_seconds in niche_configurations to unlock
+  // longer scripts. LOOP_MODE turns off automatically past ~70s, since the
+  // infinite-loop mechanic is a short-form retention trick, not something
+  // that makes sense on a 2-minute video.
+  const minSeconds = niche.target_duration_min_seconds || (wordClipMode ? 25 : 40);
+  const maxSeconds = niche.target_duration_max_seconds || (wordClipMode ? 35 : 50);
+  const wordsMin = Math.round(minSeconds * 2.3);
+  const wordsMax = Math.round(maxSeconds * 2.3);
+  const loopMode = maxSeconds <= 70;
+
   const context = [
     `NICHE: ${niche.niche_name}`,
     `LANGUAGE: ${language}`,
     `WORD_CLIP_MODE: ${wordClipMode}`,
+    `LOOP_MODE: ${loopMode}`,
+    `TARGET_WORDS_MIN: ${wordsMin}`,
+    `TARGET_WORDS_MAX: ${wordsMax}`,
     `TRENDING TOPIC: ${topic.title}`,
     topic.selftext ? `THREAD CONTEXT: ${topic.selftext}` : null,
     loreContext
@@ -74,7 +141,7 @@ export async function writeScript(niche, topic, loreContext, jobId) {
   });
 
   const out = JSON.parse(res.choices[0].message.content);
-  const minWords = wordClipMode ? 35 : 60;
+  const minWords = Math.max(20, Math.round(wordsMin * 0.7)); // allow some natural undershoot
   if (!out.script || out.script.split(/\s+/).length < minWords) {
     throw new Error("Script generation returned insufficient content");
   }
@@ -109,8 +176,12 @@ export async function calculateTrims(script, clips, stylePreset, jobId) {
     duration: c.duration,
   }));
 
+  // TOKEN EFFICIENCY: this is a mechanical timing/ordering task, not
+  // creative writing — gpt-4o-mini handles it reliably at a fraction of
+  // the cost of gpt-4o, which stays reserved for the script/title work
+  // where the extra reasoning quality actually matters.
   const res = await openai.chat.completions.create({
-    model: "gpt-4o",
+    model: "gpt-4o-mini",
     temperature: 0.4,
     response_format: { type: "json_object" },
     messages: [
@@ -138,6 +209,7 @@ export async function calculateTrims(script, clips, stylePreset, jobId) {
     });
 
   if (!validated.length) throw new Error("Trim calculation produced no usable cuts");
+  validated._usage = { tokens: res.usage?.total_tokens || 0 };
   await logEvent(
     "Agent 2",
     `Cut list ready: ${validated.length} cuts, ~${Math.round(total_seconds)}s timeline`,

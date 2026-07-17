@@ -60,6 +60,7 @@ create table if not exists pipeline_logs (
   rendered_video_url text,
   youtube_video_id text,
   title text,
+  title_reasoning text,  -- internal note: which hook/pattern was used and why (never shown to viewers)
   description text,
   tags text[],
   status text not null default 'Queued',
@@ -156,3 +157,4 @@ on conflict (niche_name) do nothing;
 alter table pipeline_logs add column if not exists openai_tokens integer default 0;
 alter table pipeline_logs add column if not exists elevenlabs_characters integer default 0;
 alter table pipeline_logs add column if not exists shotstack_render_seconds numeric default 0;
+alter table pipeline_logs add column if not exists title_reasoning text;

@@ -67,7 +67,7 @@ function videoClips(cuts, preset, totalDuration) {
       length: Number(length.toFixed(2)),
       fit: "cover",
       scale: 1,
-      effect: preset.zoom === "kenburns-fast" ? "zoomInSlow" : "zoomIn",
+      effect: "zoomIn",
       transition:
         preset.transitions === "cross-dissolve"
           ? { in: "fade", out: "fade" }

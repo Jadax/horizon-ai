@@ -1,224 +1,102 @@
 /**
  * AGENT 1 — THE TREND & MEDIA HARVESTER
  *
- * Topic sourcing, as of July 2026:
- *   Reddit deprecated unauthenticated .json access on May 28-30, 2026 (see
- *   DEPLOYMENT_NOTES.md) — commercial API access now requires a $12k/year
- *   minimum commitment, not viable here. Reddit is kept below as a
- *   best-effort bonus source (harmless if it 403s, occasionally still
- *   works from some IPs/regions), but the PRIMARY topic sources are now:
- *     - Real publisher RSS feeds per niche (IGN, PC Gamer, Psychology
- *       Today, Lonely Planet, etc.) — free, no auth, stable, unlikely to
- *       ever be locked down the way Reddit was.
- *     - Google Trends' official public RSS feed (trends.google.com/trending/rss)
- *       — free, no auth, gives a broad "what's culturally hot right now"
- *       signal layered on top of the niche-specific feeds.
- *
- * Media sourcing (Pexels/Pixabay licensed stock footage) is unchanged.
+ * This file is intentionally thin: it pulls from the source modules in
+ * src/sources/, hands everything to the trend-scoring engine in
+ * src/lib/trendScoring.js, and separately sources LICENSED stock footage
+ * from Pexels/Pixabay. Each concern lives in its own small file — see
+ * src/sources/*.js for the individual integrations.
  */
-import Parser from "rss-parser";
 import { config } from "../config.js";
 import { logEvent } from "../supabase.js";
+import { fetchRSSFeed } from "../sources/rss.js";
+import { fetchGoogleTrends, fetchGoogleNews } from "../sources/googleTrends.js";
+import { fetchGDELT } from "../sources/gdelt.js";
+import { fetchYouTubeTrending } from "../sources/youtubeTrending.js";
+import { fetchMastodonHashtag, fetchLemmyHot } from "../sources/fediverse.js";
+import { fetchTopReddit, searchWiki } from "../sources/reddit.js";
+import { rankCandidates, recalibrateWeights } from "../lib/trendScoring.js";
 
-const UA = "HorizonAI/1.0 (autonomous content pipeline; contact via dashboard)";
-const rssParser = new Parser({ headers: { "User-Agent": UA }, timeout: 10000 });
-
-// ── RSS topic harvesting (primary) ───────────────────────────────────────
-
-async function fetchRSSFeed(feedUrl) {
-  const feed = await rssParser.parseURL(feedUrl);
-  return (feed.items || []).slice(0, 8).map((item) => ({
-    title: item.title || "",
-    url: item.link || feedUrl,
-    selftext: (item.contentSnippet || item.content || "").slice(0, 1200),
-    pubDate: item.pubDate ? new Date(item.pubDate).getTime() : 0,
-    score: 0,
-    num_comments: 0,
-  }));
-}
-
-async function fetchGoogleTrends(geo = "US") {
-  const feedUrl = `https://trends.google.com/trending/rss?geo=${geo}`;
-  const feed = await rssParser.parseURL(feedUrl);
-  return (feed.items || []).slice(0, 10).map((item) => ({
-    title: item.title || "",
-    url: item.link || feedUrl,
-    selftext: (item.contentSnippet || item.content || "").slice(0, 800),
-    pubDate: item.pubDate ? new Date(item.pubDate).getTime() : 0,
-    score: 0,
-    num_comments: 0,
-    isGoogleTrend: true,
-  }));
-}
+// ── Topic harvesting ──────────────────────────────────────────────────────
 
 /**
- * Google News RSS — free, no auth, no key. Two modes:
- *  - no query: the general top-stories feed for a country/language
- *  - with query: a topic-scoped search feed (used for niche-flavored news)
+ * Pulls every configured source for a niche and returns the FULL ranked
+ * list (not just the winner) — used both by the pipeline (which takes the
+ * top result) and by the ad-hoc "check what's trending" dashboard tool
+ * (which shows the whole ranked list for a human to browse).
  */
-async function fetchGoogleNews(query, hl = "en-US", gl = "US") {
-  const feedUrl = query
-    ? `https://news.google.com/rss/search?q=${encodeURIComponent(query)}&hl=${hl}&gl=${gl}&ceid=${gl}:${hl.split("-")[0]}`
-    : `https://news.google.com/rss?hl=${hl}&gl=${gl}&ceid=${gl}:${hl.split("-")[0]}`;
-  const feed = await rssParser.parseURL(feedUrl);
-  return (feed.items || []).slice(0, 10).map((item) => ({
-    title: item.title || "",
-    url: item.link || feedUrl,
-    selftext: (item.contentSnippet || item.content || "").slice(0, 800),
-    pubDate: item.pubDate ? new Date(item.pubDate).getTime() : 0,
-    score: 0,
-    num_comments: 0,
-  }));
-}
-
-/**
- * GDELT Project — a free, no-auth global news dataset (backed by Google
- * Jigsaw) that indexes broadcast/print/web news across ~100 languages,
- * updated every 15 minutes. A genuinely underused source most pipelines
- * never discover: https://www.gdeltproject.org/
- */
-async function fetchGDELT(query, maxrecords = 10) {
-  const url = `https://api.gdeltproject.org/api/v2/doc/doc?query=${encodeURIComponent(
-    query
-  )}&mode=ArtList&maxrecords=${maxrecords}&format=json&sort=DateDesc`;
-  const res = await fetch(url, { headers: { "User-Agent": UA } });
-  if (!res.ok) throw new Error(`GDELT → HTTP ${res.status}`);
-  const json = await res.json();
-  return (json.articles || []).map((a) => ({
-    title: a.title || "",
-    url: a.url,
-    selftext: "",
-    pubDate: a.seendate ? new Date(a.seendate).getTime() : 0,
-    score: 0,
-    num_comments: 0,
-    tone: a.tone,
-  }));
-}
-
-/**
- * YouTube's own "trending" chart — a direct signal of what's currently
- * working as short/vertical-friendly content. Reuses the same OAuth
- * credentials already wired for uploads (read-only videos.list call,
- * costs ~1 quota unit, negligible next to the ~1600-unit upload cost).
- */
-async function fetchYouTubeTrending(regionCode = "US", maxResults = 10) {
-  if (!config.google.refreshToken) return [];
-  const { google } = await import("googleapis");
-  const oauth2 = new google.auth.OAuth2(config.google.clientId, config.google.clientSecret);
-  oauth2.setCredentials({ refresh_token: config.google.refreshToken });
-  const yt = google.youtube({ version: "v3", auth: oauth2 });
-  const { data } = await yt.videos.list({
-    part: ["snippet"],
-    chart: "mostPopular",
-    regionCode,
-    maxResults,
-  });
-  return (data.items || []).map((v) => ({
-    title: v.snippet?.title || "",
-    url: `https://youtube.com/watch?v=${v.id}`,
-    selftext: (v.snippet?.description || "").slice(0, 500),
-    pubDate: v.snippet?.publishedAt ? new Date(v.snippet.publishedAt).getTime() : 0,
-    score: 0,
-    num_comments: 0,
-    isYouTubeTrending: true,
-  }));
-}
-
-// ── Reddit (best-effort only — see header note) ──────────────────────────
-
-async function fetchTopReddit(subreddit, limit = 15) {
-  const url = `https://www.reddit.com/${subreddit}/top.json?t=day&limit=${limit}`;
-  const res = await fetch(url, { headers: { "User-Agent": UA } });
-  if (!res.ok) throw new Error(`Reddit ${subreddit} → HTTP ${res.status}`);
-  const json = await res.json();
-  return (json?.data?.children || [])
-    .map((c) => c.data)
-    .filter((p) => !p.over_18 && !p.stickied)
-    .map((p) => ({
-      title: p.title,
-      score: p.score,
-      num_comments: p.num_comments,
-      url: `https://reddit.com${p.permalink}`,
-      selftext: (p.selftext || "").slice(0, 1200),
-      pubDate: (p.created_utc || 0) * 1000,
-    }));
-}
-
-/**
- * For Gaming/Lore we also query MediaWiki-powered wiki search to ground the
- * topic in an actual lore article the scriptwriter can paraphrase.
- * (Fandom + wiki.gg both expose the standard MediaWiki API — unaffected by
- * Reddit's lockdown, this is a separate, stable, open API.)
- */
-async function searchWiki(apiRoot, query) {
-  const url = `${apiRoot}?action=query&list=search&srsearch=${encodeURIComponent(
-    query
-  )}&format=json&srlimit=3`;
-  const res = await fetch(url, { headers: { "User-Agent": UA } });
-  if (!res.ok) return [];
-  const json = await res.json();
-  return (json?.query?.search || []).map((r) => ({
-    title: r.title,
-    snippet: r.snippet?.replace(/<[^>]+>/g, ""),
-  }));
-}
-
-export async function harvestTopic(niche, jobId) {
-  await logEvent("Agent 1", `Scanning sources for ${niche.niche_name}…`, { jobId });
+export async function harvestAllCandidates(niche, jobId = null) {
+  const log = (msg, level) => (jobId ? logEvent("Agent 1", msg, { jobId, level }) : logEvent("Agent 1", msg, { level }));
+  await log(`Scanning sources for ${niche.niche_name}…`);
 
   const candidates = [];
+  const tag = (items, source) => items.map((i) => ({ ...i, source }));
 
-  // Primary: niche-specific RSS feeds
+  // Primary: niche-specific publisher RSS feeds
   for (const feedUrl of niche.rss_feeds || []) {
     try {
       const items = await fetchRSSFeed(feedUrl);
-      candidates.push(...items.map((i) => ({ ...i, source: feedUrl })));
-      await logEvent("Agent 1", `RSS ${new URL(feedUrl).hostname}: ${items.length} candidates`, { jobId });
+      candidates.push(...tag(items, new URL(feedUrl).hostname));
+      await log(`RSS ${new URL(feedUrl).hostname}: ${items.length} candidates`);
     } catch (err) {
-      await logEvent("Agent 1", `RSS feed failed (${feedUrl}): ${err.message}`, { jobId, level: "warn" });
+      await log(`RSS feed failed (${feedUrl}): ${err.message}`, "warn");
     }
   }
 
-  // Supplementary: Google Trends daily feed — broad cultural-relevance signal
+  // Google Trends — broad cultural-relevance signal, every niche
   try {
-    const trends = await fetchGoogleTrends("US");
-    candidates.push(...trends.map((i) => ({ ...i, source: "Google Trends" })));
-    await logEvent("Agent 1", `Google Trends: ${trends.length} candidates`, { jobId });
+    const trends = await fetchGoogleTrends(niche.trend_region || "US");
+    candidates.push(...tag(trends, "Google Trends"));
+    await log(`Google Trends: ${trends.length} candidates`);
   } catch (err) {
-    await logEvent("Agent 1", `Google Trends fetch failed: ${err.message}`, { jobId, level: "warn" });
+    await log(`Google Trends fetch failed: ${err.message}`, "warn");
   }
 
-  // News niche gets two extra dedicated free sources: GDELT (global news
-  // dataset) and Google News' own top-stories feed. Other niches skip
-  // these to stay on-topic (RSS feeds above already cover them).
+  // YouTube Trending — proven vertical/short-format signal, every niche
+  try {
+    const ytTrending = await fetchYouTubeTrending(niche.trend_region || "US", 8);
+    candidates.push(...tag(ytTrending, "YouTube Trending"));
+    if (ytTrending.length) await log(`YouTube Trending: ${ytTrending.length} candidates`);
+  } catch (err) {
+    await log(`YouTube Trending fetch failed: ${err.message}`, "warn");
+  }
+
+  // Fediverse (Mastodon + Lemmy) — genuine open-API hidden gems, per niche
+  for (const tagName of niche.mastodon_tags || []) {
+    try {
+      const posts = await fetchMastodonHashtag(tagName);
+      candidates.push(...tag(posts, "Mastodon"));
+      await log(`Mastodon #${tagName}: ${posts.length} candidates`);
+    } catch (err) {
+      await log(`Mastodon #${tagName} failed: ${err.message}`, "warn");
+    }
+  }
+  for (const community of niche.lemmy_communities || []) {
+    try {
+      const posts = await fetchLemmyHot(community);
+      candidates.push(...tag(posts, "Lemmy"));
+      await log(`Lemmy c/${community}: ${posts.length} candidates`);
+    } catch (err) {
+      await log(`Lemmy c/${community} failed: ${err.message}`, "warn");
+    }
+  }
+
+  // News niche gets two dedicated free, no-auth global news sources
   if (niche.niche_name === "News") {
     try {
       const gdelt = await fetchGDELT("breaking OR viral OR trending", 12);
-      candidates.push(...gdelt.map((i) => ({ ...i, source: "GDELT" })));
-      await logEvent("Agent 1", `GDELT: ${gdelt.length} candidates`, { jobId });
+      candidates.push(...tag(gdelt, "GDELT"));
+      await log(`GDELT: ${gdelt.length} candidates`);
     } catch (err) {
-      await logEvent("Agent 1", `GDELT fetch failed: ${err.message}`, { jobId, level: "warn" });
+      await log(`GDELT fetch failed: ${err.message}`, "warn");
     }
     try {
       const gnews = await fetchGoogleNews(null);
-      candidates.push(...gnews.map((i) => ({ ...i, source: "Google News" })));
-      await logEvent("Agent 1", `Google News: ${gnews.length} candidates`, { jobId });
+      candidates.push(...tag(gnews, "Google News"));
+      await log(`Google News: ${gnews.length} candidates`);
     } catch (err) {
-      await logEvent("Agent 1", `Google News fetch failed: ${err.message}`, { jobId, level: "warn" });
+      await log(`Google News fetch failed: ${err.message}`, "warn");
     }
-  }
-
-  // YouTube Trending — genuine signal of what's already working in
-  // short/vertical format right now. Pulled for every niche as a light
-  // supplementary source (read-only, ~1 quota unit).
-  try {
-    const ytTrending = await fetchYouTubeTrending("US", 8);
-    candidates.push(...ytTrending.map((i) => ({ ...i, source: "YouTube Trending" })));
-    if (ytTrending.length) {
-      await logEvent("Agent 1", `YouTube Trending: ${ytTrending.length} candidates`, { jobId });
-    }
-  } catch (err) {
-    await logEvent("Agent 1", `YouTube Trending fetch failed: ${err.message}`, { jobId, level: "warn" });
   }
 
   // Best-effort: Reddit (usually 403s since May 2026, harmless if so)
@@ -226,53 +104,52 @@ export async function harvestTopic(niche, jobId) {
     if (!source.startsWith("r/")) continue;
     try {
       const posts = await fetchTopReddit(source, 10);
-      candidates.push(...posts.map((p) => ({ ...p, source })));
-      await logEvent("Agent 1", `Scraped ${source}: ${posts.length} candidates`, { jobId });
+      candidates.push(...tag(posts, "Reddit (best-effort)"));
+      await log(`Scraped ${source}: ${posts.length} candidates`);
     } catch (err) {
-      await logEvent("Agent 1", `Source ${source} failed: ${err.message}`, { jobId, level: "warn" });
+      await log(`Source ${source} failed: ${err.message}`, "warn");
     }
   }
 
-  if (!candidates.length) throw new Error("No topic candidates found from any source");
+  if (!candidates.length) return [];
+  return rankCandidates(candidates);
+}
 
-  // Rank: Reddit engagement score first if present, otherwise most recent.
-  // Google Trends / YouTube Trending items get a boost since they signal
-  // broad, already-proven relevance rather than just "recently published."
-  candidates.sort((a, b) => {
-    const scoreA =
-      (a.score || 0) + (a.num_comments || 0) * 3 +
-      (a.isGoogleTrend ? 500 : 0) + (a.isYouTubeTrending ? 400 : 0);
-    const scoreB =
-      (b.score || 0) + (b.num_comments || 0) * 3 +
-      (b.isGoogleTrend ? 500 : 0) + (b.isYouTubeTrending ? 400 : 0);
-    if (scoreA !== scoreB) return scoreB - scoreA;
-    return (b.pubDate || 0) - (a.pubDate || 0);
-  });
-  const top = candidates[0];
+export async function harvestTopic(niche, jobId) {
+  const ranked = await harvestAllCandidates(niche, jobId);
+  if (!ranked.length) throw new Error("No topic candidates found from any source");
 
-  // Lore grounding for gaming niche
+  const top = ranked[0];
+
+  // Lore grounding — configurable per niche via lore_wiki_apis (MediaWiki
+  // API roots). Any fan wiki with a standard MediaWiki install works here;
+  // Lexicanum (Warhammer 40k) and wiki.gg (Elden Ring) are both wired by
+  // default for Gaming/Lore, and more can be added per niche in Supabase
+  // without touching code.
   let loreContext = null;
-  if (niche.niche_name === "Gaming/Lore") {
-    const wikiResults = await searchWiki(
-      "https://eldenring.wiki.gg/api.php",
-      top.title.split(" ").slice(0, 6).join(" ")
-    ).catch(() => []);
+  const wikiApis = niche.lore_wiki_apis || [];
+  for (const apiRoot of wikiApis) {
+    const wikiResults = await searchWiki(apiRoot, top.title.split(" ").slice(0, 6).join(" ")).catch(() => []);
     if (wikiResults.length) {
       loreContext = wikiResults;
-      await logEvent("Agent 1", `Lore grounding found: "${wikiResults[0].title}"`, { jobId });
+      await logEvent("Agent 1", `Lore grounding found (${new URL(apiRoot).hostname}): "${wikiResults[0].title}"`, { jobId });
+      break;
     }
   }
 
   await logEvent(
     "Agent 1",
-    `Topic locked: "${top.title.slice(0, 80)}" (source: ${top.source})`,
+    `Topic locked: "${top.title.slice(0, 80)}" (source: ${top.source}, trend score: ${top._trendScore}, corroborated by ${top._corroborationCount} source${top._corroborationCount > 1 ? "s" : ""})`,
     { jobId }
   );
+
+  // Self-adjust source-reliability weights based on this run's corroboration pattern
+  recalibrateWeights(ranked).catch(() => {});
+
   return { topic: top, loreContext };
 }
 
-
-// ── Licensed footage sourcing ────────────────────────────────────────────
+// ── Licensed footage sourcing (unchanged — Pexels/Pixabay only) ──────────
 
 async function searchPexels(keyword, perPage = 3) {
   if (!config.pexelsKey) return [];
@@ -283,7 +160,6 @@ async function searchPexels(keyword, perPage = 3) {
   if (!res.ok) return [];
   const json = await res.json();
   return (json.videos || []).map((v) => {
-    // Prefer HD portrait file closest to 1080x1920
     const file =
       v.video_files
         .filter((f) => f.height >= f.width)
@@ -320,12 +196,15 @@ async function searchPixabay(keyword, perPage = 3) {
   }));
 }
 
-/**
- * Gather enough licensed clips to cover ~50s of timeline.
- */
-export async function harvestFootage(niche, jobId, minTotalSeconds = 55) {
+export async function harvestFootage(niche, jobId, minTotalSeconds = 55, priorityKeywords = null) {
   await logEvent("Agent 1", `Sourcing licensed b-roll for ${niche.niche_name}…`, { jobId });
-  const keywords = [...niche.footage_keywords].sort(() => Math.random() - 0.5);
+  // If the Format Decision Engine picked a mood-matched keyword subset for
+  // this specific topic, search those first, then fill in with the rest
+  // of the niche's keywords (shuffled) if more footage is still needed.
+  const rest = niche.footage_keywords.filter((k) => !priorityKeywords?.includes(k));
+  const keywords = priorityKeywords?.length
+    ? [...priorityKeywords, ...rest.sort(() => Math.random() - 0.5)]
+    : [...niche.footage_keywords].sort(() => Math.random() - 0.5);
   const clips = [];
   let total = 0;
 

@@ -36,11 +36,41 @@ export const config = {
     clientSecret: process.env.GOOGLE_CLIENT_SECRET,
     redirectUri:
       process.env.GOOGLE_REDIRECT_URI || "http://localhost:8080/oauth2callback",
-    refreshToken: process.env.GOOGLE_REFRESH_TOKEN,
+    refreshToken: process.env.GOOGLE_REFRESH_TOKEN, // "primary" channel
+    // MULTI-CHANNEL SUPPORT: if you run separate channels for different
+    // content types, set GOOGLE_CHANNELS as a JSON object mapping a short
+    // channel key to its own refresh token, e.g.:
+    //   GOOGLE_CHANNELS={"mythosvibe":"1//0abc...","gamingchannel":"1//0xyz..."}
+    // Each channel needs its own refresh token (same OAuth client/secret is
+    // fine — just re-run `npm run auth:youtube` signed into that channel's
+    // Google account and copy the resulting token in here). A niche's
+    // `target_channel` column in Supabase picks which one it uploads to;
+    // "primary" (or unset) falls back to GOOGLE_REFRESH_TOKEN above.
+    channels: (() => {
+      try {
+        return process.env.GOOGLE_CHANNELS ? JSON.parse(process.env.GOOGLE_CHANNELS) : {};
+      } catch {
+        console.warn("[config] GOOGLE_CHANNELS is not valid JSON — ignoring");
+        return {};
+      }
+    })(),
   },
   port: parseInt(process.env.PORT || "8080", 10),
   dashboardPassword: process.env.DASHBOARD_PASSWORD || "change-me",
   pipelineCron: process.env.PIPELINE_CRON || "0 3 * * *",
-  videosPerRun: parseInt(process.env.VIDEOS_PER_RUN || "4", 10),
+  videosPerRun: parseInt(process.env.VIDEOS_PER_RUN || "6", 10),
   autopilot: (process.env.AUTOPILOT || "true").toLowerCase() === "true",
 };
+
+/**
+ * Resolves which refresh token to use for a given channel key (a niche's
+ * `target_channel` value). "primary", empty, or unrecognized keys all fall
+ * back to the main GOOGLE_REFRESH_TOKEN — so single-channel setups (the
+ * common case) need zero extra configuration.
+ */
+export function getChannelToken(channelKey) {
+  if (channelKey && channelKey !== "primary" && config.google.channels[channelKey]) {
+    return config.google.channels[channelKey];
+  }
+  return config.google.refreshToken;
+}
