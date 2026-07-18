@@ -1,0 +1,9 @@
+# Adds python3 + gTTS to the single Railway service's Nixpacks build so
+# src/lib/freeTTS.js's gTTS fallback (TTS_ENGINE=gtts) works without a
+# separate tts-server. Rendering needs no extra system packages — FFmpeg
+# ships as an npm dependency (ffmpeg-static) already resolved by `npm ci`.
+[phases.setup]
+nixPkgs = ["...", "python3", "python3Packages.pip"]
+
+[phases.install]
+cmds = ["...", "pip install gTTS"]

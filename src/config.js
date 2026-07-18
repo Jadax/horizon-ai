@@ -22,13 +22,20 @@ export const config = {
   openaiKey: process.env.OPENAI_API_KEY,
   
   // ─── Free TTS ──────────────────────────────────────────────────────
-  ttsEngine: process.env.TTS_ENGINE || 'chatterbox',
+  // Defaults to 'gtts', not 'chatterbox' — chatterbox is a Python library
+  // with no HTTP server, so it can't work without you deploying your own
+  // wrapper for it first (see .env.example). gtts runs in-process via a
+  // python3 subprocess, no separate service needed.
+  ttsEngine: process.env.TTS_ENGINE || 'gtts',
   ttsApiUrl: process.env.TTS_API_URL || 'http://localhost:5000/tts',
   ttsFallback: process.env.TTS_FALLBACK || 'gtts',
   
   // ─── Free Video Render ──────────────────────────────────────────────
+  // Defaults to 'ffmpeg' (any value other than 'render-api'/'shottower'
+  // falls through to the local FFmpeg renderer, which needs no separate
+  // service — ffmpeg-static ships as an npm dependency and runs in-process).
   renderApiUrl: process.env.RENDER_API_URL || 'http://localhost:3000',
-  renderEngine: process.env.RENDER_ENGINE || 'render-api',
+  renderEngine: process.env.RENDER_ENGINE || 'ffmpeg',
   // render-video-api requires an API key (x-api-key header) obtained by
   // registering + generating one through its own dashboard — this can't be
   // auto-provisioned, see .env.example.
