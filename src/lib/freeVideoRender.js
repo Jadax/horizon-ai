@@ -120,6 +120,7 @@ async function renderWithFFmpeg(payload, jobId) {
   if (!clips.length) {
     clips = [{ url: null, type: 'color', duration: totalDuration }];
   }
+  const captionFiles = [];
 
   try {
     if (payload.audioUrl) {
@@ -159,15 +160,32 @@ async function renderWithFFmpeg(payload, jobId) {
     const concatInputs = clips.map((_, i) => `[v${i}]`).join('');
     let filterComplex = [...legs, `${concatInputs}concat=n=${clips.length}:v=1:a=0[vcat]`].join(';');
 
+    // drawtext's inline text='...' option goes through TWO layers of
+    // escaping (ffmpeg's filtergraph quoting, then drawtext's own :/\\
+    // escaping) — backslash-escaping an apostrophe as \' (the previous
+    // approach) breaks the filtergraph's quote parser mid-string, and
+    // everything after it in the chain gets misparsed as garbage filter
+    // names ("No such filter: 'drawtext'" / "'1'" — confirmed by
+    // reproducing this exact failure locally with a caption containing an
+    // apostrophe). textfile= sidesteps both escaping layers entirely since
+    // the text lives in a file, not inline in the command string —
+    // verified to render apostrophes/colons correctly where inline
+    // text='...' silently dropped the apostrophe glyph even when it didn't
+    // error outright.
     if (payload.captions && payload.captions.length) {
       let captionChain = '[vcat]';
-      const captionFilters = payload.captions.map((cap, i) => {
-        const safeText = cap.text.replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/:/g, '\\:');
+      const captionFilters = [];
+      for (let i = 0; i < payload.captions.length; i++) {
+        const cap = payload.captions[i];
+        const capFile = path.join(tmpDir, `horizon-caption-${randomUUID()}.txt`);
+        captionFiles.push(capFile);
+        await writeFile(capFile, cap.text);
         const label = i === payload.captions.length - 1 ? '[vout]' : `[vc${i}]`;
-        const f = `${captionChain}drawtext=text='${safeText}':x=(w-text_w)/2:y=h-${(i % 3) * 60 + 100}:fontsize=40:fontcolor=white:shadowcolor=black:shadowx=2:shadowy=2:enable='between(t,${cap.start},${cap.end})'${label}`;
+        captionFilters.push(
+          `${captionChain}drawtext=textfile='${capFile.replace(/\\/g, '/').replace(/:/g, '\\:')}':x=(w-text_w)/2:y=h-${(i % 3) * 60 + 100}:fontsize=40:fontcolor=white:shadowcolor=black:shadowx=2:shadowy=2:enable='between(t,${cap.start},${cap.end})'${label}`
+        );
         captionChain = label;
-        return f;
-      });
+      }
       filterComplex += ';' + captionFilters.join(';');
     } else {
       filterComplex += ';[vcat]null[vout]';
@@ -187,6 +205,7 @@ async function renderWithFFmpeg(payload, jobId) {
     if (payload.audioUrl) {
       await unlink(audioFile).catch(() => {});
     }
+    await Promise.all(captionFiles.map((f) => unlink(f).catch(() => {})));
 
     const url = `data:video/mp4;base64,${video.toString('base64')}`;
     return {
@@ -200,6 +219,7 @@ async function renderWithFFmpeg(payload, jobId) {
     if (payload.audioUrl) {
       await unlink(audioFile).catch(() => {});
     }
+    await Promise.all(captionFiles.map((f) => unlink(f).catch(() => {})));
     throw error;
   }
 }
