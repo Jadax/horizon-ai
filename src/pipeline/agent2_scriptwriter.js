@@ -74,8 +74,16 @@ watched, and kills channel trust).
   such that the final words flow grammatically straight back into the first
   word of the hook. Example: hook = "Nobody survives the Lands Between…" /
   ending = "…and that is why" → replay reads "…and that is why Nobody
-  survives the Lands Between". If LOOP_MODE=false (longer-form content),
-  just end on a strong, satisfying closing line instead — no loop needed.
+  survives the Lands Between". Never insert a subscribe/follow line here —
+  it would break the loop's grammar and the loop itself is the retention
+  mechanic for this format.
+  If LOOP_MODE=false (longer-form content, no loop): end on a strong,
+  satisfying closing line, and fold a single natural subscribe/follow nudge
+  into that final line or the sentence just before it — phrased as part of
+  the narration a real person would say, never a bolted-on "smash that
+  subscribe button." e.g. "...and that's a reason to stick around for the
+  next one." Skip it entirely if the topic's tone makes any self-reference
+  feel forced (e.g. a heavy/serious story) — a good ending beats a forced ask.
 - TONE: write like a sharp, casual friend explaining something interesting
   out loud, not like a press release or a textbook. Contractions are good
   ("it's", "you're", "that's"). Read every sentence out loud in your head

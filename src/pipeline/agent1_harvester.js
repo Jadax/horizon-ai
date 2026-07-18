@@ -9,7 +9,7 @@
  */
 import { config } from "../config.js";
 import OpenAI from "openai";
-import { logEvent } from "../supabase.js";
+import { supabase, logEvent } from "../supabase.js";
 import { fetchRSSFeed } from "../sources/rss.js";
 import { fetchSocialRSSFeeds, normaliseSocialFeeds } from "../sources/socialRss.js";
 import { fetchGoogleTrends, fetchGoogleNews } from "../sources/googleTrends.js";
@@ -135,11 +135,55 @@ export async function harvestAllCandidates(niche, jobId = null) {
   return rankCandidates(candidates);
 }
 
+/** Same normalization trendScoring.js uses to group corroborating
+ * candidates — reused here so "already covered" detection catches the
+ * same near-duplicates the scorer would treat as one story. */
+function topicKey(title) {
+  return (title || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, "")
+    .split(/\s+/)
+    .slice(0, 5)
+    .join(" ");
+}
+
+/**
+ * RETENTION/TRUST GUARD: a channel that covers the same story twice in a
+ * week reads as templated/low-effort to viewers and sits closer to the
+ * "repetitious content" line YouTube's monetization policy watches for.
+ * Pulls this niche's recent topics and returns the set of keys to avoid.
+ */
+async function recentTopicKeys(nicheName, days = 14, limit = 30) {
+  const cutoff = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
+  const { data, error } = await supabase
+    .from("pipeline_logs")
+    .select("topic")
+    .eq("niche", nicheName)
+    .gte("created_at", cutoff)
+    .order("created_at", { ascending: false })
+    .limit(limit);
+  if (error || !data?.length) return new Set();
+  return new Set(data.map((r) => topicKey(r.topic)).filter(Boolean));
+}
+
 export async function harvestTopic(niche, jobId) {
   const ranked = await harvestAllCandidates(niche, jobId);
   if (!ranked.length) throw new Error("No topic candidates found from any source");
 
-  const top = ranked[0];
+  const seen = await recentTopicKeys(niche.niche_name);
+  const fresh = ranked.filter((c) => !seen.has(topicKey(c.title)));
+  if (fresh.length < ranked.length) {
+    await logEvent(
+      "Agent 1",
+      `Skipped ${ranked.length - fresh.length} candidate(s) already covered by this niche in the last 14 days`,
+      { jobId }
+    );
+  }
+  // If literally everything ranked was a recent repeat (a genuinely quiet
+  // news day for this niche), fall back to the original ranked list rather
+  // than fail the run — a repeat is a worse outcome to avoid than "no video
+  // today," but not one worth actually blocking on.
+  const top = (fresh.length ? fresh : ranked)[0];
 
   // Lore grounding — configurable per niche via lore_wiki_apis (MediaWiki
   // API roots). Any fan wiki with a standard MediaWiki install works here;
