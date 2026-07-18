@@ -1,18 +1,10 @@
 /**
- * PERFORMANCE TRACKER — closes (part of) the loop this product's trend
- * engine originally flagged as a future step: pulling REAL view/like/
- * comment counts for videos that have actually gone live, so the
- * trend-scoring engine can eventually learn from what actually performed,
- * not just from cross-source corroboration at harvest time.
- *
- * Uses `videos.list?part=statistics` — cheap (1 quota unit per call, can
- * batch up to 50 IDs per call), no separate YouTube Analytics API needed.
- * Runs on a periodic cron (see src/index.js) rather than instantly, since
- * a video needs time to accumulate real signal after publishing.
+ * PERFORMANCE TRACKER — now also tracks revenue
  */
 import { google } from "googleapis";
 import { config, getChannelToken } from "../config.js";
 import { supabase, logEvent } from "../supabase.js";
+import { trackRevenue, estimateRevenue } from "./monetization.js";
 
 function youtubeClient(channelKey) {
   const oauth2 = new google.auth.OAuth2(
@@ -24,26 +16,20 @@ function youtubeClient(channelKey) {
   return google.youtube({ version: "v3", auth: oauth2 });
 }
 
-/**
- * Refreshes stats for every published job whose video has had at least
- * `minAgeHours` to accumulate real engagement, and whose stats haven't
- * been refreshed in the last `refreshIntervalHours`.
- */
 export async function refreshPublishedStats(minAgeHours = 6, refreshIntervalHours = 6) {
   const cutoff = new Date(Date.now() - minAgeHours * 60 * 60 * 1000).toISOString();
   const staleCutoff = new Date(Date.now() - refreshIntervalHours * 60 * 60 * 1000).toISOString();
 
   const { data: jobs, error } = await supabase
     .from("pipeline_logs")
-    .select("id, youtube_video_id, target_channel, stats_updated_at")
+    .select("id, niche, youtube_video_id, target_channel, stats_updated_at, title, description, affiliate_products, affiliate_revenue")
     .not("youtube_video_id", "is", null)
     .lte("publish_schedule", cutoff)
     .or(`stats_updated_at.is.null,stats_updated_at.lte.${staleCutoff}`)
-    .limit(50); // videos.list accepts up to 50 IDs per call
+    .limit(50);
 
   if (error || !jobs?.length) return;
 
-  // Group by channel, since each channel needs its own OAuth credentials
   const byChannel = {};
   for (const j of jobs) {
     const key = j.target_channel || "primary";
@@ -60,15 +46,33 @@ export async function refreshPublishedStats(minAgeHours = 6, refreshIntervalHour
       for (const j of channelJobs) {
         const stats = statsById[j.youtube_video_id];
         if (!stats) continue;
+        
+        const views = parseInt(stats.viewCount || "0", 10);
+        const likes = parseInt(stats.likeCount || "0", 10);
+        const comments = parseInt(stats.commentCount || "0", 10);
+        
         await supabase
           .from("pipeline_logs")
           .update({
-            yt_views: parseInt(stats.viewCount || "0", 10),
-            yt_likes: parseInt(stats.likeCount || "0", 10),
-            yt_comments: parseInt(stats.commentCount || "0", 10),
+            yt_views: views,
+            yt_likes: likes,
+            yt_comments: comments,
             stats_updated_at: new Date().toISOString(),
           })
           .eq("id", j.id);
+
+        // ─── TRACK REVENUE WITH REAL VIEW DATA ────────────────────
+        const revenue = estimateRevenue(views, 'youtube', j.niche || 'default');
+        // Only track if revenue > 0 and we have views
+        if (views > 0 && revenue > 0) {
+          await trackRevenue(j.id, 'youtube', revenue, views);
+          
+          // Update affiliate_revenue in pipeline_logs
+          await supabase
+            .from("pipeline_logs")
+            .update({ affiliate_revenue: revenue })
+            .eq("id", j.id);
+        }
       }
       await logEvent("Performance Tracker", `Refreshed stats for ${channelJobs.length} video(s) on channel "${channelKey}"`);
     } catch (err) {

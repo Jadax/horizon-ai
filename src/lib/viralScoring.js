@@ -16,7 +16,7 @@ import { supabase, logEvent } from "../supabase.js";
 
 const openai = new OpenAI({ apiKey: config.openaiKey });
 
-// Cache for emotional resonance to avoid repeated LLM calls
+// Cache for emotional resonance
 const emotionalResonanceCache = new Map();
 
 export async function scoreVideoForVirality(video, niche, options = {}) {
@@ -273,6 +273,9 @@ function calculatePlatformOptimization(video) {
 }
 
 export function quickVideoFilter(video, minDuration = 5, maxDuration = 180) {
+    if (typeof video.duration !== "number" || Number.isNaN(video.duration)) {
+        return { passed: false, reason: "No duration data available (metadata fetch skipped or failed)" };
+    }
     if (video.duration < minDuration || video.duration > maxDuration) {
         return { passed: false, reason: `Duration ${video.duration}s outside acceptable range` };
     }

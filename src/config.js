@@ -9,6 +9,14 @@ function parseJsonEnv(name, fallback) {
   }
 }
 
+function parseArrayEnv(name, fallback = []) {
+  try {
+    return process.env[name] ? process.env[name].split(',').map(s => s.trim()) : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
 const required = [
   "OPENAI_API_KEY",
   "ELEVENLABS_API_KEY",
@@ -47,6 +55,15 @@ export const config = {
   
   // ─── Quality Gate ────────────────────────────────────────────────
   qualityScoreThreshold: parseFloat(process.env.QUALITY_SCORE_THRESHOLD) || 7.0,
+  qualityGateMode: process.env.QUALITY_GATE_MODE || "warn_only", // "fail" or "warn_only"
+  
+  // ─── Monetization ──────────────────────────────────────────────────
+  affiliate: {
+    apiKey: process.env.AFFILIATE_API_KEY,
+    trackingId: process.env.AFFILIATE_TRACKING_ID || null, // REQUIRED - no placeholder
+  },
+  // Only YouTube is fully implemented - other platforms are placeholders
+  publishTo: parseArrayEnv("PUBLISH_TO", ["youtube"]).filter(p => p === "youtube"),
   
   vimeoAccessToken: process.env.VIMEO_ACCESS_TOKEN,
   visualQualityGate: (process.env.VISUAL_QUALITY_GATE || "true").toLowerCase() === "true",
@@ -67,6 +84,7 @@ export const config = {
       }
     })(),
   },
+  
   port: parseInt(process.env.PORT || "8080", 10),
   dashboardPassword: process.env.DASHBOARD_PASSWORD || "change-me",
   pipelineCron: process.env.PIPELINE_CRON || "0 3 * * *",

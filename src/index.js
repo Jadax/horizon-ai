@@ -1,13 +1,5 @@
 /**
  * HORIZON AI — SERVER
- *
- * This file is deliberately thin: authentication middleware, the dashboard
- * static route, the live SSE event stream, the 03:00 UTC cron, and mounting
- * the route modules below. All actual route logic lives in src/routes/:
- *   - routes/jobs.js       job listing, overrides, approval, retry
- *   - routes/run.js        manual pipeline triggers (full loop + per-niche)
- *   - routes/trending.js   ad-hoc trend explorer + integration diagnostics
- *   - routes/costs.js      spend tracker
  */
 import express from "express";
 import cron from "node-cron";
@@ -29,11 +21,11 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
 app.use(express.json());
 
-// ── Minimal auth: bearer password on API + dashboard ─────────────────────
+// ── Minimal auth ─────────────────────────────────────────────────────
 app.use((req, res, next) => {
   if (req.path === "/health") return next();
   const token = req.headers.authorization?.replace("Bearer ", "") || req.query.key;
-  if (req.path === "/" && !token) return next(); // dashboard prompts client-side
+  if (req.path === "/" && !token) return next();
   if (req.path.startsWith("/api") && token !== config.dashboardPassword) {
     return res.status(401).json({ error: "Unauthorized" });
   }
@@ -43,7 +35,7 @@ app.use((req, res, next) => {
 app.get("/health", (_req, res) => res.json({ ok: true }));
 app.get("/", (_req, res) => res.sendFile(path.join(__dirname, "dashboard", "dashboard.html")));
 
-// ── LIVE STATUS STREAM (SSE) ─────────────────────────────────────────────
+// ── LIVE STATUS STREAM (SSE) ────────────────────────────────────────
 app.get("/api/stream", (req, res) => {
   res.set({ "Content-Type": "text/event-stream", "Cache-Control": "no-cache", Connection: "keep-alive" });
   res.flushHeaders();
@@ -57,7 +49,7 @@ app.get("/api/stream", (req, res) => {
   });
 });
 
-// ── Mount route modules ───────────────────────────────────────────────────
+// ── Mount route modules ─────────────────────────────────────────────
 app.use("/api", jobsRouter);
 app.use("/api", runRouter);
 app.use("/api", trendingRouter);
@@ -65,15 +57,12 @@ app.use("/api", costsRouter);
 app.use("/api", nichesRouter);
 app.use("/api", clipsRouter);
 
-// ── The 03:00 UTC set-and-forget loop ────────────────────────────────────
+// ── Cron jobs ──────────────────────────────────────────────────────
 cron.schedule(config.pipelineCron, () => {
   logEvent("Scheduler", `Cron fired (${config.pipelineCron} UTC) — launching daily loop`);
   runFullPipeline().catch((e) => logEvent("Scheduler", `Daily loop crashed: ${e.message}`, { level: "error" }));
 });
 
-// ── Performance feedback loop: refresh real YouTube stats every 6 hours,
-// then let the trend engine learn from actual view/engagement numbers,
-// not just harvest-time corroboration. ─────────────────────────────────
 cron.schedule("0 */6 * * *", async () => {
   await refreshPublishedStats().catch((e) =>
     logEvent("Scheduler", `Stats refresh failed: ${e.message}`, { level: "error" })
@@ -83,8 +72,11 @@ cron.schedule("0 */6 * * *", async () => {
   );
 });
 
+// ── Start server ─────────────────────────────────────────────────────
 app.listen(config.port, () => {
   console.log(`\n▲ HORIZON AI online → http://localhost:${config.port}`);
-  console.log(`  Cron: ${config.pipelineCron} UTC | Autopilot: ${config.autopilot ? "ON" : "OFF"}\n`);
+  console.log(`  Cron: ${config.pipelineCron} UTC | Autopilot: ${config.autopilot ? "ON" : "OFF"}`);
+  console.log(`  Publishing to: ${config.publishTo.join(", ")}`);
+  console.log(`  Quality threshold: ${config.qualityScoreThreshold}\n`);
   logEvent("System", `Horizon AI booted — autopilot ${config.autopilot ? "engaged" : "paused"}`);
 });

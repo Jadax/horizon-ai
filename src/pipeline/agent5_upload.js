@@ -1,27 +1,20 @@
 /**
- * AGENT 5 — MULTI-REGION OPTIMIZATION & AUTOMATED UPLOAD
- *
- * - Rotates target regions (India, SE Asia, South Africa, US) and computes
- *   the next local peak-engagement window converted to UTC.
- * - Downloads the Shotstack render and uploads to YouTube as PRIVATE with
- *   publishAt set — YouTube flips it public at the scheduled instant, which
- *   is the quota-friendly "private draft, scheduled" pattern.
- * - MULTI-CHANNEL: each niche can target a different YouTube channel via
- *   its `target_channel` value (see config.js's getChannelToken and the
- *   dashboard's Channel Routing panel). Single-channel setups need zero
- *   extra config — everything defaults to the "primary" channel.
+ * AGENT 5 — YOUTUBE UPLOADER
+ * 
+ * Focused on YouTube only - the platform with real implementation.
+ * Other platforms (Instagram, Facebook, TikTok) are stubs for future.
  */
 import { google } from "googleapis";
 import { Readable } from "node:stream";
 import { config, getChannelToken } from "../config.js";
-import { logEvent } from "../supabase.js";
+import { supabase, logEvent } from "../supabase.js";
+import { matchAffiliateProducts } from "../lib/monetization.js";
 
-// Local peak windows (hour of day, local time) per region — Shorts evening peaks
 const REGIONS = [
   { name: "India", tzOffset: 5.5, peakHour: 19 },
   { name: "Southeast Asia", tzOffset: 7, peakHour: 20 },
   { name: "South Africa", tzOffset: 2, peakHour: 18 },
-  { name: "United States", tzOffset: -5, peakHour: 17 }, // ET as anchor
+  { name: "United States", tzOffset: -5, peakHour: 17 },
 ];
 
 let regionCursor = 0;
@@ -31,14 +24,13 @@ export function nextPublishSlot() {
   regionCursor++;
 
   const now = new Date();
-  // Peak hour local → UTC hour
   let utcHour = region.peakHour - region.tzOffset;
   const slot = new Date(
     Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate())
   );
   slot.setUTCMinutes(Math.round((utcHour % 1) * 60));
   slot.setUTCHours(Math.floor((utcHour + 24) % 24));
-  if (slot <= now) slot.setUTCDate(slot.getUTCDate() + 1); // next occurrence
+  if (slot <= now) slot.setUTCDate(slot.getUTCDate() + 1);
 
   return { region: region.name, publishAt: slot };
 }
@@ -53,51 +45,119 @@ function youtubeClient(channelKey) {
   return google.youtube({ version: "v3", auth: oauth2 });
 }
 
-export async function uploadScheduled({ videoUrl, title, description, tags, jobId, targetChannel }) {
+/**
+ * Add affiliate links to description - only if tracking ID is set
+ */
+async function addAffiliateLinks(description, title, niche, jobId) {
+  const trackingId = config.affiliate.trackingId;
+  if (!trackingId) {
+    return { description, products: [] };
+  }
+  
+  const products = matchAffiliateProducts(title, description, niche);
+  
+  if (!products.length) return { description, products: [] };
+
+  let affiliateText = "\n\n---\n🛍️ **Products mentioned:**\n";
+  for (const product of products) {
+    affiliateText += `- ${product.name}: ${product.affiliateLink}\n`;
+  }
+  affiliateText += "\n*As an affiliate, I earn from qualifying purchases.*";
+
+  return { description: description + affiliateText, products };
+}
+
+export async function uploadScheduled({ videoUrl, title, description, tags, jobId, targetChannel, niche }) {
   const { region, publishAt } = nextPublishSlot();
   const channelKey = targetChannel || "primary";
-  await logEvent(
-    "Agent 5",
-    `Target: ${region} peak window → publishes ${publishAt.toISOString()} (channel: ${channelKey})`,
-    { jobId }
-  );
-
-  const token = getChannelToken(channelKey);
-  if (!token) {
-    await logEvent(
-      "Agent 5",
-      `No refresh token for channel "${channelKey}" — run \`npm run auth:youtube\` (or add it to GOOGLE_CHANNELS). Holding video.`,
-      { jobId, level: "warn" }
-    );
-    return { region, publishAt, videoId: null, held: true };
+  
+  // Add affiliate links if tracking ID is set
+  let finalDescription = description;
+  let products = [];
+  
+  if (config.affiliate.trackingId) {
+    const result = await addAffiliateLinks(description, title, niche, jobId);
+    finalDescription = result.description;
+    products = result.products;
   }
 
-  // Stream the rendered MP4 straight from Shotstack CDN into the upload
-  const videoRes = await fetch(videoUrl);
-  if (!videoRes.ok) throw new Error(`Could not fetch render for upload: HTTP ${videoRes.status}`);
+  // Store affiliate products in DB (only once)
+  if (products.length) {
+    await supabase
+      .from('pipeline_logs')
+      .update({ affiliate_products: products })
+      .eq('id', jobId);
+  }
 
-  const yt = youtubeClient(channelKey);
-  await logEvent("Agent 5", `Uploading to YouTube as private + scheduled…`, { jobId });
+  const publishedTo = [];
+  let videoId = null;
+  let uploadSuccess = false;
 
-  const { data } = await yt.videos.insert({
-    part: ["snippet", "status"],
-    requestBody: {
-      snippet: {
-        title: title.slice(0, 100),
-        description: `${description}\n\n#Shorts\n\nA MythosVibe production — Tushant Sharma`,
-        tags: tags?.slice(0, 15),
-        categoryId: "24", // Entertainment
-      },
-      status: {
-        privacyStatus: "private",
-        publishAt: publishAt.toISOString(),
-        selfDeclaredMadeForKids: false,
-        containsSyntheticMedia: true, // AI voiceover disclosure — required by YouTube policy
-      },
-    },
-    media: { body: Readable.fromWeb(videoRes.body) },
-  });
+  // ── YouTube Upload (primary, fully implemented) ──────────────────────
+  try {
+    const token = getChannelToken(channelKey);
+    if (!token) {
+      await logEvent("Agent 5", `No refresh token for channel "${channelKey}"`, { jobId, level: "warn" });
+    } else {
+      await logEvent("Agent 5", `Uploading to YouTube (channel: ${channelKey})...`, { jobId });
 
-  await logEvent("Agent 5", `Scheduled ✓ video ${data.id} → ${region}, ${publishAt.toISOString()}`, { jobId });
-  return { region, publishAt, videoId: data.id, held: false };
+      const videoRes = await fetch(videoUrl);
+      if (!videoRes.ok) throw new Error(`Could not fetch render: HTTP ${videoRes.status}`);
+
+      const yt = youtubeClient(channelKey);
+      const { data } = await yt.videos.insert({
+        part: ["snippet", "status"],
+        requestBody: {
+          snippet: {
+            title: title.slice(0, 100),
+            description: `${finalDescription}\n\n#Shorts\n\nA MythosVibe production — Tushant Sharma`,
+            tags: tags?.slice(0, 15),
+            categoryId: "24",
+          },
+          status: {
+            privacyStatus: "private",
+            publishAt: publishAt.toISOString(),
+            selfDeclaredMadeForKids: false,
+            containsSyntheticMedia: true,
+          },
+        },
+        media: { body: Readable.fromWeb(videoRes.body) },
+      });
+
+      videoId = data.id;
+      publishedTo.push({ platform: 'youtube', videoId: data.id, status: 'scheduled' });
+      uploadSuccess = true;
+      await logEvent("Agent 5", `✓ YouTube scheduled: ${data.id} → ${region}`, { jobId });
+    }
+  } catch (err) {
+    await logEvent("Agent 5", `YouTube upload failed: ${err.message}`, { jobId, level: "error" });
+    // YouTube upload failed - don't mark as scheduled
+  }
+
+  // ── Instagram Reels - STUB (requires full API implementation) ──────
+  // if (config.publishTo.includes('instagram') && config.instagram?.accessToken) { ... }
+
+  // ── Facebook Reels - STUB (requires full API implementation) ──────
+  // if (config.publishTo.includes('facebook') && config.facebook?.accessToken) { ... }
+
+  // ── TikTok - STUB (requires full API implementation) ──────────────
+  // if (config.publishTo.includes('tiktok') && config.tiktok?.accessToken) { ... }
+
+  // Update job - status reflects REAL uploads only
+  const status = uploadSuccess ? "Scheduled" : "Rendered";
+  
+  await supabase
+    .from('pipeline_logs')
+    .update({
+      youtube_video_id: videoId,
+      target_region: region,
+      publish_schedule: publishAt.toISOString(),
+      published_to: publishedTo,
+      affiliate_products: products,
+      status: status,
+    })
+    .eq('id', jobId);
+
+  await logEvent("Agent 5", `✓ YouTube ${uploadSuccess ? 'scheduled' : 'upload failed'}`, { jobId });
+  return { region, publishAt, publishedTo, videoId, success: uploadSuccess };
 }

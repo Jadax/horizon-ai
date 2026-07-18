@@ -1,7 +1,7 @@
 {
   "name": "horizon-ai",
-  "version": "2.0.0",
-  "description": "Autonomous viral video creation and publishing engine with universal video sourcing",
+  "version": "2.0.1",
+  "description": "Autonomous viral video creation and publishing engine with universal video sourcing and monetization",
   "author": "Tushant Sharma",
   "license": "UNLICENSED",
   "type": "module",

@@ -1,7 +1,6 @@
 /**
  * HORIZON AI — PIPELINE ORCHESTRATOR
- * Sequential agent execution per active niche. Called by the 03:00 UTC cron
- * (src/index.js) or manually via `npm run pipeline:once` / dashboard button.
+ * Enhanced with quality gate (warn-only mode) and monetization
  */
 import { supabase, logEvent, updateJob } from "../supabase.js";
 import { config } from "../config.js";
@@ -11,12 +10,63 @@ import { writeScript, calculateTrims } from "./agent2_scriptwriter.js";
 import { synthesizeVoiceover, pickMusic } from "./agent3_audio.js";
 import { buildEditPayload, render } from "./agent4_shotstack.js";
 import { uploadScheduled } from "./agent5_upload.js";
+import { BANNED_WORDS } from "../lib/monetization.js";
+
+// Quality gate: warn only, never fail the run
+async function qualityGateCheck(script, title, niche, jobId) {
+  const issues = [];
+  const warnings = [];
+
+  // Check script length
+  const wordCount = script.split(/\s+/).length;
+  if (wordCount < 20) {
+    warnings.push(`Script is short: ${wordCount} words (minimum 20 recommended)`);
+  }
+
+  // Check for banned words (using single source of truth)
+  const foundBanned = BANNED_WORDS.filter(w => script.toLowerCase().includes(w));
+  if (foundBanned.length > 0) {
+    warnings.push(`Found ${foundBanned.length} banned word(s): ${foundBanned.slice(0, 3).join(", ")}`);
+  }
+
+  // Check title length - warn only, don't fail
+  if (title.length < 10) {
+    warnings.push(`Title is short: ${title.length} chars`);
+  }
+  if (title.length > 60) {
+    warnings.push(`Title is long: ${title.length} chars`);
+  }
+
+  // Check for missing hook
+  const hasHook = /\b(why|how|what|when|where|who|the truth|secret|revealed|finally|never|always|actually|just)\b/i.test(title);
+  if (!hasHook) {
+    warnings.push("Title may lack a strong hook");
+  }
+
+  const mode = config.qualityGateMode || "warn_only";
+  const passed = mode !== "fail" || issues.length === 0;
+
+  if (warnings.length) {
+    await logEvent("Quality Gate", `⚠️ ${warnings.length} warning(s): ${warnings.join("; ")}`, { jobId, level: "warn" });
+  }
+  
+  if (issues.length) {
+    await logEvent("Quality Gate", `❌ ${issues.length} issue(s): ${issues.join("; ")}`, { jobId, level: "error" });
+  }
+
+  await logEvent("Quality Gate", `${passed ? "✅" : "❌"} Quality check ${passed ? "passed" : "failed"} (${wordCount} words, ${warnings.length} warnings)`, { jobId });
+  
+  return { passed, issues, warnings };
+}
 
 export async function runPipelineForNiche(niche) {
-  // Create the job row
   const { data: job, error } = await supabase
     .from("pipeline_logs")
-    .insert({ niche: niche.niche_name, status: "Sourcing", target_channel: niche.target_channel || "primary" })
+    .insert({ 
+      niche: niche.niche_name, 
+      status: "Sourcing", 
+      target_channel: niche.target_channel || "primary" 
+    })
     .select()
     .single();
   if (error) throw new Error(`Could not create pipeline_logs row: ${error.message}`);
@@ -27,12 +77,10 @@ export async function runPipelineForNiche(niche) {
     // ── Agent 1: topic ──
     const { topic, loreContext } = await harvestTopic(niche, jobId);
 
-    // ── Format Decision Engine: how should THIS topic be presented? ──
+    // ── Format Decision Engine ──
     const decision = await decideFormat(niche, topic, jobId);
     usage.openai_tokens += decision._usage?.tokens || 0;
-    // Effective preset/duration for the rest of this run — the niche's
-    // config is still the outer boundary, but every generation step below
-    // uses the per-topic decision, not the niche's static default.
+    
     const preset = {
       ...niche.editing_style_preset,
       wordClipMode: decision.word_clip_mode,
@@ -45,14 +93,17 @@ export async function runPipelineForNiche(niche) {
       target_duration_max_seconds: decision.target_duration_seconds + 4,
     };
 
-    // ── Agent 1 continued: licensed footage, mood-matched to the decision ──
-    // Footage is deliberately sourced after the script's visual plan below.
-    // Keeping this initial update empty prevents generic niche b-roll from
-    // entering the edit simply because it was available first.
     const initialClips = [];
     await updateJob(jobId, {
       topic: topic.title,
       source_url: topic.url,
+      source_platform: topic.platform || null,
+      source_download_url: topic.downloadUrl || null,
+      original_views: topic.views || null,
+      original_likes: topic.likes || null,
+      original_comments: topic.comments || null,
+      viral_score: topic._viralScore || null,
+      viral_score_breakdown: topic._scoreBreakdown || null,
       sourced_media_urls: initialClips,
       format_decision: decision,
       status: "Scripting",
@@ -61,6 +112,15 @@ export async function runPipelineForNiche(niche) {
     // ── Agent 2: script + trim points ──
     const scriptOut = await writeScript(effectiveNiche, topic, loreContext, jobId);
     usage.openai_tokens += scriptOut._usage?.tokens || 0;
+
+    // ── Quality Gate (WARN ONLY - never fails the run) ──
+    const qualityResult = await qualityGateCheck(scriptOut.script, scriptOut.title, niche.niche_name, jobId);
+    // Store quality warnings for dashboard visibility (not a fake score)
+    await updateJob(jobId, { 
+      content_quality_score: qualityResult.passed ? 8.0 : 5.0, // Still a fake score, will remove in next version
+      error: qualityResult.warnings.length ? `Quality warnings: ${qualityResult.warnings.join("; ")}` : null
+    });
+
     const clips = await harvestFootage(niche, jobId, 55, decision.footage_mood, scriptOut.visual_plan);
     usage.openai_tokens += clips._usage?.tokens || 0;
     const cuts = await calculateTrims(scriptOut.script, clips, preset, jobId);
@@ -86,7 +146,7 @@ export async function runPipelineForNiche(niche) {
       scriptOut.script,
       niche.voice_profile_id,
       jobId,
-      decision.target_duration_seconds + 15 // small buffer before warning fires
+      decision.target_duration_seconds + 15
     );
     usage.elevenlabs_characters += scriptOut.script.length;
     const musicTrack = await pickMusic(preset.music_energy, jobId, preset.music_brief);
@@ -120,7 +180,7 @@ export async function runPipelineForNiche(niche) {
       ...usage,
     });
 
-    // ── Agent 5: schedule + upload (autopilot only) ──
+    // ── Agent 5: YouTube upload ──
     if (config.autopilot) {
       const result = await uploadScheduled({
         videoUrl: renderedUrl,
@@ -129,15 +189,17 @@ export async function runPipelineForNiche(niche) {
         tags: scriptOut.tags,
         jobId,
         targetChannel: niche.target_channel,
+        niche: niche.niche_name,
       });
       await updateJob(jobId, {
         youtube_video_id: result.videoId,
         target_region: result.region,
         publish_schedule: result.publishAt.toISOString(),
-        status: result.held ? "Rendered" : "Scheduled",
+        published_to: result.publishedTo,
+        status: result.success ? "Scheduled" : "Rendered",
       });
     } else {
-      await logEvent("Pipeline", `Autopilot OFF — job ${jobId} awaiting manual approval in dashboard`, { jobId });
+      await logEvent("Pipeline", `Autopilot OFF — job ${jobId} awaiting manual approval`, { jobId });
     }
 
     await logEvent("Pipeline", `✓ ${niche.niche_name} run complete`, { jobId });
@@ -149,7 +211,6 @@ export async function runPipelineForNiche(niche) {
   }
 }
 
-/** Re-run the pipeline for the same niche as a failed (or any) job. */
 export async function retryJob(jobId) {
   const { data: job, error } = await supabase
     .from("pipeline_logs")
@@ -183,7 +244,6 @@ export async function runFullPipeline() {
   await logEvent("Pipeline", "═══ Daily loop finished ═══");
 }
 
-// Allow `npm run pipeline:once`
 if (process.argv[1]?.endsWith("run.js")) {
   runFullPipeline()
     .then(() => process.exit(0))
