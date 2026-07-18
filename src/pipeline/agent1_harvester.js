@@ -367,7 +367,13 @@ async function searchPixabay(keyword, perPage = 3) {
         width: v.videos?.large?.width,
         height: v.videos?.large?.height,
         provider: "pixabay",
-        previewUrl: v.picture_id ? `https://i.vimeocdn.com/video/${v.picture_id}_640x360.jpg` : null,
+        // Verified against a real Pixabay API response — there is no
+        // "picture_id" field on a video hit at all (that guess meant every
+        // Pixabay clip has had previewUrl:null since this was written,
+        // silently filtered out of visual QA before the vision model ever
+        // ran, which reads as "100% rejected" but was actually "never checked").
+        // The real thumbnail lives per-size under videos.<size>.thumbnail.
+        previewUrl: v.videos?.large?.thumbnail || v.videos?.medium?.thumbnail || v.videos?.small?.thumbnail || v.videos?.tiny?.thumbnail || null,
         license: "Pixabay Content License (free commercial use)",
         credit: v.user,
     }));
