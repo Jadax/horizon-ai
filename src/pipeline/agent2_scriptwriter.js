@@ -146,21 +146,38 @@ export async function writeScript(niche, topic, loreContext, jobId) {
     .filter(Boolean)
     .join("\n\n");
 
-  const res = await openai.chat.completions.create({
-    model: "gpt-4o",
-    temperature: 0.9,
-    response_format: { type: "json_object" },
-    messages: [
+  const minWords = Math.max(20, Math.round(wordsMin * 0.7));
+  let out, usedTokens = 0;
+
+  // One bounded retry with an explicit correction before failing the whole
+  // run — a single short generation is normal model variance (temperature
+  // 0.9), not worth burning the topic/footage/cost that already went into
+  // this job over. A second short result after being told exactly how many
+  // words it was missing is treated as a real failure, not retried further.
+  for (let attempt = 1; attempt <= 2; attempt++) {
+    const messages = [
       { role: "system", content: SCRIPT_SYSTEM },
       { role: "user", content: context },
-    ],
-  });
-
-  const out = JSON.parse(res.choices[0].message.content);
-  const minWords = Math.max(20, Math.round(wordsMin * 0.7));
-  
-  if (!out.script || out.script.split(/\s+/).length < minWords) {
-    throw new Error("Script generation returned insufficient content");
+    ];
+    if (attempt === 2) {
+      messages.push({
+        role: "user",
+        content: `Your previous script was only ${out.script?.split(/\s+/).length || 0} words — at least ${minWords} are required. Write a new script that actually reaches the TARGET_WORDS range above; add more narrative detail/stakes, don't just repeat the same beats more slowly.`,
+      });
+    }
+    const res = await openai.chat.completions.create({
+      model: "gpt-4o",
+      temperature: 0.9,
+      response_format: { type: "json_object" },
+      messages,
+    });
+    usedTokens += res.usage?.total_tokens || 0;
+    out = JSON.parse(res.choices[0].message.content);
+    if (out.script && out.script.split(/\s+/).length >= minWords) break;
+    if (attempt === 2) {
+      throw new Error("Script generation returned insufficient content (after retry)");
+    }
+    await logEvent("Agent 2", `Script came back short (${out.script?.split(/\s+/).length || 0}/${minWords} words) — retrying once...`, { jobId, level: "warn" });
   }
   if (!Array.isArray(out.visual_plan) || out.visual_plan.length < 4) {
     throw new Error("Script generation returned no usable visual plan");
@@ -193,7 +210,7 @@ export async function writeScript(niche, topic, loreContext, jobId) {
     );
   }
 
-  out._usage = { tokens: res.usage?.total_tokens || 0 };
+  out._usage = { tokens: usedTokens };
   await logEvent(
     "Agent 2",
     `Script done — loop: "…${out.loop_tail}" → "${out.hook_word}…" | title: ${out.title}`,

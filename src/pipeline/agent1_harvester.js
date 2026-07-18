@@ -295,16 +295,96 @@ export async function harvestTopic(niche, jobId) {
     return { topic: top, loreContext };
 }
 
+async function searchPexels(keyword, perPage = 8) {
+    if (!config.pexelsKey) return [];
+    const url = `https://api.pexels.com/videos/search?query=${encodeURIComponent(
+        keyword
+    )}&orientation=portrait&size=medium&per_page=${perPage}`;
+    const res = await fetch(url, { headers: { Authorization: config.pexelsKey } });
+    if (!res.ok) return [];
+    const json = await res.json();
+    return (json.videos || []).map((v) => {
+        const file =
+            v.video_files
+                .filter((f) => f.height >= f.width)
+                .sort((a, b) => Math.abs(a.height - 1920) - Math.abs(b.height - 1920))[0] ||
+            v.video_files[0];
+        return {
+            url: file.link,
+            duration: v.duration,
+            width: file.width,
+            height: file.height,
+            provider: "pexels",
+            previewUrl: v.image,
+            license: "Pexels License (free commercial use)",
+            credit: v.user?.name,
+        };
+    });
+}
+
+async function verifyVisualMatches(brief, candidates) {
+    if (!config.visualQualityGate) return { clips: candidates, tokens: 0 };
+    const reviewable = candidates.filter((clip) => clip.previewUrl);
+    if (!reviewable.length) return { clips: [], tokens: 0 };
+    const content = [
+        {
+            type: "text",
+            text: `You are the final visual-continuity reviewer for a premium vertical video.\nSPOKEN LINE: ${brief.line}\nREQUIRED VISUAL: ${brief.query}\nWHY: ${brief.intent || "The image must directly prove the narration."}\n\nInspect every numbered candidate preview. Accept only a candidate that visibly depicts the literal subject, action, setting, or truthful visual metaphor needed for this exact line. Reject generic lifestyle, dancing, phones, scenery, candles, or any image that merely shares a broad mood or country. Do not infer unseen facts.\n\nReturn JSON only: {"accepted":[{"index":0,"score":0,"reason":"..."}]}. Score 0-10; include only clips scoring 8 or higher.`,
+        },
+        ...reviewable.flatMap((clip, index) => [
+            { type: "text", text: `Candidate ${index}` },
+            { type: "image_url", image_url: { url: clip.previewUrl, detail: "low" } },
+        ]),
+    ];
+    const res = await openai.chat.completions.create({
+        model: "gpt-4o-mini",
+        temperature: 0,
+        response_format: { type: "json_object" },
+        messages: [{ role: "user", content }],
+    });
+    const result = JSON.parse(res.choices[0].message.content || "{}");
+    const accepted = (result.accepted || [])
+        .filter((item) => Number(item.score) >= 8 && reviewable[Number(item.index)])
+        .map((item) => ({
+            ...reviewable[Number(item.index)],
+            visualScore: Number(item.score),
+            visualReview: String(item.reason || "Verified against narration beat").slice(0, 240),
+        }));
+    return { clips: accepted, tokens: res.usage?.total_tokens || 0 };
+}
+
+async function searchPixabay(keyword, perPage = 3) {
+    if (!config.pixabayKey) return [];
+    const url = `https://pixabay.com/api/videos/?key=${config.pixabayKey}&q=${encodeURIComponent(
+        keyword
+    )}&per_page=${perPage}`;
+    const res = await fetch(url);
+    if (!res.ok) return [];
+    const json = await res.json();
+    return (json.hits || []).map((v) => ({
+        url: v.videos?.large?.url || v.videos?.medium?.url,
+        duration: v.duration,
+        width: v.videos?.large?.width,
+        height: v.videos?.large?.height,
+        provider: "pixabay",
+        previewUrl: v.picture_id ? `https://i.vimeocdn.com/video/${v.picture_id}_640x360.jpg` : null,
+        license: "Pixabay Content License (free commercial use)",
+        credit: v.user,
+    }));
+}
+
 export async function harvestFootage(niche, jobId, minTotalSeconds = 55, priorityKeywords = null, visualQueries = []) {
+    // If this topic came in via a downloaded source video (ytDlp.js path),
+    // use it directly instead of searching stock footage for it.
     const { data: job } = await supabase
         .from("pipeline_logs")
-        .select("source_download_url, source_url")
+        .select("source_download_url")
         .eq("id", jobId)
         .single();
 
     if (job?.source_download_url) {
         await logEvent("Agent 1", `Using downloaded source video as primary footage: ${job.source_download_url}`, { jobId });
-        const clip = {
+        return [{
             url: job.source_download_url,
             duration: 60,
             provider: "source",
@@ -313,11 +393,56 @@ export async function harvestFootage(niche, jobId, minTotalSeconds = 55, priorit
             semanticCue: "source video",
             visualIntent: "source footage",
             _isSource: true,
-        };
-        return [clip];
+        }];
     }
 
-    // Fallback to stock footage (existing logic – keep your original code here)
-    // For brevity, I'm not repeating the full stock footage code, but it's unchanged.
-    throw new Error("No source video available and no stock footage fallback implemented");
+    await logEvent("Agent 1", `Sourcing licensed b-roll for ${niche.niche_name}...`, { jobId });
+    const scriptedQueries = Array.isArray(visualQueries)
+        ? visualQueries.map((q) => q?.query).filter((q) => typeof q === "string" && q.trim()).slice(0, 12)
+        : [];
+    const rest = niche.footage_keywords.filter((k) => !priorityKeywords?.includes(k));
+    const keywords = scriptedQueries.length
+        ? [...scriptedQueries, ...rest.sort(() => Math.random() - 0.5)]
+        : priorityKeywords?.length
+        ? [...priorityKeywords, ...rest.sort(() => Math.random() - 0.5)]
+        : [...niche.footage_keywords].sort(() => Math.random() - 0.5);
+    const clips = [];
+    let total = 0;
+    let visualTokens = 0;
+
+    for (const kw of keywords) {
+        if (total >= minTotalSeconds) break;
+        const found = [...(await searchPexels(kw)), ...(await searchPixabay(kw))]
+            .filter((c) => c.url && c.duration >= 4);
+        const matchingBrief = visualQueries.find((q) => q?.query === kw);
+
+        const { clips: verified, tokens } = await verifyVisualMatches(
+            { line: matchingBrief?.line || kw, query: kw, intent: matchingBrief?.intent },
+            found
+        );
+        visualTokens += tokens;
+        if (verified.length < found.length) {
+            await logEvent(
+                "Agent 1",
+                `"${kw}" → ${found.length} candidates, ${verified.length} passed visual QA`,
+                { jobId }
+            );
+        }
+
+        for (const clip of verified.slice(0, 2)) {
+            clips.push({ ...clip, keyword: kw, semanticCue: matchingBrief?.line || kw, visualIntent: matchingBrief?.intent || null });
+            total += Math.min(clip.duration, 8);
+            if (total >= minTotalSeconds) break;
+        }
+        await logEvent("Agent 1", `"${kw}" → ${found.length} licensed clips (${Math.round(total)}s gathered)`, { jobId });
+    }
+
+    if (clips.length < 3) {
+        throw new Error(
+            "Insufficient licensed footage passed visual QA — check PEXELS_API_KEY / PIXABAY_API_KEY, broaden footage_keywords, or temporarily disable VISUAL_QUALITY_GATE for diagnostics"
+        );
+    }
+    await logEvent("Agent 1", `Media locked: ${clips.length} clips, ~${Math.round(total)}s of coverage`, { jobId });
+    clips._usage = { tokens: visualTokens };
+    return clips;
 }
