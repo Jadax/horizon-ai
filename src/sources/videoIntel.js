@@ -4,24 +4,11 @@
  * Uses Apify's VideoIntel actor to extract metadata and download links
  * from 1,500+ platforms including YouTube, TikTok, Instagram, Reddit,
  * Twitter/X, Vimeo, Twitch, Kick, Dailymotion, and more.
- * 
- * This is the COMPLIANT solution for scraping video content from across
- * the web without writing fragile, ToS-violating scrapers for each platform.
  */
 import { config } from "../config.js";
 
 const APIFY_API_BASE = "https://api.apify.com/v2";
 
-/**
- * Fetches video metadata and download URL from a platform URL
- * 
- * @param {string} url - The URL of the video page (e.g., Reddit post, YouTube video, Tweet)
- * @param {object} options - Optional parameters
- * @param {string} options.download - Set to "true" to get a download link for the video
- * @param {string} options.downloadFormat - "mp4", "webm", or "best"
- * @param {number} options.timeout - Max seconds to wait for the actor to run
- * @returns {Promise<object>} - Video metadata including download URL
- */
 export async function fetchVideoMetadata(url, options = {}) {
     if (!config.apifyApiKey) {
         throw new Error("APIFY_API_KEY is required for video metadata fetch");
@@ -134,9 +121,6 @@ export async function fetchVideoMetadata(url, options = {}) {
     }
 }
 
-/**
- * Detects the platform from a URL
- */
 function detectPlatform(url) {
     try {
         const hostname = new URL(url).hostname.toLowerCase();
@@ -156,9 +140,6 @@ function detectPlatform(url) {
     }
 }
 
-/**
- * Batch fetch multiple videos at once
- */
 export async function batchFetchVideoMetadata(urls, options = {}) {
     if (!config.apifyApiKey) {
         throw new Error("APIFY_API_KEY is required for batch video metadata fetch");

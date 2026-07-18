@@ -1,17 +1,12 @@
 /**
  * AGENT 1 — THE UNIVERSAL TREND & VIDEO HARVESTER
  * 
- * Upgraded version that integrates:
- * - Universal video metadata API (VideoIntel) for 1500+ platforms
- * - Advanced viral scoring
- * - Multi-platform discovery
- * - Automated video download for high-potential content
- * - Intelligent filtering before entering the pipeline
+ * Sources content from across the web using metadata and video downloads.
  */
 import { config } from "../config.js";
 import OpenAI from "openai";
 import { supabase, logEvent } from "../supabase.js";
-import { fetchVideoMetadata, batchFetchVideoMetadata } from "../sources/videoIntel.js";
+import { batchFetchVideoMetadata } from "../sources/videoIntel.js";
 import { scoreVideoForVirality, quickVideoFilter } from "../lib/viralScoring.js";
 import { fetchRSSFeed } from "../sources/rss.js";
 import { fetchSocialRSSFeeds, normaliseSocialFeeds } from "../sources/socialRss.js";
@@ -24,9 +19,6 @@ import { rankCandidates, recalibrateWeights } from "../lib/trendScoring.js";
 
 const openai = new OpenAI({ apiKey: config.openaiKey });
 
-/**
- * Harvests video content from social platforms using VideoIntel API
- */
 async function harvestSocialVideos(niche, jobId, limit = 15) {
     const videos = [];
     
@@ -60,7 +52,7 @@ async function harvestSocialVideos(niche, jobId, limit = 15) {
         }
     }
 
-    // 2. YouTube Trending (existing)
+    // 2. YouTube Trending
     try {
         const ytTrending = await fetchYouTubeTrending(niche.trend_region || "US", 10);
         for (const item of ytTrending) {
@@ -75,7 +67,7 @@ async function harvestSocialVideos(niche, jobId, limit = 15) {
         await logEvent("Agent 1", `YouTube Trending fetch failed: ${err.message}`, { jobId, level: "warn" });
     }
 
-    // 3. Fetch metadata for all video URLs found
+    // 3. Fetch metadata for all video URLs
     const videoMetadata = [];
     const urlsToFetch = videos.map(v => v.url).slice(0, 10);
     
@@ -119,6 +111,7 @@ async function harvestSocialVideos(niche, jobId, limit = 15) {
                     _scoreBreakdown: scores.breakdown,
                     _reasoning: scores.reasoning,
                     _usage: scores._usage,
+                    _type: "video",
                 });
                 await logEvent("Agent 1", `✅ Video scored ${scores.overall.toFixed(1)}/10: "${video.title.slice(0, 60)}..."`, { jobId });
             } else {
@@ -133,9 +126,6 @@ async function harvestSocialVideos(niche, jobId, limit = 15) {
     return scoredVideos.slice(0, 5);
 }
 
-/**
- * Harvest all candidates (original + upgraded)
- */
 export async function harvestAllCandidates(niche, jobId = null) {
     const log = (msg, level) => (jobId ? logEvent("Agent 1", msg, { jobId, level }) : logEvent("Agent 1", msg, { level }));
     await log(`Scanning sources for ${niche.niche_name}...`);
@@ -143,18 +133,11 @@ export async function harvestAllCandidates(niche, jobId = null) {
     const candidates = [];
     const tag = (items, source) => items.map((i) => ({ ...i, source }));
 
-    // 1. SOCIAL VIDEOS (NEW - highest priority)
+    // 1. SOCIAL VIDEOS (NEW)
     const socialVideos = await harvestSocialVideos(niche, jobId);
-    candidates.push(...socialVideos.map(v => ({
-        ...v,
-        source: v.source || v.platform || "Social Media",
-        _type: "video",
-        _viralScore: v._viralScore,
-        _scoreBreakdown: v._scoreBreakdown,
-        _reasoning: v._reasoning,
-    })));
+    candidates.push(...socialVideos);
 
-    // 2. RSS feeds (existing)
+    // 2. RSS feeds
     for (const feedUrl of niche.rss_feeds || []) {
         try {
             const items = await fetchRSSFeed(feedUrl);
@@ -165,7 +148,7 @@ export async function harvestAllCandidates(niche, jobId = null) {
         }
     }
 
-    // 3. Social RSS feeds (existing)
+    // 3. Social RSS feeds
     const socialFeeds = normaliseSocialFeeds(niche.social_rss_feeds);
     if (socialFeeds.length) {
         const results = await fetchSocialRSSFeeds(socialFeeds, config.socialFeedHeaders);
@@ -179,7 +162,7 @@ export async function harvestAllCandidates(niche, jobId = null) {
         }
     }
 
-    // 4. Google Trends (existing)
+    // 4. Google Trends
     try {
         const trends = await fetchGoogleTrends(niche.trend_region || "US");
         candidates.push(...tag(trends, "Google Trends"));
@@ -188,7 +171,7 @@ export async function harvestAllCandidates(niche, jobId = null) {
         await log(`Google Trends fetch failed: ${err.message}`, "warn");
     }
 
-    // 5. YouTube Trending (existing)
+    // 5. YouTube Trending
     try {
         const ytTrending = await fetchYouTubeTrending(niche.trend_region || "US", 8);
         candidates.push(...tag(ytTrending, "YouTube Trending"));
@@ -197,7 +180,7 @@ export async function harvestAllCandidates(niche, jobId = null) {
         await log(`YouTube Trending fetch failed: ${err.message}`, "warn");
     }
 
-    // 6. Fediverse (existing)
+    // 6. Fediverse
     for (const tagName of niche.mastodon_tags || []) {
         try {
             const posts = await fetchMastodonHashtag(tagName);
@@ -217,248 +200,6 @@ export async function harvestAllCandidates(niche, jobId = null) {
         }
     }
 
-    // 7. News niche specific sources (existing)
+    // 7. News niche specific sources
     if (niche.niche_name === "News") {
         try {
-            const gdelt = await fetchGDELT("breaking OR viral OR trending", 12);
-            candidates.push(...tag(gdelt, "GDELT"));
-            await log(`GDELT: ${gdelt.length} candidates`);
-        } catch (err) {
-            await log(`GDELT fetch failed: ${err.message}`, "warn");
-        }
-        try {
-            const gnews = await fetchGoogleNews(null);
-            candidates.push(...tag(gnews, "Google News"));
-            await log(`Google News: ${gnews.length} candidates`);
-        } catch (err) {
-            await log(`Google News fetch failed: ${err.message}`, "warn");
-        }
-    }
-
-    // 8. Best-effort Reddit (existing)
-    for (const source of niche.target_sources || []) {
-        if (!source.startsWith('r/')) continue;
-        try {
-            const posts = await fetchTopReddit(source, 10);
-            candidates.push(...tag(posts, "Reddit (best-effort)"));
-            await log(`Scraped ${source}: ${posts.length} candidates`);
-        } catch (err) {
-            await log(`Source ${source} failed: ${err.message}`, "warn");
-        }
-    }
-
-    if (!candidates.length) return [];
-    return rankCandidates(candidates);
-}
-
-/**
- * Normalization for topic grouping
- */
-function topicKey(title) {
-    return (title || "")
-        .toLowerCase()
-        .replace(/[^a-z0-9\s]/g, "")
-        .split(/\s+/)
-        .slice(0, 5)
-        .join(" ");
-}
-
-/**
- * Recent topics check (existing)
- */
-async function recentTopicKeys(nicheName, days = 14, limit = 30) {
-    const cutoff = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
-    const { data, error } = await supabase
-        .from("pipeline_logs")
-        .select("topic")
-        .eq("niche", nicheName)
-        .gte("created_at", cutoff)
-        .order("created_at", { ascending: false })
-        .limit(limit);
-    if (error || !data?.length) return new Set();
-    return new Set(data.map((r) => topicKey(r.topic)).filter(Boolean));
-}
-
-/**
- * Main harvest topic function
- */
-export async function harvestTopic(niche, jobId) {
-    const ranked = await harvestAllCandidates(niche, jobId);
-    if (!ranked.length) throw new Error("No topic candidates found from any source");
-
-    const seen = await recentTopicKeys(niche.niche_name);
-    const fresh = ranked.filter((c) => !seen.has(topicKey(c.title)));
-    if (fresh.length < ranked.length) {
-        await logEvent(
-            "Agent 1",
-            `Skipped ${ranked.length - fresh.length} candidate(s) already covered by this niche in the last 14 days`,
-            { jobId }
-        );
-    }
-    
-    // Prioritize videos with viral scores, then fall back to regular ranking
-    let top = fresh.length ? fresh : ranked;
-    
-    // If we have video candidates with viral scores, pick the highest scored
-    const videoCandidates = top.filter(c => c._type === "video" && c._viralScore);
-    if (videoCandidates.length) {
-        top = videoCandidates.sort((a, b) => b._viralScore - a._viralScore)[0];
-    } else {
-        top = top[0];
-    }
-
-    // Lore grounding (existing)
-    let loreContext = null;
-    const wikiApis = niche.lore_wiki_apis || [];
-    for (const apiRoot of wikiApis) {
-        const wikiResults = await searchWiki(apiRoot, top.title.split(" ").slice(0, 6).join(" ")).catch(() => []);
-        if (wikiResults.length) {
-            loreContext = wikiResults;
-            await logEvent("Agent 1", `Lore grounding found (${new URL(apiRoot).hostname}): "${wikiResults[0].title}"`, { jobId });
-            break;
-        }
-    }
-
-    await logEvent(
-        "Agent 1",
-        `Topic locked: "${top.title.slice(0, 80)}" (source: ${top.source}, trend score: ${top._trendScore || top._viralScore || "N/A"})`,
-        { jobId }
-    );
-
-    // Self-adjust source-reliability weights (existing)
-    recalibrateWeights(ranked).catch(() => {});
-
-    return { topic: top, loreContext };
-}
-
-// ─── Licensed footage sourcing (unchanged — Pexels/Pixabay only) ─────────
-
-async function searchPexels(keyword, perPage = 8) {
-    if (!config.pexelsKey) return [];
-    const url = `https://api.pexels.com/videos/search?query=${encodeURIComponent(
-        keyword
-    )}&orientation=portrait&size=medium&per_page=${perPage}`;
-    const res = await fetch(url, { headers: { Authorization: config.pexelsKey } });
-    if (!res.ok) return [];
-    const json = await res.json();
-    return (json.videos || []).map((v) => {
-        const file =
-            v.video_files
-                .filter((f) => f.height >= f.width)
-                .sort((a, b) => Math.abs(a.height - 1920) - Math.abs(b.height - 1920))[0] ||
-            v.video_files[0];
-        return {
-            url: file.link,
-            duration: v.duration,
-            width: file.width,
-            height: file.height,
-            provider: "pexels",
-            previewUrl: v.image,
-            license: "Pexels License (free commercial use)",
-            credit: v.user?.name,
-        };
-    });
-}
-
-async function verifyVisualMatches(brief, candidates) {
-    if (!config.visualQualityGate) return { clips: candidates, tokens: 0 };
-    const reviewable = candidates.filter((clip) => clip.previewUrl);
-    if (!reviewable.length) return { clips: [], tokens: 0 };
-    const content = [
-        {
-            type: "text",
-            text: `You are the final visual-continuity reviewer for a premium vertical video.\nSPOKEN LINE: ${brief.line}\nREQUIRED VISUAL: ${brief.query}\nWHY: ${brief.intent || "The image must directly prove the narration."}\n\nInspect every numbered candidate preview. Accept only a candidate that visibly depicts the literal subject, action, setting, or truthful visual metaphor needed for this exact line. Reject generic lifestyle, dancing, phones, scenery, candles, or any image that merely shares a broad mood or country. Do not infer unseen facts.\n\nReturn JSON only: {"accepted":[{"index":0,"score":0,"reason":"..."}]}. Score 0-10; include only clips scoring 8 or higher.`,
-        },
-        ...reviewable.flatMap((clip, index) => [
-            { type: "text", text: `Candidate ${index}` },
-            { type: "image_url", image_url: { url: clip.previewUrl, detail: "low" } },
-        ]),
-    ];
-    const res = await openai.chat.completions.create({
-        model: "gpt-4o-mini",
-        temperature: 0,
-        response_format: { type: "json_object" },
-        messages: [{ role: "user", content }],
-    });
-    const result = JSON.parse(res.choices[0].message.content || "{}");
-    const accepted = (result.accepted || [])
-        .filter((item) => Number(item.score) >= 8 && reviewable[Number(item.index)])
-        .map((item) => ({
-            ...reviewable[Number(item.index)],
-            visualScore: Number(item.score),
-            visualReview: String(item.reason || "Verified against narration beat").slice(0, 240),
-        }));
-    return { clips: accepted, tokens: res.usage?.total_tokens || 0 };
-}
-
-async function searchPixabay(keyword, perPage = 3) {
-    if (!config.pixabayKey) return [];
-    const url = `https://pixabay.com/api/videos/?key=${config.pixabayKey}&q=${encodeURIComponent(
-        keyword
-    )}&per_page=${perPage}`;
-    const res = await fetch(url);
-    if (!res.ok) return [];
-    const json = await res.json();
-    return (json.hits || []).map((v) => ({
-        url: v.videos?.large?.url || v.videos?.medium?.url,
-        duration: v.duration,
-        width: v.videos?.large?.width,
-        height: v.videos?.large?.height,
-        provider: "pixabay",
-        previewUrl: v.picture_id ? `https://i.vimeocdn.com/video/${v.picture_id}_640x360.jpg` : null,
-        license: "Pixabay Content License (free commercial use)",
-        credit: v.user,
-    }));
-}
-
-export async function harvestFootage(niche, jobId, minTotalSeconds = 55, priorityKeywords = null, visualQueries = []) {
-    await logEvent("Agent 1", `Sourcing licensed b-roll for ${niche.niche_name}...`, { jobId });
-    const scriptedQueries = Array.isArray(visualQueries)
-        ? visualQueries.map((q) => q?.query).filter((q) => typeof q === "string" && q.trim()).slice(0, 12)
-        : [];
-    const rest = niche.footage_keywords.filter((k) => !priorityKeywords?.includes(k));
-    const keywords = scriptedQueries.length
-        ? [...scriptedQueries, ...rest.sort(() => Math.random() - 0.5)]
-        : priorityKeywords?.length
-        ? [...priorityKeywords, ...rest.sort(() => Math.random() - 0.5)]
-        : [...niche.footage_keywords].sort(() => Math.random() - 0.5);
-    const clips = [];
-    let total = 0;
-    let visualTokens = 0;
-
-    for (const kw of keywords) {
-        if (total >= minTotalSeconds) break;
-        const found = [...(await searchPexels(kw)), ...(await searchPixabay(kw))]
-            .filter((c) => c.url && c.duration >= 4);
-        const matchingBrief = visualQueries.find((q) => q?.query === kw);
-
-        const { clips: verified, tokens } = await verifyVisualMatches(
-            { line: matchingBrief?.line || kw, query: kw, intent: matchingBrief?.intent },
-            found
-        );
-        visualTokens += tokens;
-        if (verified.length < found.length) {
-            await logEvent(
-                "Agent 1",
-                `"${kw}" → ${found.length} candidates, ${verified.length} passed visual QA`,
-                { jobId }
-            );
-        }
-
-        for (const clip of verified.slice(0, 2)) {
-            clips.push({ ...clip, keyword: kw, semanticCue: matchingBrief?.line || kw, visualIntent: matchingBrief?.intent || null });
-            total += Math.min(clip.duration, 8);
-            if (total >= minTotalSeconds) break;
-        }
-        await logEvent("Agent 1", `"${kw}" → ${found.length} licensed clips (${Math.round(total)}s gathered)`, { jobId });
-    }
-
-    if (clips.length < 3) {
-        throw new Error(
-            "Insufficient licensed footage passed visual QA — check PEXELS_API_KEY / PIXABAY_API_KEY, broaden footage_keywords, or temporarily disable VISUAL_QUALITY_GATE for diagnostics"
-        );
-    }
-    await logEvent("Agent 1", `Media locked: ${clips.length} clips, ~${Math.round(total)}s of coverage`, { jobId });
-    clips._usage = { tokens: visualTokens };
-    return clips;
-}

@@ -16,9 +16,9 @@ import { supabase, logEvent } from "../supabase.js";
 
 const openai = new OpenAI({ apiKey: config.openaiKey });
 
-/**
- * Scores a single video candidate for viral potential
- */
+// Cache for emotional resonance to avoid repeated LLM calls
+const emotionalResonanceCache = new Map();
+
 export async function scoreVideoForVirality(video, niche, options = {}) {
     const scores = {
         engagementVelocity: 0,
@@ -47,12 +47,25 @@ export async function scoreVideoForVirality(video, niche, options = {}) {
             scores.reasoning.push(`🔥 High engagement velocity: ${Math.round(viewsPerHour)} views/hour`);
         }
 
-        // 2. Emotional Resonance (LLM analysis)
+        // 2. Emotional Resonance (LLM analysis with caching)
         try {
-            const emotionalAnalysis = await analyzeEmotionalResonance(
-                video.title, 
-                video.description || video.selftext || ""
-            );
+            const cacheKey = `${video.title}|${(video.description || video.selftext || "").slice(0, 200)}`;
+            let emotionalAnalysis;
+            
+            if (emotionalResonanceCache.has(cacheKey)) {
+                emotionalAnalysis = emotionalResonanceCache.get(cacheKey);
+            } else {
+                emotionalAnalysis = await analyzeEmotionalResonance(
+                    video.title, 
+                    video.description || video.selftext || ""
+                );
+                emotionalResonanceCache.set(cacheKey, emotionalAnalysis);
+                if (emotionalResonanceCache.size > 100) {
+                    const firstKey = emotionalResonanceCache.keys().next().value;
+                    emotionalResonanceCache.delete(firstKey);
+                }
+            }
+            
             scores.emotionalResonance = emotionalAnalysis.score;
             scores.breakdown.emotionalResonance = emotionalAnalysis.score;
             if (emotionalAnalysis.triggerWords.length) {
@@ -88,7 +101,7 @@ export async function scoreVideoForVirality(video, niche, options = {}) {
         scores.platformOptimization = calculatePlatformOptimization(video);
         scores.breakdown.platformOptimization = scores.platformOptimization;
 
-        // 7. Competitive Saturation
+        // 7. Competitive Saturation (capped at 3 keywords)
         scores.competitiveSaturation = await analyzeCompetitiveSaturation(video.title, niche);
         scores.breakdown.competitiveSaturation = scores.competitiveSaturation;
 
@@ -120,9 +133,6 @@ export async function scoreVideoForVirality(video, niche, options = {}) {
     }
 }
 
-/**
- * Analyzes emotional resonance using an LLM
- */
 async function analyzeEmotionalResonance(title, description) {
     const text = `${title}\n${description}`.slice(0, 2000);
     
@@ -157,9 +167,6 @@ async function analyzeEmotionalResonance(title, description) {
     }
 }
 
-/**
- * Calculates retention potential based on title structure
- */
 function calculateRetentionPotential(title) {
     const hookIndicators = [
         /\b(how to|why|what if|the truth about|i tried|this is why|the reason|secret|hidden)\b/i,
@@ -185,9 +192,6 @@ function calculateRetentionPotential(title) {
     return Math.min(10, score);
 }
 
-/**
- * Calculates novelty by checking against recent videos in this niche
- */
 async function calculateNoveltyScore(title, niche) {
     const topicKey = title.toLowerCase().replace(/[^a-z0-9\s]/g, "").split(/\s+/).slice(0, 5).join(" ");
     
@@ -213,9 +217,6 @@ async function calculateNoveltyScore(title, niche) {
     return Math.max(1, 10 - (overlap * 3));
 }
 
-/**
- * Calculates pattern interrupt strength
- */
 function calculatePatternInterrupt(title) {
     let score = 3;
     
@@ -238,11 +239,8 @@ function calculatePatternInterrupt(title) {
     return Math.min(10, score);
 }
 
-/**
- * Analyzes competitive saturation
- */
 async function analyzeCompetitiveSaturation(title, niche) {
-    const keywords = title.toLowerCase().split(/\s+/).filter(w => w.length > 3).slice(0, 3);
+    const keywords = title.toLowerCase().split(/\s+/).filter(w => w.length > 4).slice(0, 3);
     if (keywords.length === 0) return 5;
 
     let matchCount = 0;
@@ -261,9 +259,6 @@ async function analyzeCompetitiveSaturation(title, niche) {
     return Math.max(1, 10 - Math.min(10, matchCount));
 }
 
-/**
- * Calculates platform optimization score
- */
 function calculatePlatformOptimization(video) {
     let score = 5;
     
@@ -277,9 +272,6 @@ function calculatePlatformOptimization(video) {
     return Math.min(10, score);
 }
 
-/**
- * Quick filter for video quality before full scoring
- */
 export function quickVideoFilter(video, minDuration = 5, maxDuration = 180) {
     if (video.duration < minDuration || video.duration > maxDuration) {
         return { passed: false, reason: `Duration ${video.duration}s outside acceptable range` };
@@ -291,10 +283,6 @@ export function quickVideoFilter(video, minDuration = 5, maxDuration = 180) {
 
     if (!video.title || video.title.length < 5) {
         return { passed: false, reason: "Title too short or missing" };
-    }
-
-    if (!video.downloadUrl) {
-        return { passed: false, reason: "No downloadable video URL available" };
     }
 
     return { passed: true };

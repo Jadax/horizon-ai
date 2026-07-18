@@ -29,7 +29,7 @@ export const config = {
   elevenLabsKey: process.env.ELEVENLABS_API_KEY,
   shotstack: {
     key: process.env.SHOTSTACK_API_KEY,
-    env: process.env.SHOTSTACK_ENV || "stage", // "stage" | "v1"
+    env: process.env.SHOTSTACK_ENV || "stage",
     get baseUrl() {
       return `https://api.shotstack.io/${this.env}`;
     },
@@ -41,34 +41,19 @@ export const config = {
   pexelsKey: process.env.PEXELS_API_KEY,
   pixabayKey: process.env.PIXABAY_API_KEY,
   
-  // ─── NEW: Apify / VideoIntel API ─────────────────────────────────────
+  // ─── Apify / VideoIntel API ─────────────────────────────────────
   apifyApiKey: process.env.APIFY_API_KEY,
   apifyActorId: process.env.APIFY_ACTOR_ID || "upworkprashantp/videointel-video-metadata-extractor",
   
-  // ─── NEW: Quality Gate ────────────────────────────────────────────────
-  qualityGateStrictness: process.env.QUALITY_GATE_STRICTNESS || "normal",
+  // ─── Quality Gate ────────────────────────────────────────────────
   qualityScoreThreshold: parseFloat(process.env.QUALITY_SCORE_THRESHOLD) || 7.0,
   
-  // ─── NEW: AI B-Roll ──────────────────────────────────────────────────
-  enableAiBroll: (process.env.ENABLE_AI_BROLL || "false").toLowerCase() === "true",
-  aiBrollApiKey: process.env.AI_BROLL_API_KEY,
-  
-  // ─── NEW: Cost Management ─────────────────────────────────────────────
+  // ─── Cost Management ─────────────────────────────────────────────
   maxCostPerVideo: parseFloat(process.env.MAX_COST_PER_VIDEO) || 5.00,
   dailyCostCap: parseFloat(process.env.DAILY_COST_CAP) || 50.00,
   
-  // Long-form clipper (Agent 6): personal access token for YOUR OWN Vimeo
-  // account — Vimeo's API only returns a download link for videos that
-  // token owns, so this can't be pointed at third-party videos.
   vimeoAccessToken: process.env.VIMEO_ACCESS_TOKEN,
-  
-  // A render is blocked when footage cannot be visually verified against its
-  // exact narration beat. Disable only for local diagnostics.
   visualQualityGate: (process.env.VISUAL_QUALITY_GATE || "true").toLowerCase() === "true",
-  
-  // Map a social feed's `auth_key` to request headers. This permits an
-  // operator-authorised private RSS feed while keeping credentials out of
-  // Supabase. Example: {"creator_feed":{"Authorization":"Bearer ..."}}.
   socialFeedHeaders: parseJsonEnv("SOCIAL_RSS_HEADERS", {}),
   
   google: {
@@ -76,16 +61,7 @@ export const config = {
     clientSecret: process.env.GOOGLE_CLIENT_SECRET,
     redirectUri:
       process.env.GOOGLE_REDIRECT_URI || "http://localhost:8080/oauth2callback",
-    refreshToken: process.env.GOOGLE_REFRESH_TOKEN, // "primary" channel
-    // MULTI-CHANNEL SUPPORT: if you run separate channels for different
-    // content types, set GOOGLE_CHANNELS as a JSON object mapping a short
-    // channel key to its own refresh token, e.g.:
-    //   GOOGLE_CHANNELS={"mythosvibe":"1//0abc...","gamingchannel":"1//0xyz..."}
-    // Each channel needs its own refresh token (same OAuth client/secret is
-    // fine — just re-run `npm run auth:youtube` signed into that channel's
-    // Google account and copy the resulting token in here). A niche's
-    // `target_channel` column in Supabase picks which one it uploads to;
-    // "primary" (or unset) falls back to GOOGLE_REFRESH_TOKEN above.
+    refreshToken: process.env.GOOGLE_REFRESH_TOKEN,
     channels: (() => {
       try {
         return process.env.GOOGLE_CHANNELS ? JSON.parse(process.env.GOOGLE_CHANNELS) : {};
@@ -102,12 +78,6 @@ export const config = {
   autopilot: (process.env.AUTOPILOT || "true").toLowerCase() === "true",
 };
 
-/**
- * Resolves which refresh token to use for a given channel key (a niche's
- * `target_channel` value). "primary", empty, or unrecognized keys all fall
- * back to the main GOOGLE_REFRESH_TOKEN — so single-channel setups (the
- * common case) need zero extra configuration.
- */
 export function getChannelToken(channelKey) {
   if (channelKey && channelKey !== "primary" && config.google.channels[channelKey]) {
     return config.google.channels[channelKey];
