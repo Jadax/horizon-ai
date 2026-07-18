@@ -11,6 +11,9 @@
 import OpenAI from "openai";
 import { config } from "../config.js";
 import { logEvent } from "../supabase.js";
+import { getTitlePatternInsight } from "../lib/trendScoring.js";
+
+const TITLE_PATTERNS = ["curiosity_gap", "number_stakes", "contrarian_reframe", "direct_consequence", "insider_callout"];
 
 const openai = new OpenAI({ apiKey: config.openaiKey });
 
@@ -50,6 +53,17 @@ a title that overpromises and underdelivers gets the video reported, not
 watched, and kills channel trust).
 
 ## SCRIPT RULES (non-negotiable)
+- ORIGINAL PERSPECTIVE (this is a compliance requirement, not a style
+  preference — YouTube's inauthentic-content monetization policy explicitly
+  targets "AI-generated content with generic or unoriginal templates...
+  without the creator's original insights or perspective," and pure
+  fact-recitation is exactly that): at least one line must go beyond
+  restating what happened and offer an actual take — why it matters, what
+  it reveals, a specific implication, a judgment call. Not a generic
+  editorial aside like "and that's crazy" — a concrete, specific point of
+  view a viewer could disagree with. If the topic is too thin to support a
+  real point of view, that's a sign a different topic should have been
+  picked, not a reason to skip this rule.
 - Write in original words. If wiki/lore context is provided, PARAPHRASE it — never copy sentences.
 - Length: hit TARGET_WORDS_MIN-TARGET_WORDS_MAX words, which the caller has
   already converted from this niche's configured target duration (short-form
@@ -132,15 +146,24 @@ that actually plays. Work through these steps:
    concrete hook-able detail, the topic was too thin; reach for the most
    specific true thing it does say.
 2. PICK ONE PROVEN PATTERN that fits that specific hook (don't force a
-   pattern that doesn't fit the content):
-   - Curiosity gap: names the subject, withholds the resolution ("The One
-     Setting Elden Ring Never Explains")
-   - Specific number/stakes: a real figure from the script ("$130M Reason
-     Reddit Killed Its Own API")
-   - Contrarian/reframe: challenges an assumption the audience already holds
-   - Direct consequence: states what changes/breaks/ends because of the fact
-   - Insider callout: names a specific tool/mechanic/entity a tech-savvy
-     viewer already recognizes, signaling "this is for you specifically"
+   pattern that doesn't fit the content). Each has a short id in parens —
+   that id is what goes in the JSON "title_pattern" field below:
+   - Curiosity gap (curiosity_gap): names the subject, withholds the
+     resolution ("The One Setting Elden Ring Never Explains")
+   - Specific number/stakes (number_stakes): a real figure from the script
+     ("$130M Reason Reddit Killed Its Own API")
+   - Contrarian/reframe (contrarian_reframe): challenges an assumption the
+     audience already holds
+   - Direct consequence (direct_consequence): states what changes/breaks/
+     ends because of the fact
+   - Insider callout (insider_callout): names a specific tool/mechanic/
+     entity a tech-savvy viewer already recognizes, signaling "this is for
+     you specifically"
+   If a PERFORMANCE HINT is provided in the context below, treat it as a
+   tiebreaker, not a mandate — only use the historically-stronger pattern
+   when it genuinely fits this specific hook as well as another pattern
+   would. A worse-fitting title that happens to match past performance data
+   is a worse title.
 3. CALIBRATE TO A TECH-SAVVY AUDIENCE. Assume the viewer already knows the
    basics of the niche — skip "explain like I'm 5" framing, use precise
    terminology the community actually uses, and never oversell a routine
@@ -161,6 +184,7 @@ Respond ONLY with JSON:
   "hook_word": "first word of script",
   "loop_tail": "the final mid-sentence fragment",
   "title": "the finished title, following the process above",
+  "title_pattern": "one of: curiosity_gap | number_stakes | contrarian_reframe | direct_consequence | insider_callout",
   "title_reasoning": "1-2 sentences: which specific hook you pulled from the
     script, which pattern you used, and why it fits this audience — this is
     for internal review, never shown to viewers",
@@ -198,6 +222,7 @@ export async function writeScript(niche, topic, loreContext, jobId) {
   const wordsMin = Math.round(minSeconds * 2.3);
   const wordsMax = Math.round(maxSeconds * 2.3);
   const loopMode = maxSeconds <= 70;
+  const titlePatternHint = await getTitlePatternInsight(niche.niche_name).catch(() => null);
 
   const context = [
     `NICHE: ${niche.niche_name}`,
@@ -211,6 +236,7 @@ export async function writeScript(niche, topic, loreContext, jobId) {
     loreContext
       ? `LORE GROUNDING (paraphrase only, do not copy): ${JSON.stringify(loreContext)}`
       : null,
+    titlePatternHint,
   ]
     .filter(Boolean)
     .join("\n\n");
@@ -242,6 +268,7 @@ export async function writeScript(niche, topic, loreContext, jobId) {
       intent: String(beat.intent || "Direct visual evidence for the narration").slice(0, 220),
     }));
   if (out.visual_plan.length < 4) throw new Error("Visual plan did not contain four valid beats");
+  out.title_pattern = TITLE_PATTERNS.includes(out.title_pattern) ? out.title_pattern : null;
 
   // Post-processing safety net: strip any em/en-dash that slipped through
   // and flag (don't silently rewrite) any AI-tell word that made it past

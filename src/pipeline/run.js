@@ -73,6 +73,7 @@ export async function runPipelineForNiche(niche) {
       script: scriptOut.script,
       title: scriptOut.title,
       title_reasoning: scriptOut.title_reasoning || null,
+      title_pattern: scriptOut.title_pattern || null,
       description: scriptOut.description,
       tags: scriptOut.tags,
       calculated_trim_points: cuts,

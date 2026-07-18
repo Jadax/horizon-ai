@@ -204,6 +204,46 @@ export async function recalibrateFromPerformance() {
 }
 
 /**
+ * TITLE-PATTERN PERFORMANCE FEEDBACK — computed live (not a cron job) since
+ * Agent 2 needs it at generation time, not on a delay. Looks at this
+ * niche's own published-and-measured history (title_pattern × yt_views/
+ * yt_likes/yt_comments), and returns a one-line hint for the title prompt
+ * naming whichever pattern has the strongest track record here — or null
+ * if there isn't enough sample size yet to trust a pattern over another
+ * (same >=3-per-bucket bar recalibrateFromPerformance uses, so this
+ * doesn't start opinionated on day one and overfit on noise).
+ */
+export async function getTitlePatternInsight(nicheName, minSamplesPerPattern = 3) {
+  const { data, error } = await supabase
+    .from("pipeline_logs")
+    .select("title_pattern, yt_views, yt_likes, yt_comments")
+    .eq("niche", nicheName)
+    .not("title_pattern", "is", null)
+    .not("yt_views", "is", null)
+    .limit(200);
+  if (error || !data?.length) return null;
+
+  const byPattern = {};
+  for (const row of data) {
+    const engagement = (row.yt_views || 0) + (row.yt_likes || 0) * 5 + (row.yt_comments || 0) * 10;
+    (byPattern[row.title_pattern] = byPattern[row.title_pattern] || []).push(engagement);
+  }
+
+  const ranked = Object.entries(byPattern)
+    .filter(([, vals]) => vals.length >= minSamplesPerPattern)
+    .map(([pattern, vals]) => ({ pattern, avg: vals.reduce((a, b) => a + b, 0) / vals.length, n: vals.length }))
+    .sort((a, b) => b.avg - a.avg);
+
+  if (ranked.length < 2) return null; // need at least two patterns to compare, not just a lone winner by default
+
+  const best = ranked[0];
+  const worst = ranked[ranked.length - 1];
+  if (worst.avg <= 0 || best.avg / Math.max(1, worst.avg) < 1.3) return null; // not a meaningful enough gap to steer on
+
+  return `PERFORMANCE HINT: in this niche's history, "${best.pattern}" titles average ${(best.avg / Math.max(1, worst.avg)).toFixed(1)}x the engagement of the weakest pattern (n=${best.n}). Prefer it when it genuinely fits this topic's specific hook — never force a pattern that doesn't actually match the content just because it historically performed well.`;
+}
+
+/**
  * Modest self-update: sources whose items frequently corroborate with
  * other sources get a small reliability boost; sources that never
  * corroborate with anything get a small nudge down. Run once per full

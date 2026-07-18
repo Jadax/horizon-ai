@@ -1510,3 +1510,15 @@ alter table sfx_library enable row level security;
 -- (Storage → New bucket → name "uploads" → Public) for source video files,
 -- alongside the existing "renders" bucket Agent 3/4 already use.
 
+
+-- ═══════════════════════════════════════════════════════════════════════
+-- SOURCE: migration_title_pattern.sql
+-- ═══════════════════════════════════════════════════════════════════════
+-- Records which title-engineering pattern Agent 2 used (curiosity_gap,
+-- number_stakes, contrarian_reframe, direct_consequence, insider_callout)
+-- so trendScoring.js can correlate it against real YouTube performance
+-- (already tracked via yt_views/yt_likes/yt_comments) and feed a per-niche
+-- "this pattern historically outperforms here" hint back into the title
+-- prompt. See getTitlePatternInsight() in src/lib/trendScoring.js.
+alter table pipeline_logs add column if not exists title_pattern text;
+

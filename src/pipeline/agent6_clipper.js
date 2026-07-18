@@ -347,6 +347,13 @@ export async function runClipperJob(clipJobId) {
       shotstack_render_seconds: shotstackSeconds,
     });
     await logEvent("Agent 6", `✓ Clipper job complete — ${rendered.length}/${clips.length} clip(s) rendered`, { jobId: clipJobId });
+    if (actionMode) {
+      await logEvent(
+        "Agent 6",
+        `⚠ Action-mode clips are auto-cut with no original commentary — YouTube's reused-content policy requires "significant original commentary, editing, or educational/entertainment value" to monetize compiled/highlight footage. Consider adding your own voiceover or on-screen commentary before publishing these, not just the auto zoom/impact-text.`,
+        { jobId: clipJobId, level: "warn" }
+      );
+    }
   } catch (err) {
     await logEvent("Agent 6", `✗ Clipper job failed: ${err.message}`, { jobId: clipJobId, level: "error" });
     await updateClipJob(clipJobId, { status: "Failed", error: err.message });
