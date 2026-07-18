@@ -12,6 +12,41 @@ const execFileAsync = promisify(execFile);
 const RENDER_API_URL = config.renderApiUrl || 'http://localhost:3000';
 const ENGINE = config.renderEngine || 'render-api';
 
+function toAssTimestamp(seconds) {
+  const s = Math.max(0, seconds);
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  const sec = s % 60;
+  return `${h}:${String(m).padStart(2, '0')}:${sec.toFixed(2).padStart(5, '0')}`;
+}
+
+/** One `ass=file` filter carries every caption, instead of chaining one
+ * drawtext filter per caption — see the call site for why. `{` and `}` are
+ * ASS override-tag delimiters (e.g. `{\b1}` for bold); stripped from
+ * caption text since spoken narration/word-clip text never legitimately
+ * needs them and leaving them in would either silently vanish or, worse,
+ * accidentally form a real override tag. */
+function buildAssSubtitles(captions) {
+  const header = [
+    '[Script Info]',
+    'ScriptType: v4.00+',
+    'PlayResX: 1080',
+    'PlayResY: 1920',
+    '',
+    '[V4+ Styles]',
+    'Format: Name, Fontname, Fontsize, PrimaryColour, OutlineColour, BackColour, Bold, BorderStyle, Outline, Shadow, Alignment, MarginV',
+    'Style: Default,Arial,64,&H00FFFFFF,&H00000000,&H00000000,1,1,3,1,2,140',
+    '',
+    '[Events]',
+    'Format: Layer, Start, End, Style, Text',
+  ].join('\n');
+  const lines = captions.map((cap) => {
+    const text = String(cap.text || '').replace(/[{}]/g, '').replace(/\n/g, ' ');
+    return `Dialogue: 0,${toAssTimestamp(cap.start)},${toAssTimestamp(cap.end)},Default,${text}`;
+  });
+  return header + '\n' + lines.join('\n') + '\n';
+}
+
 export async function renderVideo(payload, jobId) {
   switch (ENGINE) {
     case 'render-api':
@@ -120,7 +155,7 @@ async function renderWithFFmpeg(payload, jobId) {
   if (!clips.length) {
     clips = [{ url: null, type: 'color', duration: totalDuration }];
   }
-  const captionFiles = [];
+  let assFile = null;
 
   try {
     if (payload.audioUrl) {
@@ -160,33 +195,23 @@ async function renderWithFFmpeg(payload, jobId) {
     const concatInputs = clips.map((_, i) => `[v${i}]`).join('');
     let filterComplex = [...legs, `${concatInputs}concat=n=${clips.length}:v=1:a=0[vcat]`].join(';');
 
-    // drawtext's inline text='...' option goes through TWO layers of
-    // escaping (ffmpeg's filtergraph quoting, then drawtext's own :/\\
-    // escaping) — backslash-escaping an apostrophe as \' (the previous
-    // approach) breaks the filtergraph's quote parser mid-string, and
-    // everything after it in the chain gets misparsed as garbage filter
-    // names ("No such filter: 'drawtext'" / "'1'" — confirmed by
-    // reproducing this exact failure locally with a caption containing an
-    // apostrophe). textfile= sidesteps both escaping layers entirely since
-    // the text lives in a file, not inline in the command string —
-    // verified to render apostrophes/colons correctly where inline
-    // text='...' silently dropped the apostrophe glyph even when it didn't
-    // error outright.
+    // Chaining one drawtext filter per caption (textfile= per caption, as a
+    // previous fix attempted) works for a handful of captions but breaks on
+    // real word-clip-mode scripts, which can chain 80-90+ drawtext stages
+    // in one filter_complex — reproduced this exact "No such filter:
+    // 'drawtext'" failure locally at that scale even with zero text-
+    // escaping issues (textfile= already eliminates those), so the chain
+    // length/count itself is what ffmpeg's parser (at least the 7.0.2
+    // static build Railway runs) chokes on, not the text content.
+    // Switched to ONE `ass` subtitle filter carrying every caption's timing
+    // — this is what libass (already compiled into this build) exists for,
+    // scales to any caption count, and was verified against a real
+    // rendered frame with apostrophes/colons/commas in the text.
     if (payload.captions && payload.captions.length) {
-      let captionChain = '[vcat]';
-      const captionFilters = [];
-      for (let i = 0; i < payload.captions.length; i++) {
-        const cap = payload.captions[i];
-        const capFile = path.join(tmpDir, `horizon-caption-${randomUUID()}.txt`);
-        captionFiles.push(capFile);
-        await writeFile(capFile, cap.text);
-        const label = i === payload.captions.length - 1 ? '[vout]' : `[vc${i}]`;
-        captionFilters.push(
-          `${captionChain}drawtext=textfile='${capFile.replace(/\\/g, '/').replace(/:/g, '\\:')}':x=(w-text_w)/2:y=h-${(i % 3) * 60 + 100}:fontsize=40:fontcolor=white:shadowcolor=black:shadowx=2:shadowy=2:enable='between(t,${cap.start},${cap.end})'${label}`
-        );
-        captionChain = label;
-      }
-      filterComplex += ';' + captionFilters.join(';');
+      assFile = path.join(tmpDir, `horizon-captions-${randomUUID()}.ass`);
+      await writeFile(assFile, buildAssSubtitles(payload.captions));
+      const assPath = assFile.replace(/\\/g, '/').replace(/:/g, '\\:').replace(/'/g, '’');
+      filterComplex += `;[vcat]ass='${assPath}'[vout]`;
     } else {
       filterComplex += ';[vcat]null[vout]';
     }
@@ -205,7 +230,7 @@ async function renderWithFFmpeg(payload, jobId) {
     if (payload.audioUrl) {
       await unlink(audioFile).catch(() => {});
     }
-    await Promise.all(captionFiles.map((f) => unlink(f).catch(() => {})));
+    if (assFile) await unlink(assFile).catch(() => {});
 
     const url = `data:video/mp4;base64,${video.toString('base64')}`;
     return {
@@ -219,7 +244,7 @@ async function renderWithFFmpeg(payload, jobId) {
     if (payload.audioUrl) {
       await unlink(audioFile).catch(() => {});
     }
-    await Promise.all(captionFiles.map((f) => unlink(f).catch(() => {})));
+    if (assFile) await unlink(assFile).catch(() => {});
     throw error;
   }
 }
