@@ -510,7 +510,7 @@ function renderOverview(){
 
   document.getElementById("kpiRow").innerHTML = [
     ["Jobs run", c.jobCount, "emerald", `${Object.keys(c.byNiche).length} niches active this run`],
-    ["Est. total cost", "$"+c.estTotalCost.toFixed(2), "sky", "OpenAI + ElevenLabs + Shotstack"],
+    ["Est. total cost", "$"+c.estTotalCost.toFixed(2), "sky", "OpenAI (see cost note below — rates may be stale)"],
     ["Videos published", lastPublished.length, "indigo", "Live on YouTube"],
     ["Active niches", activeNiches===null ? "—" : activeNiches+" / "+lastNiches.length, "amber", "Configured in Supabase"],
   ].map(([label,val,tone,sub])=>`
@@ -607,8 +607,8 @@ async function loadCosts(){
   document.getElementById("costTotal").textContent = "≈ $"+c.estTotalCost.toFixed(2)+" total (est.)";
   const rows = '<div class="cost-tiles">' + [
     ["OpenAI tokens", c.totals.openai_tokens.toLocaleString()],
-    ["ElevenLabs chars", c.totals.elevenlabs_characters.toLocaleString()],
-    ["Shotstack sec", c.totals.shotstack_render_seconds.toFixed(0)],
+    ["Voiceover chars", c.totals.elevenlabs_characters.toLocaleString()],
+    ["Render seconds", c.totals.shotstack_render_seconds.toFixed(0)],
     ["Jobs run", c.jobCount],
   ].map(([l,v])=>`<div class="cost-tile"><div class="tv">${v}</div><div class="tl">${l}</div></div>`).join("") + '</div>';
   const niches = Object.entries(c.byNiche)

@@ -13,6 +13,7 @@ import express from "express";
 import { config } from "../config.js";
 import { supabase } from "../supabase.js";
 import { harvestAllCandidates } from "../pipeline/agent1_harvester.js";
+import { checkRenderEngine } from "../lib/freeVideoRender.js";
 
 export const trendingRouter = express.Router();
 
@@ -59,15 +60,10 @@ trendingRouter.get("/diagnostics", async (_req, res) => {
     fetch("https://api.openai.com/v1/models", {
       headers: { Authorization: `Bearer ${config.openaiKey}` },
     }).then((r) => ({ name: "OpenAI", ok: r.ok })),
-    fetch("https://api.elevenlabs.io/v1/user", {
-      headers: { "xi-api-key": config.elevenLabsKey },
-    }).then((r) => ({ name: "ElevenLabs", ok: r.ok })),
-    fetch(`${config.shotstack.baseUrl}/render/00000000-0000-0000-0000-000000000000`, {
-      headers: { "x-api-key": config.shotstack.key },
-    }).then((r) => ({
-      name: `Shotstack (${config.shotstack.env === "v1" ? "Production" : "Sandbox"})`,
-      ok: r.status !== 401 && r.status !== 403,
-    })),
+    fetch(`${config.ttsApiUrl}`.replace(/\/tts$/, "/health"), { method: "GET" })
+      .then((r) => ({ name: `TTS engine (${config.ttsEngine})`, ok: r.ok }))
+      .catch(() => ({ name: `TTS engine (${config.ttsEngine})`, ok: false })),
+    checkRenderEngine().then((ok) => ({ name: `Render engine (${config.renderEngine})`, ok })),
     supabase
       .from("niche_configurations")
       .select("id", { count: "exact", head: true })

@@ -1,7 +1,7 @@
 {
-  "name": "horizon-ai",
-  "version": "2.0.2",
-  "description": "Autonomous viral video creation and publishing engine with universal video sourcing and monetization",
+  "name": "horizon-ai-full",
+  "version": "3.0.1",
+  "description": "Complete viral video factory with integrated TTS & render",
   "author": "Tushant Sharma",
   "license": "UNLICENSED",
   "type": "module",
@@ -10,7 +10,8 @@
     "start": "node src/index.js",
     "dev": "node --watch src/index.js",
     "pipeline:once": "node src/pipeline/run.js",
-    "auth:youtube": "node src/lib/youtubeAuth.js"
+    "auth:youtube": "node src/lib/youtubeAuth.js",
+    "postinstall": "node -e \"try { require('yt-dlp-wrap').default.downloadYtDlp() } catch(e) {}\""
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.45.0",
@@ -21,7 +22,9 @@
     "multer": "^2.2.0",
     "node-cron": "^4.6.0",
     "openai": "^4.56.0",
-    "rss-parser": "^3.13.0"
+    "rss-parser": "^3.13.0",
+    "yt-dlp-wrap": "^2.3.9",
+    "axios": "^1.6.0"
   },
   "engines": {
     "node": ">=22.0.0"

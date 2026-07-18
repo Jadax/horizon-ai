@@ -1,0 +1,61 @@
+{
+  "$schema": "https://railway.app/railway.schema.json",
+  "build": {
+    "builder": "NIXPACKS"
+  },
+  "deploy": {
+    "numReplicas": 1,
+    "restartPolicyType": "ON_FAILURE",
+    "restartPolicyMaxRetries": 3
+  },
+  "services": [
+    {
+      "name": "horizon-ai",
+      "source": {
+        "type": "node",
+        "buildCommand": "npm install",
+        "startCommand": "node src/index.js"
+      },
+      "env": {
+        "PORT": "8080"
+      },
+      "domains": ["horizon-ai.up.railway.app"],
+      "healthcheckPath": "/health"
+    },
+    {
+      "name": "tts-server",
+      "source": {
+        "type": "python",
+        "buildCommand": "pip install -r requirements.txt",
+        "startCommand": "python app.py"
+      },
+      "sourcePath": "tts",
+      "env": {
+        "PORT": "5000"
+      },
+      "domains": ["tts-server.up.railway.app"],
+      "healthcheckPath": "/health"
+    },
+    {
+      "name": "render-api",
+      "source": {
+        "type": "node",
+        "buildCommand": "npm install && npm run build",
+        "startCommand": "npm start"
+      },
+      "sourcePath": "render-api",
+      "env": {
+        "PORT": "3000",
+        "DATABASE_URL": "__REQUIRED__ provision a Postgres service and set this to its connection string",
+        "JWT_SECRET": "__REQUIRED__ generate one, e.g. openssl rand -hex 32",
+        "RAILWAY_BUCKET_NAME": "__REQUIRED__ S3-compatible bucket — render-video-api stores output here",
+        "RAILWAY_BUCKET_ENDPOINT": "__REQUIRED__",
+        "RAILWAY_BUCKET_REGION": "__REQUIRED__",
+        "RAILWAY_BUCKET_ACCESS_KEY": "__REQUIRED__",
+        "RAILWAY_BUCKET_SECRET_KEY": "__REQUIRED__"
+      },
+      "domains": ["render-api.up.railway.app"],
+      "healthcheckPath": "/health"
+    }
+  ]
+}

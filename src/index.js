@@ -75,8 +75,6 @@ cron.schedule("0 */6 * * *", async () => {
 // ── Start server ─────────────────────────────────────────────────────
 app.listen(config.port, () => {
   console.log(`\n▲ HORIZON AI online → http://localhost:${config.port}`);
-  console.log(`  Cron: ${config.pipelineCron} UTC | Autopilot: ${config.autopilot ? "ON" : "OFF"}`);
-  console.log(`  Publishing to: ${config.publishTo.join(", ")}`);
-  console.log(`  Quality threshold: ${config.qualityScoreThreshold}\n`);
+  console.log(`  Cron: ${config.pipelineCron} UTC | Autopilot: ${config.autopilot ? "ON" : "OFF"}\n`);
   logEvent("System", `Horizon AI booted — autopilot ${config.autopilot ? "engaged" : "paused"}`);
 });

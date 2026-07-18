@@ -1,15 +1,6 @@
-/**
- * AGENT 4 — THE SHOTSTACK EDIT GENERATOR
- *
- * Compiles a Shotstack Edit API JSON payload from:
- *   - trimmed licensed clips (Agent 1 + Agent 2's cut list)
- *   - the ElevenLabs voiceover track
- *   - the music_library background track (ducked per style preset)
- *   - word-by-word active caption layers synced to voiceover timestamps
- * Posts to Shotstack and polls until the render completes.
- */
 import { config } from "../config.js";
 import { logEvent } from "../supabase.js";
+import { renderVideo, checkRenderEngine } from "../lib/freeVideoRender.js";
 
 const STYLE_FONTS = {
   "heavy-sans": { family: "Montserrat ExtraBold", size: 46 },
@@ -25,9 +16,6 @@ const DEFAULT_CLIP_PRESET = {
 };
 
 export function captionClips(words, preset) {
-  // Word-clip mode: one giant word/short-phrase per beat, punchy pacing.
-  // Otherwise: group words into 2-3 word chunks — the standard "active
-  // caption" look.
   const chunkSize = preset.wordClipMode ? 1 : preset.transitions === "fast-cut" ? 2 : 3;
   const font = preset.wordClipMode
     ? STYLE_FONTS["word-clip"]
@@ -38,262 +26,67 @@ export function captionClips(words, preset) {
     const start = chunk[0].start;
     const end = chunk[chunk.length - 1].end;
     clips.push({
-      asset: {
-        type: "text",
-        text: chunk.map((w) => w.word).join(" ").toUpperCase(),
-        font: {
-          family: font.family,
-          size: font.size,
-          color: preset.caption.color,
-        },
-        stroke: { color: "#000000", width: preset.caption.style === "minimal" ? 0 : 3 },
-        alignment: { horizontal: "center" },
-        width: preset.wordClipMode ? 1000 : 900,
-        height: preset.wordClipMode ? 320 : 200,
-      },
+      text: chunk.map((w) => w.word).join(" ").toUpperCase(),
       start: Number(start.toFixed(2)),
-      length: Number(Math.max(0.2, end - start).toFixed(2)),
-      position: preset.caption.position === "bottom" ? "bottom" : "center",
-      offset: preset.caption.position === "bottom" ? { y: 0.12 } : { y: 0 },
-      transition: preset.transitions === "fast-cut" ? undefined : { in: "fade", out: "fade" },
+      end: Number(end.toFixed(2)),
     });
   }
   return clips;
 }
 
-function videoClips(cuts, preset, totalDuration) {
-  let cursor = 0;
-  const clips = [];
-  for (const cut of cuts) {
-    if (cursor >= totalDuration + 1.5) break;
-    const length = Math.min(cut.length, totalDuration + 2 - cursor);
-    clips.push({
-      asset: { type: "video", src: cut.url, trim: Number(cut.start.toFixed(2)), volume: 0 },
-      start: Number(cursor.toFixed(2)),
-      length: Number(length.toFixed(2)),
-      fit: "cover",
-      scale: 1,
-      effect: "zoomIn",
-      transition:
-        preset.transitions === "cross-dissolve"
-          ? { in: "fade", out: "fade" }
-          : undefined,
-    });
-    cursor += length;
-  }
-  return clips;
-}
-
-export function buildEditPayload({ cuts, voiceoverUrl, words, duration, musicTrack, preset, jobId }) {
+export function buildEditPayload({ cuts, voiceoverUrl, words, duration, musicTrack, preset, jobId, isSourceVideo = false }) {
   const total = duration + 1.5;
-  const tracks = [
-    { clips: captionClips(words, preset) }, // top layer: captions
-    { clips: videoClips(cuts, preset, duration) }, // video layer
-    {
-      clips: [
-        {
-          asset: { type: "audio", src: voiceoverUrl, volume: 1 },
-          start: 0,
-          length: Number(duration.toFixed(2)),
-        },
-      ],
-    },
-  ];
-
-  if (musicTrack) {
-    // Shotstack volume is 0-1; convert the preset's dB duck to a linear approx
-    const db = preset.music_db ?? -18;
-    const volume = Number(Math.pow(10, db / 20).toFixed(3)); // -18dB ≈ 0.126
-    // NOTE: Shotstack's "effect" (fadeIn/fadeOut) is only valid on the
-    // timeline-level `soundtrack` object, NOT as a property on a regular
-    // audio clip inside a track — setting it there gets validated against
-    // the video/image zoom-effect enum instead and is rejected (this was
-    // the actual cause of the "expected zoomIn|zoomInSlow|..." error).
-    // A keyframed volume fade (like the offset animation Shotstack's docs
-    // show) may also be possible, but isn't confirmed for the volume
-    // property specifically — rather than guess and risk another
-    // validation failure, music ends on a static volume with a hard cut.
-    // Worth revisiting once actually confirmed against Shotstack's schema.
-    tracks.push({
-      clips: [
-        {
-          asset: { type: "audio", src: musicTrack.track_url, volume },
-          start: 0,
-          length: Number(total.toFixed(2)),
-        },
-      ],
-    });
+  
+  let videoClips = [];
+  if (isSourceVideo && cuts.length === 1) {
+    const clip = cuts[0];
+    videoClips = [{
+      url: clip.url,
+      start: clip.start,
+      duration: Math.min(clip.length, total),
+    }];
+  } else {
+    let cursor = 0;
+    for (const cut of cuts) {
+      if (cursor >= total) break;
+      const length = Math.min(cut.length, total - cursor);
+      videoClips.push({
+        url: cut.url,
+        start: cut.start,
+        duration: length,
+      });
+      cursor += length;
+    }
   }
 
   return {
-    timeline: { background: "#000000", tracks },
+    backgroundVideo: videoClips[0]?.url || null,
+    audioUrl: voiceoverUrl,
+    musicUrl: musicTrack?.track_url || null,
+    duration: total,
+    captions: captionClips(words, preset),
     output: {
       format: "mp4",
-      resolution: "hd",
-      aspectRatio: "9:16",
+      resolution: "1080x1920",
       fps: 30,
     },
-    callback: undefined,
-    disk: "local",
-  };
-}
-
-/**
- * AGENT 6 SUPPORT — builds a single-clip edit payload for the long-form
- * clipper: one trimmed segment of the SOURCE video (original audio kept —
- * this is repurposing footage the operator already owns, not a fresh
- * voiceover) plus a synced caption track. `words` must already be
- * re-zeroed to be relative to the clip's own start (see agent6_clipper.js),
- * not the source video's absolute timeline.
- */
-export function buildClipPayload({ sourceUrl, clipStart, clipLength, words, preset, jobId }) {
-  const effectivePreset = { ...DEFAULT_CLIP_PRESET, ...preset };
-  const tracks = [
-    { clips: captionClips(words, effectivePreset) },
-    {
-      clips: [
-        {
-          asset: { type: "video", src: sourceUrl, trim: Number(clipStart.toFixed(2)) },
-          start: 0,
-          length: Number(clipLength.toFixed(2)),
-          fit: "cover",
-        },
-      ],
-    },
-  ];
-  return {
-    timeline: { background: "#000000", tracks },
-    output: { format: "mp4", resolution: "hd", aspectRatio: "9:16", fps: 30 },
-    disk: "local",
-  };
-}
-
-const IMPACT_FONT = { family: "Montserrat ExtraBold", size: 78 };
-
-/**
- * ACTION MODE — for source footage with little/no dialogue (gameplay,
- * sports, reaction compilations) where a spoken "hook" doesn't exist to
- * score. The retention mechanic here isn't words, it's pace: a hard
- * punch-in zoom snapped exactly on the highlight beat (two consecutive
- * trims of the SAME source clip, the second one zoomed, rather than a
- * gradual zoom that wouldn't land ON the moment), a big bold text call-out,
- * and an optional one-shot sound effect layered on top of the original
- * game/crowd audio (never replacing it).
- *
- * `peakOffset` and every entry in `impactCues`/`sfxCue` are seconds
- * relative to the CLIP's own start (already re-zeroed by agent6_clipper.js),
- * matching the same convention `words` uses in buildClipPayload above.
- */
-export function buildActionClipPayload({ sourceUrl, clipStart, clipLength, peakOffset, impactCues = [], sfxCue = null, jobId }) {
-  const safePeak = Math.min(Math.max(peakOffset, 0.5), clipLength - 0.5);
-
-  const videoClips = [
-    {
-      asset: { type: "video", src: sourceUrl, trim: Number(clipStart.toFixed(2)) },
-      start: 0,
-      length: Number(safePeak.toFixed(2)),
-      fit: "cover",
-    },
-    {
-      // The punch: same source, continuing exactly where the first segment
-      // left off, but with a zoom effect so the highlight beat visibly
-      // "hits" instead of playing at a flat, static framing.
-      asset: { type: "video", src: sourceUrl, trim: Number((clipStart + safePeak).toFixed(2)) },
-      start: Number(safePeak.toFixed(2)),
-      length: Number((clipLength - safePeak).toFixed(2)),
-      fit: "cover",
-      effect: "zoomIn",
-    },
-  ];
-
-  const textClips = impactCues.map((cue) => ({
-    asset: {
-      type: "text",
-      text: String(cue.text || "").toUpperCase(),
-      font: { family: IMPACT_FONT.family, size: IMPACT_FONT.size, color: "#FFFFFF" },
-      stroke: { color: "#000000", width: 4 },
-      alignment: { horizontal: "center" },
-      width: 1000,
-      height: 300,
-    },
-    start: Number(Math.max(0, cue.offset).toFixed(2)),
-    length: Number(Math.min(1.4, clipLength - cue.offset).toFixed(2)),
-    position: "top",
-    offset: { y: -0.2 },
-    transition: { in: "fade", out: "fade" },
-  }));
-
-  const tracks = [{ clips: textClips }, { clips: videoClips }];
-
-  if (sfxCue?.url) {
-    tracks.push({
-      clips: [
-        {
-          asset: { type: "audio", src: sfxCue.url, volume: 0.9 },
-          start: Number(Math.max(0, sfxCue.offset).toFixed(2)),
-          length: Number(Math.min(3, clipLength - sfxCue.offset).toFixed(2)),
-        },
-      ],
-    });
-  }
-
-  return {
-    timeline: { background: "#000000", tracks },
-    output: { format: "mp4", resolution: "hd", aspectRatio: "9:16", fps: 30 },
-    disk: "local",
   };
 }
 
 export async function render(payload, jobId) {
-  return renderWithBaseUrl(payload, jobId, config.shotstack.baseUrl, config.shotstack.env);
+  await logEvent("Agent 4", `Rendering video using free engine (${config.renderEngine || 'render-api'})...`, { jobId });
+  
+  const isAvailable = await checkRenderEngine();
+  if (!isAvailable) {
+    await logEvent("Agent 4", `⚠️ Render engine not available, using FFmpeg fallback`, { jobId, level: "warn" });
+  }
+  
+  const result = await renderVideo(payload, jobId);
+  
+  await logEvent("Agent 4", `Render complete → ${result.url} (FREE)`, { jobId });
+  return { renderId: result.renderId, url: result.url };
 }
 
-/**
- * Forces a v1 (production, no watermark, paid) render regardless of the
- * configured SHOTSTACK_ENV default. Used by the dashboard's "Render
- * Production" action so day-to-day testing can stay on the free stage
- * environment, and only videos you've actually approved incur real
- * Shotstack cost — instead of every render defaulting to paid.
- */
 export async function renderProduction(payload, jobId) {
-  const v1BaseUrl = config.shotstack.baseUrl.replace(/\/(stage|v1)$/, "/v1");
-  return renderWithBaseUrl(payload, jobId, v1BaseUrl, "v1 (forced)");
-}
-
-async function renderWithBaseUrl(payload, jobId, baseUrl, envLabel) {
-  await logEvent("Agent 4", `Pushing edit JSON to Shotstack (${envLabel})…`, { jobId });
-  const res = await fetch(`${baseUrl}/render`, {
-    method: "POST",
-    headers: {
-      "x-api-key": config.shotstack.key,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(payload),
-  });
-  if (!res.ok) {
-    throw new Error(`Shotstack submit → HTTP ${res.status}: ${(await res.text()).slice(0, 300)}`);
-  }
-  const { response } = await res.json();
-  const renderId = response.id;
-  await logEvent("Agent 4", `Render queued: ${renderId} — polling…`, { jobId });
-
-  // Poll every 10s, up to 15 minutes
-  for (let i = 0; i < 90; i++) {
-    await new Promise((r) => setTimeout(r, 10_000));
-    const poll = await fetch(`${baseUrl}/render/${renderId}`, {
-      headers: { "x-api-key": config.shotstack.key },
-    });
-    const { response: status } = await poll.json();
-    if (status.status === "done") {
-      await logEvent("Agent 4", `Render complete → ${status.url}`, { jobId });
-      return { renderId, url: status.url };
-    }
-    if (status.status === "failed") {
-      throw new Error(`Shotstack render failed: ${status.error || "unknown"}`);
-    }
-    if (i % 3 === 0) {
-      await logEvent("Agent 4", `Render status: ${status.status}…`, { jobId });
-    }
-  }
-  throw new Error("Shotstack render timed out after 15 minutes");
+  return render(payload, jobId);
 }

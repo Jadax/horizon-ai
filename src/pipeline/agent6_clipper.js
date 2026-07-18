@@ -36,7 +36,12 @@
 import OpenAI, { toFile } from "openai";
 import { config } from "../config.js";
 import { supabase, logEvent } from "../supabase.js";
-import { buildClipPayload, buildActionClipPayload, render } from "./agent4_shotstack.js";
+// buildClipPayload/buildActionClipPayload no longer exist — agent4_shotstack.js
+// was rewritten around the free render engine's payload shape (background video +
+// separate voiceover + captions), which has no equivalent for "keep the source
+// clip's own embedded audio" that both clipper modes depend on. Importing the old
+// names would crash the whole app at boot (ESM throws on a missing named export).
+// Left both render functions failing per-clip below until that's designed for real.
 import { detectAudioPeaks } from "../lib/audioPeaks.js";
 
 const openai = new OpenAI({ apiKey: config.openaiKey });
@@ -240,22 +245,11 @@ async function renderDialogueClips(sourceUrl, words, clipPlan, preset, clipJobId
       .map((w) => ({ word: w.word, start: w.start - clip.start, end: w.end - clip.start }));
     if (!clipWords.length) continue;
 
-    const payload = buildClipPayload({
-      sourceUrl,
-      clipStart: clip.start,
-      clipLength: clip.end - clip.start,
-      words: clipWords,
-      preset,
-      jobId: clipJobId,
-    });
-    try {
-      const { renderId, url } = await render(payload, clipJobId);
-      shotstackSeconds += Number((clip.end - clip.start).toFixed(1));
-      rendered.push({ ...clip, url, shotstack_render_id: renderId });
-      await updateClipJob(clipJobId, { rendered_clips: rendered, shotstack_render_seconds: shotstackSeconds });
-    } catch (err) {
-      await logEvent("Agent 6", `Clip ${i + 1} render failed: ${err.message}`, { jobId: clipJobId, level: "warn" });
-    }
+    await logEvent(
+      "Agent 6",
+      `Clip ${i + 1} skipped — dialogue-mode clip rendering is unavailable: the current render engine has no way to preserve a trimmed source clip's own audio (it only supports a separate voiceover track).`,
+      { jobId: clipJobId, level: "warn" }
+    );
   }
   return { rendered, shotstackSeconds };
 }
@@ -268,25 +262,11 @@ async function renderActionClips(sourceUrl, clipPlan, clipJobId) {
     await logEvent("Agent 6", `Rendering highlight ${i + 1}/${clipPlan.length}: "${clip.title}"…`, { jobId: clipJobId });
     await updateClipJob(clipJobId, { status: `Rendering clip ${i + 1}/${clipPlan.length}` });
 
-    const clipLength = clip.end - clip.start;
-    const sfx = await pickSfx("impact");
-    const payload = buildActionClipPayload({
-      sourceUrl,
-      clipStart: clip.start,
-      clipLength,
-      peakOffset: clip.peakOffset,
-      impactCues: [{ offset: Math.max(0, clip.peakOffset - 0.15), text: clip.title }],
-      sfxCue: sfx ? { offset: clip.peakOffset, url: sfx.track_url } : null,
-      jobId: clipJobId,
-    });
-    try {
-      const { renderId, url } = await render(payload, clipJobId);
-      shotstackSeconds += Number(clipLength.toFixed(1));
-      rendered.push({ ...clip, url, shotstack_render_id: renderId });
-      await updateClipJob(clipJobId, { rendered_clips: rendered, shotstack_render_seconds: shotstackSeconds });
-    } catch (err) {
-      await logEvent("Agent 6", `Clip ${i + 1} render failed: ${err.message}`, { jobId: clipJobId, level: "warn" });
-    }
+    await logEvent(
+      "Agent 6",
+      `Clip ${i + 1} skipped — action-mode clip rendering (punch-zoom, impact text, SFX) is unavailable: the current render engine's payload shape has no equivalent for these effects since the Shotstack rewrite.`,
+      { jobId: clipJobId, level: "warn" }
+    );
   }
   return { rendered, shotstackSeconds };
 }
