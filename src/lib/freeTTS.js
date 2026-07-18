@@ -9,7 +9,7 @@ import { randomUUID } from 'node:crypto';
 
 const execAsync = promisify(exec);
 const execFileAsync = promisify(execFile);
-const PRIMARY_ENGINE = config.ttsEngine || 'chatterbox';
+const PRIMARY_ENGINE = config.ttsEngine || 'gtts';
 const TTS_API_URL = config.ttsApiUrl || 'http://localhost:5000/tts';
 const FALLBACK_ENGINE = config.ttsFallback || 'gtts';
 
@@ -112,4 +112,37 @@ async function synthesizeGTTS(text, options) {
 
 export function audioToBase64(audioBuffer) {
   return audioBuffer.toString('base64');
+}
+
+/**
+ * Engine-aware health check for the dashboard diagnostics panel. Only
+ * chatterbox/fish-speech/coqui are external services worth an HTTP check —
+ * the default 'gtts' (and 'piper') run in-process via a local subprocess,
+ * so "is it healthy" means "does python3 + the gtts module actually work",
+ * not "does something answer on ttsApiUrl" (nothing does, by design, and
+ * checking that previously reported the working default as "Down").
+ */
+export async function checkTTSEngine() {
+  if (['chatterbox', 'fish-speech', 'coqui'].includes(PRIMARY_ENGINE)) {
+    try {
+      const res = await axios.get(TTS_API_URL.replace(/\/(synthesize|tts)$/, '/health'), { timeout: 5000 });
+      return res.status === 200;
+    } catch {
+      return false;
+    }
+  }
+  if (PRIMARY_ENGINE === 'piper') {
+    try {
+      await execFileAsync('piper', ['--help'], { timeout: 5000 });
+      return true;
+    } catch {
+      return false;
+    }
+  }
+  try {
+    await execFileAsync('python3', ['-c', 'import gtts'], { timeout: 5000 });
+    return true;
+  } catch {
+    return false;
+  }
 }

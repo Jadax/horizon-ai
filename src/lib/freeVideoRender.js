@@ -176,9 +176,22 @@ async function renderWithFFmpeg(payload, jobId) {
 }
 
 export async function checkRenderEngine() {
+  // Only 'render-api'/'shottower' are external services worth an HTTP health
+  // check — the default 'ffmpeg' engine runs in-process via the bundled
+  // ffmpeg-static binary, so "is it healthy" means "does the binary run",
+  // not "does something answer on renderApiUrl" (nothing ever does, by
+  // design, and this previously reported the working default as "Down").
+  if (ENGINE === 'render-api' || ENGINE === 'shottower') {
+    try {
+      const response = await axios.get(`${RENDER_API_URL}/health`, { timeout: 5000 });
+      return response.status === 200;
+    } catch {
+      return false;
+    }
+  }
   try {
-    const response = await axios.get(`${RENDER_API_URL}/health`, { timeout: 5000 });
-    return response.status === 200;
+    await execFileAsync(ffmpeg, ['-version'], { timeout: 5000 });
+    return true;
   } catch {
     return false;
   }

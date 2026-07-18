@@ -14,6 +14,7 @@ import { config } from "../config.js";
 import { supabase } from "../supabase.js";
 import { harvestAllCandidates } from "../pipeline/agent1_harvester.js";
 import { checkRenderEngine } from "../lib/freeVideoRender.js";
+import { checkTTSEngine } from "../lib/freeTTS.js";
 
 export const trendingRouter = express.Router();
 
@@ -60,9 +61,7 @@ trendingRouter.get("/diagnostics", async (_req, res) => {
     fetch("https://api.openai.com/v1/models", {
       headers: { Authorization: `Bearer ${config.openaiKey}` },
     }).then((r) => ({ name: "OpenAI", ok: r.ok })),
-    fetch(`${config.ttsApiUrl}`.replace(/\/tts$/, "/health"), { method: "GET" })
-      .then((r) => ({ name: `TTS engine (${config.ttsEngine})`, ok: r.ok }))
-      .catch(() => ({ name: `TTS engine (${config.ttsEngine})`, ok: false })),
+    checkTTSEngine().then((ok) => ({ name: `TTS engine (${config.ttsEngine})`, ok })),
     checkRenderEngine().then((ok) => ({ name: `Render engine (${config.renderEngine})`, ok })),
     supabase
       .from("niche_configurations")
