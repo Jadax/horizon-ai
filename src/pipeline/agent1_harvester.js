@@ -12,6 +12,7 @@ import { fetchYouTubeTrending } from "../sources/youtubeTrending.js";
 import { fetchMastodonHashtag, fetchLemmyHot } from "../sources/fediverse.js";
 import { fetchTopReddit, searchWiki } from "../sources/reddit.js";
 import { rankCandidates, recalibrateWeights } from "../lib/trendScoring.js";
+import { withRetry } from "../lib/openaiRetry.js";
 
 const openai = new OpenAI({ apiKey: config.openaiKey });
 
@@ -323,9 +324,16 @@ async function searchPexels(keyword, perPage = 15) {
     });
 }
 
+// Capped independently of how many candidates the search itself returns —
+// widening Pexels/Pixabay result counts (for a better chance of finding a
+// real match) is not the same as needing to vision-check every single one
+// of them in one call. Sending too many images in one request is what blew
+// through the account's tokens-per-minute limit and killed an entire run.
+const MAX_VISION_CANDIDATES = 10;
+
 async function verifyVisualMatches(brief, candidates) {
     if (!config.visualQualityGate) return { clips: candidates, tokens: 0 };
-    const reviewable = candidates.filter((clip) => clip.previewUrl);
+    const reviewable = candidates.filter((clip) => clip.previewUrl).slice(0, MAX_VISION_CANDIDATES);
     if (!reviewable.length) return { clips: [], tokens: 0 };
     const content = [
         {
@@ -337,12 +345,15 @@ async function verifyVisualMatches(brief, candidates) {
             { type: "image_url", image_url: { url: clip.previewUrl, detail: "low" } },
         ]),
     ];
-    const res = await openai.chat.completions.create({
-        model: "gpt-4o-mini",
-        temperature: 0,
-        response_format: { type: "json_object" },
-        messages: [{ role: "user", content }],
-    });
+    const res = await withRetry(
+        () => openai.chat.completions.create({
+            model: "gpt-4o-mini",
+            temperature: 0,
+            response_format: { type: "json_object" },
+            messages: [{ role: "user", content }],
+        }),
+        { label: "verifyVisualMatches" }
+    );
     const result = JSON.parse(res.choices[0].message.content || "{}");
     const accepted = (result.accepted || [])
         .filter((item) => Number(item.score) >= 8 && reviewable[Number(item.index)])
@@ -396,12 +407,15 @@ async function generateCutawayImage(beat, jobId) {
     if (!config.enableAiCutaway) return null;
     try {
         const prompt = `Vertical 9:16 photorealistic cinematic still, no text or watermarks: ${beat.query}. Context: ${beat.intent || beat.line}. Natural lighting, shallow depth of field, looks like a real photograph, not illustration or CGI.`;
-        const res = await openai.images.generate({
-            model: "gpt-image-1",
-            prompt: prompt.slice(0, 900),
-            size: "1024x1536",
-            n: 1,
-        });
+        const res = await withRetry(
+            () => openai.images.generate({
+                model: "gpt-image-1",
+                prompt: prompt.slice(0, 900),
+                size: "1024x1536",
+                n: 1,
+            }),
+            { jobId, label: "generateCutawayImage" }
+        );
         const b64 = res.data?.[0]?.b64_json;
         if (!b64) return null;
         const buffer = Buffer.from(b64, "base64");

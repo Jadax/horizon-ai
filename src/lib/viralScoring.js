@@ -13,6 +13,7 @@
 import OpenAI from "openai";
 import { config } from "../config.js";
 import { supabase, logEvent } from "../supabase.js";
+import { withRetry } from "./openaiRetry.js";
 
 const openai = new OpenAI({ apiKey: config.openaiKey });
 
@@ -136,23 +137,26 @@ export async function scoreVideoForVirality(video, niche, options = {}) {
 async function analyzeEmotionalResonance(title, description) {
     const text = `${title}\n${description}`.slice(0, 2000);
     
-    const response = await openai.chat.completions.create({
-        model: "gpt-4o-mini",
-        temperature: 0.3,
-        response_format: { type: "json_object" },
-        messages: [
-            {
-                role: "system",
-                content: `Analyze this content for emotional resonance and viral potential.
-                Score 1-10 on: emotional impact, shareability, and ability to trigger strong reactions.
-                Return JSON: {"score": number, "triggerWords": string[], "dominantEmotion": string}`
-            },
-            {
-                role: "user",
-                content: text,
-            },
-        ],
-    });
+    const response = await withRetry(
+        () => openai.chat.completions.create({
+            model: "gpt-4o-mini",
+            temperature: 0.3,
+            response_format: { type: "json_object" },
+            messages: [
+                {
+                    role: "system",
+                    content: `Analyze this content for emotional resonance and viral potential.
+                    Score 1-10 on: emotional impact, shareability, and ability to trigger strong reactions.
+                    Return JSON: {"score": number, "triggerWords": string[], "dominantEmotion": string}`
+                },
+                {
+                    role: "user",
+                    content: text,
+                },
+            ],
+        }),
+        { label: "analyzeEmotionalResonance" }
+    );
 
     try {
         const result = JSON.parse(response.choices[0].message.content);
