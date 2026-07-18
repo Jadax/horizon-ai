@@ -4,7 +4,7 @@ function parseJsonEnv(name, fallback) {
   try {
     return process.env[name] ? JSON.parse(process.env[name]) : fallback;
   } catch {
-    console.warn(`[config] ${name} is not valid JSON â€” ignoring`);
+    console.warn(`[config] ${name} is not valid JSON — ignoring`);
     return fallback;
   }
 }
@@ -40,17 +40,37 @@ export const config = {
   },
   pexelsKey: process.env.PEXELS_API_KEY,
   pixabayKey: process.env.PIXABAY_API_KEY,
+  
+  // ─── NEW: Apify / VideoIntel API ─────────────────────────────────────
+  apifyApiKey: process.env.APIFY_API_KEY,
+  apifyActorId: process.env.APIFY_ACTOR_ID || "upworkprashantp/videointel-video-metadata-extractor",
+  
+  // ─── NEW: Quality Gate ────────────────────────────────────────────────
+  qualityGateStrictness: process.env.QUALITY_GATE_STRICTNESS || "normal",
+  qualityScoreThreshold: parseFloat(process.env.QUALITY_SCORE_THRESHOLD) || 7.0,
+  
+  // ─── NEW: AI B-Roll ──────────────────────────────────────────────────
+  enableAiBroll: (process.env.ENABLE_AI_BROLL || "false").toLowerCase() === "true",
+  aiBrollApiKey: process.env.AI_BROLL_API_KEY,
+  
+  // ─── NEW: Cost Management ─────────────────────────────────────────────
+  maxCostPerVideo: parseFloat(process.env.MAX_COST_PER_VIDEO) || 5.00,
+  dailyCostCap: parseFloat(process.env.DAILY_COST_CAP) || 50.00,
+  
   // Long-form clipper (Agent 6): personal access token for YOUR OWN Vimeo
   // account — Vimeo's API only returns a download link for videos that
   // token owns, so this can't be pointed at third-party videos.
   vimeoAccessToken: process.env.VIMEO_ACCESS_TOKEN,
+  
   // A render is blocked when footage cannot be visually verified against its
   // exact narration beat. Disable only for local diagnostics.
   visualQualityGate: (process.env.VISUAL_QUALITY_GATE || "true").toLowerCase() === "true",
+  
   // Map a social feed's `auth_key` to request headers. This permits an
   // operator-authorised private RSS feed while keeping credentials out of
   // Supabase. Example: {"creator_feed":{"Authorization":"Bearer ..."}}.
   socialFeedHeaders: parseJsonEnv("SOCIAL_RSS_HEADERS", {}),
+  
   google: {
     clientId: process.env.GOOGLE_CLIENT_ID,
     clientSecret: process.env.GOOGLE_CLIENT_SECRET,
