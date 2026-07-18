@@ -105,7 +105,22 @@ async function renderWithFFmpeg(payload, jobId) {
   const tmpDir = tmpdir();
   const outputFile = path.join(tmpDir, `horizon-${randomUUID()}.mp4`);
   const audioFile = path.join(tmpDir, `horizon-audio-${randomUUID()}.mp3`);
-  
+  const totalDuration = payload.duration || 60;
+
+  // Stitches the FULL cut sequence (video and/or still-image clips) into
+  // one video via ffmpeg's concat filter, instead of only ever using the
+  // first background clip — buildEditPayload() now passes the whole
+  // sequence as backgroundClips; fall back to a single clip or solid color
+  // for callers/payloads that don't have it.
+  let clips = Array.isArray(payload.backgroundClips) && payload.backgroundClips.length
+    ? payload.backgroundClips
+    : payload.backgroundVideo
+    ? [{ url: payload.backgroundVideo, type: 'video', duration: totalDuration }]
+    : [];
+  if (!clips.length) {
+    clips = [{ url: null, type: 'color', duration: totalDuration }];
+  }
+
   try {
     if (payload.audioUrl) {
       const audioRes = await fetch(payload.audioUrl);
@@ -114,42 +129,56 @@ async function renderWithFFmpeg(payload, jobId) {
     }
 
     // Built as an argv array and run via execFile (no shell) instead of a
-    // shell command string — the previous version interpolated caption text
-    // (AI-generated, ultimately sourced from RSS/Reddit topic content) into
-    // a string passed to exec(), which spawns a real shell. Only quotes were
-    // escaped, so any other shell metacharacter in generated text would have
-    // been interpreted by that shell. drawtext's own filter-syntax escaping
-    // (for ffmpeg's filtergraph parser, a separate concern from the shell)
-    // is unchanged below.
+    // shell command string — captions are AI-generated, ultimately sourced
+    // from RSS/Reddit topic content, so interpolating them into a shell
+    // string (the previous approach) risked shell metacharacter injection.
     const args = ['-y'];
-    if (payload.backgroundVideo) {
-      args.push('-i', payload.backgroundVideo);
-    } else {
-      args.push('-f', 'lavfi', '-i', `color=c=black:s=1080x1920:d=${payload.duration || 60}`);
+    for (const clip of clips) {
+      const clipDuration = Math.max(0.5, clip.duration || 4);
+      if (clip.type === 'image') {
+        args.push('-loop', '1', '-t', String(clipDuration), '-i', clip.url);
+      } else if (clip.type === 'color' || !clip.url) {
+        args.push('-f', 'lavfi', '-i', `color=c=black:s=1080x1920:d=${clipDuration}`);
+      } else {
+        // Input-level -ss/-t trims before decoding (fast, and avoids
+        // downloading/decoding the whole remote file for a short cut).
+        args.push('-ss', String(clip.start || 0), '-t', String(clipDuration), '-i', clip.url);
+      }
     }
+    const audioInputIndex = clips.length;
     if (payload.audioUrl) {
       args.push('-i', audioFile);
     }
 
-    let filterComplex = '';
-    if (payload.captions && payload.captions.length) {
-      filterComplex = `[0:v]`;
-      for (let i = 0; i < payload.captions.length; i++) {
-        const cap = payload.captions[i];
-        const safeText = cap.text.replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/:/g, '\\:');
-        filterComplex += `drawtext=text='${safeText}':x=(w-text_w)/2:y=h-${i * 60 + 100}:fontsize=40:fontcolor=white:shadowcolor=black:shadowx=2:shadowy=2,`;
-      }
-      filterComplex = filterComplex.slice(0, -1);
-    }
-    if (filterComplex) {
-      args.push('-filter_complex', filterComplex);
-    }
+    // Normalize every background input to the same size/fps/timebase
+    // before concatenating — concat requires matching stream properties,
+    // and inputs here can be a mix of stock video and generated stills.
+    const legs = clips.map((_, i) =>
+      `[${i}:v]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,setsar=1,fps=30,setpts=PTS-STARTPTS[v${i}]`
+    );
+    const concatInputs = clips.map((_, i) => `[v${i}]`).join('');
+    let filterComplex = [...legs, `${concatInputs}concat=n=${clips.length}:v=1:a=0[vcat]`].join(';');
 
-    args.push('-map', '0:v');
-    if (payload.audioUrl) {
-      args.push('-map', '1:a');
+    if (payload.captions && payload.captions.length) {
+      let captionChain = '[vcat]';
+      const captionFilters = payload.captions.map((cap, i) => {
+        const safeText = cap.text.replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/:/g, '\\:');
+        const label = i === payload.captions.length - 1 ? '[vout]' : `[vc${i}]`;
+        const f = `${captionChain}drawtext=text='${safeText}':x=(w-text_w)/2:y=h-${(i % 3) * 60 + 100}:fontsize=40:fontcolor=white:shadowcolor=black:shadowx=2:shadowy=2:enable='between(t,${cap.start},${cap.end})'${label}`;
+        captionChain = label;
+        return f;
+      });
+      filterComplex += ';' + captionFilters.join(';');
+    } else {
+      filterComplex += ';[vcat]null[vout]';
     }
-    args.push('-c:v', 'libx264', '-preset', 'fast', '-crf', '23', '-c:a', 'aac', '-b:a', '128k', '-t', String(payload.duration || 60), '-pix_fmt', 'yuv420p', outputFile);
+    args.push('-filter_complex', filterComplex);
+
+    args.push('-map', '[vout]');
+    if (payload.audioUrl) {
+      args.push('-map', `${audioInputIndex}:a`);
+    }
+    args.push('-c:v', 'libx264', '-preset', 'fast', '-crf', '23', '-c:a', 'aac', '-b:a', '128k', '-t', String(totalDuration), '-pix_fmt', 'yuv420p', outputFile);
 
     await execFileAsync(ffmpeg, args, { timeout: 300000 });
 

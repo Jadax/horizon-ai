@@ -1,5 +1,6 @@
 import { config } from "../config.js";
 import OpenAI from "openai";
+import { randomUUID } from "node:crypto";
 import { supabase, logEvent } from "../supabase.js";
 import { batchFetchVideoMetadata, getDownloadUrl } from "../sources/ytDlp.js";
 import { scoreVideoForVirality, quickVideoFilter } from "../lib/viralScoring.js";
@@ -295,7 +296,7 @@ export async function harvestTopic(niche, jobId) {
     return { topic: top, loreContext };
 }
 
-async function searchPexels(keyword, perPage = 8) {
+async function searchPexels(keyword, perPage = 15) {
     if (!config.pexelsKey) return [];
     const url = `https://api.pexels.com/videos/search?query=${encodeURIComponent(
         keyword
@@ -353,7 +354,7 @@ async function verifyVisualMatches(brief, candidates) {
     return { clips: accepted, tokens: res.usage?.total_tokens || 0 };
 }
 
-async function searchPixabay(keyword, perPage = 3) {
+async function searchPixabay(keyword, perPage = 10) {
     if (!config.pixabayKey) return [];
     const url = `https://pixabay.com/api/videos/?key=${config.pixabayKey}&q=${encodeURIComponent(
         keyword
@@ -377,6 +378,51 @@ async function searchPixabay(keyword, perPage = 3) {
         license: "Pixabay Content License (free commercial use)",
         credit: v.user,
     }));
+}
+
+const AI_CUTAWAY_DURATION = 4; // seconds a generated still is shown for
+const AI_CUTAWAY_MAX_PER_VIDEO = 4; // caps real per-video OpenAI image cost
+
+/**
+ * Real, original, licensed-by-construction fallback for a visual_plan beat
+ * that no stock search turned up a genuine match for — generates a still
+ * image via OpenAI's image API from the beat's own line/query/intent
+ * instead of forcing a mismatched stock clip through, or (the alternative
+ * that was explicitly rejected) reaching for scraped third-party video.
+ * This is a real, per-image OpenAI cost, so it's capped per video and only
+ * used for beats stock search genuinely couldn't cover.
+ */
+async function generateCutawayImage(beat, jobId) {
+    if (!config.enableAiCutaway) return null;
+    try {
+        const prompt = `Vertical 9:16 photorealistic cinematic still, no text or watermarks: ${beat.query}. Context: ${beat.intent || beat.line}. Natural lighting, shallow depth of field, looks like a real photograph, not illustration or CGI.`;
+        const res = await openai.images.generate({
+            model: "gpt-image-1",
+            prompt: prompt.slice(0, 900),
+            size: "1024x1536",
+            n: 1,
+        });
+        const b64 = res.data?.[0]?.b64_json;
+        if (!b64) return null;
+        const buffer = Buffer.from(b64, "base64");
+        const path = `broll-generated/${jobId}-${randomUUID().slice(0, 8)}.png`;
+        const { error } = await supabase.storage.from("renders").upload(path, buffer, { contentType: "image/png", upsert: true });
+        if (error) throw new Error(error.message);
+        const { data } = supabase.storage.from("renders").getPublicUrl(path);
+        await logEvent("Agent 1", `AI-generated cutaway for "${beat.query}" (no stock match found)`, { jobId });
+        return {
+            url: data.publicUrl,
+            type: "image",
+            duration: AI_CUTAWAY_DURATION,
+            provider: "ai-generated",
+            license: "AI-generated (OpenAI) — original, not third-party footage",
+            credit: "AI-generated",
+            previewUrl: data.publicUrl,
+        };
+    } catch (err) {
+        await logEvent("Agent 1", `AI cutaway generation failed for "${beat.query}": ${err.message}`, { jobId, level: "warn" });
+        return null;
+    }
 }
 
 export async function harvestFootage(niche, jobId, minTotalSeconds = 55, priorityKeywords = null, visualQueries = []) {
@@ -415,6 +461,7 @@ export async function harvestFootage(niche, jobId, minTotalSeconds = 55, priorit
     const clips = [];
     let total = 0;
     let visualTokens = 0;
+    const zeroMatchBeats = [];
 
     for (const kw of keywords) {
         if (total >= minTotalSeconds) break;
@@ -434,6 +481,12 @@ export async function harvestFootage(niche, jobId, minTotalSeconds = 55, priorit
                 { jobId }
             );
         }
+        // Only a beat tied to an actual script line is worth generating a
+        // real image for — the generic niche.footage_keywords fallback pool
+        // doesn't map to a specific narrated moment.
+        if (!verified.length && matchingBrief && zeroMatchBeats.length < AI_CUTAWAY_MAX_PER_VIDEO) {
+            zeroMatchBeats.push(matchingBrief);
+        }
 
         for (const clip of verified.slice(0, 2)) {
             clips.push({ ...clip, keyword: kw, semanticCue: matchingBrief?.line || kw, visualIntent: matchingBrief?.intent || null });
@@ -441,6 +494,17 @@ export async function harvestFootage(niche, jobId, minTotalSeconds = 55, priorit
             if (total >= minTotalSeconds) break;
         }
         await logEvent("Agent 1", `"${kw}" → ${found.length} licensed clips (${Math.round(total)}s gathered)`, { jobId });
+    }
+
+    if (zeroMatchBeats.length) {
+        await logEvent("Agent 1", `${zeroMatchBeats.length} script beat(s) had no matching stock footage — generating AI cutaways instead of forcing a mismatch`, { jobId });
+        for (const beat of zeroMatchBeats) {
+            const cutaway = await generateCutawayImage(beat, jobId);
+            if (cutaway) {
+                clips.push({ ...cutaway, keyword: beat.query, semanticCue: beat.line, visualIntent: beat.intent || null });
+                total += cutaway.duration;
+            }
+        }
     }
 
     if (clips.length < 3) {

@@ -36,12 +36,13 @@ export function captionClips(words, preset) {
 
 export function buildEditPayload({ cuts, voiceoverUrl, words, duration, musicTrack, preset, jobId, isSourceVideo = false }) {
   const total = duration + 1.5;
-  
+
   let videoClips = [];
   if (isSourceVideo && cuts.length === 1) {
     const clip = cuts[0];
     videoClips = [{
       url: clip.url,
+      type: clip.type === "image" ? "image" : "video",
       start: clip.start,
       duration: Math.min(clip.length, total),
     }];
@@ -52,6 +53,7 @@ export function buildEditPayload({ cuts, voiceoverUrl, words, duration, musicTra
       const length = Math.min(cut.length, total - cursor);
       videoClips.push({
         url: cut.url,
+        type: cut.type === "image" ? "image" : "video",
         start: cut.start,
         duration: length,
       });
@@ -60,7 +62,14 @@ export function buildEditPayload({ cuts, voiceoverUrl, words, duration, musicTra
   }
 
   return {
+    // backgroundVideo kept for any caller still expecting a single URL
+    // (e.g. render-video-api's minimal payload shape); backgroundClips
+    // carries the FULL cut sequence — buildEditPayload previously computed
+    // this and then discarded everything but the first clip here, so every
+    // rendered video only ever showed one background clip for its entire
+    // duration regardless of how many cuts Agent 2 calculated.
     backgroundVideo: videoClips[0]?.url || null,
+    backgroundClips: videoClips,
     audioUrl: voiceoverUrl,
     musicUrl: musicTrack?.track_url || null,
     duration: total,

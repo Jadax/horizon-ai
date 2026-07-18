@@ -46,6 +46,11 @@ export const config = {
   pixabayKey: process.env.PIXABAY_API_KEY,
   visualQualityGate: (process.env.VISUAL_QUALITY_GATE || "true").toLowerCase() === "true",
   bypassQaForSource: (process.env.BYPASS_QA_FOR_SOURCE || "true").toLowerCase() === "true",
+  // Generates a still image (OpenAI gpt-image-1) for a script beat when no
+  // real stock footage matches it, instead of forcing a mismatched clip or
+  // reaching for scraped third-party video. Real per-image cost — capped at
+  // 4/video in agent1_harvester.js (AI_CUTAWAY_MAX_PER_VIDEO).
+  enableAiCutaway: (process.env.ENABLE_AI_CUTAWAY || "true").toLowerCase() === "true",
   // Minimum virality score (1-10) for a scraped video candidate to be used
   // as a topic — restored, was dropped in the free-stack rewrite (agent1_harvester.js
   // still reads this with a || 7.0 fallback, so it degraded silently, not a crash).

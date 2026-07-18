@@ -273,6 +273,7 @@ export async function calculateTrims(script, clips, stylePreset, jobId) {
       const length = Math.max(1.2, Math.min(c.length, src.duration - start));
       return {
         url: src.url, start, length, credit: src.credit, provider: src.provider,
+        type: src.type === "image" ? "image" : "video",
         reason: String(c.reason || src.semanticCue || src.keyword).slice(0, 240),
         semanticCue: src.semanticCue || src.keyword,
       };
