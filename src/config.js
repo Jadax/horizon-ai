@@ -48,10 +48,6 @@ export const config = {
   // ─── Quality Gate ────────────────────────────────────────────────
   qualityScoreThreshold: parseFloat(process.env.QUALITY_SCORE_THRESHOLD) || 7.0,
   
-  // ─── Cost Management ─────────────────────────────────────────────
-  maxCostPerVideo: parseFloat(process.env.MAX_COST_PER_VIDEO) || 5.00,
-  dailyCostCap: parseFloat(process.env.DAILY_COST_CAP) || 50.00,
-  
   vimeoAccessToken: process.env.VIMEO_ACCESS_TOKEN,
   visualQualityGate: (process.env.VISUAL_QUALITY_GATE || "true").toLowerCase() === "true",
   socialFeedHeaders: parseJsonEnv("SOCIAL_RSS_HEADERS", {}),
