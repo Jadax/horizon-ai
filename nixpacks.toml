@@ -6,4 +6,8 @@
 nixPkgs = ["...", "python3", "python3Packages.pip"]
 
 [phases.install]
-cmds = ["...", "pip install gTTS"]
+# --break-system-packages is required here: Nix's python3Packages.pip
+# refuses by default to write into the immutable /nix/store (PEP 668,
+# "externally-managed-environment"). Safe in this throwaway build
+# container — there's no shared system Python install to protect.
+cmds = ["...", "pip install --break-system-packages gTTS"]
