@@ -4,7 +4,7 @@
  */
 import { supabase, logEvent, updateJob } from "../supabase.js";
 import { config } from "../config.js";
-import { harvestTopic, harvestFootage } from "./agent1_harvester.js";
+import { harvestTopic, harvestFootage, resolveLoreContext } from "./agent1_harvester.js";
 import { decideFormat } from "./formatDecision.js";
 import { writeScript, calculateTrims } from "./agent2_scriptwriter.js";
 import { synthesizeVoiceover, pickMusic } from "./agent3_audio.js";
@@ -28,43 +28,69 @@ export async function runPipelineForNiche(niche) {
 
   try {
     // ── Agent 1: topic ──
-    const { topic, loreContext } = await harvestTopic(niche, jobId);
+    const harvested = await harvestTopic(niche, jobId);
 
-    // ── Format Decision Engine ──
-    const decision = await decideFormat(niche, topic, jobId);
-    usage.openai_tokens += decision._usage?.tokens || 0;
-    
-    const preset = {
-      ...niche.editing_style_preset,
-      wordClipMode: decision.word_clip_mode,
-      music_energy: decision.music_energy,
-      music_brief: decision.music_brief,
-    };
-    const effectiveNiche = {
-      ...niche,
-      target_duration_min_seconds: Math.max(15, decision.target_duration_seconds - 6),
-      target_duration_max_seconds: decision.target_duration_seconds + 4,
-    };
+    // A topic with no substance fails the quality gate on every revision no
+    // matter how good the writing is — so a gate failure retries with the
+    // next-ranked candidate instead of failing the whole run.
+    const topicQueue = [
+      { topic: harvested.topic, loreContext: harvested.loreContext },
+      ...(harvested.alternates || []).map((topic) => ({ topic, loreContext: undefined })),
+    ];
 
-    const initialClips = [];
-    await updateJob(jobId, {
-      topic: topic.title,
-      source_url: topic.url,
-      source_platform: topic.source || topic.platform || null,
-      source_download_url: null,
-      original_views: topic.views || null,
-      original_likes: topic.likes || null,
-      original_comments: topic.comments || null,
-      viral_score: topic._viralScore || null,
-      viral_score_breakdown: topic._scoreBreakdown || null,
-      sourced_media_urls: initialClips,
-      format_decision: decision,
-      status: "Scripting",
-    });
+    let topic, decision, preset, scriptOut;
+    for (let i = 0; i < topicQueue.length; i++) {
+      topic = topicQueue[i].topic;
+      let loreContext = topicQueue[i].loreContext;
+      if (loreContext === undefined) {
+        loreContext = await resolveLoreContext(niche, topic.title, jobId);
+      }
 
-    // ── Agent 2: script + trim points ──
-    const scriptOut = await writeScript(effectiveNiche, topic, loreContext, jobId);
-    usage.openai_tokens += scriptOut._usage?.tokens || 0;
+      // ── Format Decision Engine ──
+      decision = await decideFormat(niche, topic, jobId);
+      usage.openai_tokens += decision._usage?.tokens || 0;
+
+      preset = {
+        ...niche.editing_style_preset,
+        wordClipMode: decision.word_clip_mode,
+        music_energy: decision.music_energy,
+        music_brief: decision.music_brief,
+      };
+      const effectiveNiche = {
+        ...niche,
+        target_duration_min_seconds: Math.max(15, decision.target_duration_seconds - 6),
+        target_duration_max_seconds: decision.target_duration_seconds + 4,
+      };
+
+      await updateJob(jobId, {
+        topic: topic.title,
+        source_url: topic.url,
+        source_platform: topic.source || topic.platform || null,
+        source_download_url: null,
+        original_views: topic.views || null,
+        original_likes: topic.likes || null,
+        original_comments: topic.comments || null,
+        viral_score: topic._viralScore || null,
+        viral_score_breakdown: topic._scoreBreakdown || null,
+        sourced_media_urls: [],
+        format_decision: decision,
+        status: "Scripting",
+      });
+
+      // ── Agent 2: script + trim points ──
+      try {
+        scriptOut = await writeScript(effectiveNiche, topic, loreContext, jobId);
+        usage.openai_tokens += scriptOut._usage?.tokens || 0;
+        break;
+      } catch (err) {
+        if (!/quality gate/i.test(err.message) || i === topicQueue.length - 1) throw err;
+        await logEvent(
+          "Pipeline",
+          `Topic "${topic.title.slice(0, 60)}" couldn't produce a passing script (${err.message}) — trying next candidate (${i + 2}/${topicQueue.length})`,
+          { jobId, level: "warn" }
+        );
+      }
+    }
 
     const qualityResult = scriptOut.quality;
     if (!qualityResult?.passed || qualityResult.score < config.contentQualityThreshold) {

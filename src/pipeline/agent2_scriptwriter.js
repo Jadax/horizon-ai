@@ -158,9 +158,22 @@ export async function writeScript(niche, topic, loreContext, jobId) {
       { role: "user", content: context },
     ];
     if (attempt > 1) {
+      // Name the weakest dimensions explicitly and tell the writer to keep
+      // what already scored well — a bare "apply every note" rewrite threw
+      // away strong hooks along with weak middles, so revision scores
+      // wandered instead of climbing.
+      const weakest = review?.breakdown
+        ? Object.entries(review.breakdown).sort((a, b) => a[1] - b[1]).slice(0, 2).map(([k, v]) => `${k} (${v}/100)`)
+        : [];
       messages.push({
         role: "user",
-        content: `The strict critic rejected the previous draft. Rewrite it and apply every note without inventing facts. Previous draft: ${JSON.stringify(out)}. Critic: ${JSON.stringify(review)}`,
+        content: [
+          `The critic rejected the previous draft (score ${review?.score ?? "n/a"}/100).`,
+          weakest.length ? `Its weakest dimensions were: ${weakest.join(", ")} — focus the rewrite on raising THOSE. Keep the lines and structure that scored well; this is a targeted revision, not a from-scratch rewrite.` : "",
+          `Apply every critic note without inventing facts.`,
+          `Previous draft: ${JSON.stringify(out)}.`,
+          `Critic: ${JSON.stringify(review)}`,
+        ].filter(Boolean).join("\n"),
       });
     }
     const res = await openai.chat.completions.create({

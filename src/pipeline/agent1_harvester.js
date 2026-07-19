@@ -239,19 +239,9 @@ export async function harvestTopic(niche, jobId) {
         );
     }
     
-    let top = fresh.length ? fresh : ranked;
-    top = top[0];
-
-    let loreContext = null;
-    const wikiApis = !niche.run_trend_sources || niche.run_trend_sources.includes("wikipedia") ? niche.lore_wiki_apis || [] : [];
-    for (const apiRoot of wikiApis) {
-        const wikiResults = await searchWiki(apiRoot, top.title.split(" ").slice(0, 6).join(" ")).catch(() => []);
-        if (wikiResults.length) {
-            loreContext = wikiResults;
-            await logEvent("Agent 1", `Lore grounding found (${new URL(apiRoot).hostname}): "${wikiResults[0].title}"`, { jobId });
-            break;
-        }
-    }
+    const pool = fresh.length ? fresh : ranked;
+    const top = pool[0];
+    const loreContext = await resolveLoreContext(niche, top.title, jobId);
 
     await logEvent(
         "Agent 1",
@@ -261,7 +251,23 @@ export async function harvestTopic(niche, jobId) {
 
     recalibrateWeights(ranked).catch(() => {});
 
-    return { topic: top, loreContext };
+    // Runner-up candidates so the orchestrator can retry with a different
+    // topic when the quality gate rejects every script draft for the top one
+    // — a thin topic (nothing concrete to say) fails all revisions no matter
+    // how good the writing is, and previously took the whole run down with it.
+    return { topic: top, loreContext, alternates: pool.slice(1, 4) };
+}
+
+export async function resolveLoreContext(niche, title, jobId) {
+    const wikiApis = !niche.run_trend_sources || niche.run_trend_sources.includes("wikipedia") ? niche.lore_wiki_apis || [] : [];
+    for (const apiRoot of wikiApis) {
+        const wikiResults = await searchWiki(apiRoot, title.split(" ").slice(0, 6).join(" ")).catch(() => []);
+        if (wikiResults.length) {
+            await logEvent("Agent 1", `Lore grounding found (${new URL(apiRoot).hostname}): "${wikiResults[0].title}"`, { jobId });
+            return wikiResults;
+        }
+    }
+    return null;
 }
 
 async function searchPexels(keyword, perPage = 15) {

@@ -89,7 +89,14 @@ export const config = {
   pipelineCron: process.env.PIPELINE_CRON || "0 3 * * *",
   videosPerRun: parseInt(process.env.VIDEOS_PER_RUN || "6", 10),
   autopilot: (process.env.AUTOPILOT || "true").toLowerCase() === "true",
-  contentQualityThreshold: Math.max(85, parseInt(process.env.CONTENT_QUALITY_THRESHOLD || "85", 10)),
+  // Default 78, measured against the critic's actual score distribution
+  // (gpt-4o with the calibrated rubric in contentQuality.js): filler-content
+  // scripts grade ~35-45, genuinely strong ones ~78-84, so 78 separates the
+  // clusters. Fabrication/incoherence still hard-fail at ANY score via
+  // blocking_issues. Not clamped to a floor — the previous Math.max(85, ...)
+  // silently ignored lower env values and sat above where the critic ever
+  // scored real work, which walled off every single run.
+  contentQualityThreshold: parseInt(process.env.CONTENT_QUALITY_THRESHOLD || "78", 10),
   subtitleSyncPrecisionMs: Math.min(50, parseInt(process.env.SUBTITLE_SYNC_PRECISION_MS || "50", 10)),
   publishPlatforms: parseArrayEnv("PUBLISH_PLATFORMS", ["youtube"]),
   

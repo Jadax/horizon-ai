@@ -7,8 +7,11 @@ publishes to YouTube (other platforms export as ready-to-post packages until
 their posting credentials are configured). A weekly Bayesian job reviews
 published performance and feeds it back into topic/format selection.
 
-Jobs scoring below 85/100 or with subtitle sync worse than 50ms are rejected
-before publish — see `CONTENT_QUALITY_THRESHOLD` / `SUBTITLE_SYNC_PRECISION_MS`.
+Jobs scoring below the quality threshold (default 78/100, set against the
+critic's measured score distribution: filler content grades ~35-45, strong
+scripts ~78-84; fabricated or incoherent content hard-fails at any score) or
+with subtitle sync worse than 50ms are rejected before publish — see
+`CONTENT_QUALITY_THRESHOLD` / `SUBTITLE_SYNC_PRECISION_MS`.
 
 ## How it runs (single service, no satellites)
 
