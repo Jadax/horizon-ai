@@ -14,7 +14,7 @@ export async function synthesizeVoiceover(script, voiceId, jobId, expectedMaxSec
             lang: 'en',
         });
 
-        const words = await alignGeneratedSpeech(audioBuffer, script);
+        const words = await alignGeneratedSpeech(audioBuffer, script, jobId);
         if (!words.length) throw new Error("TTS alignment produced no word timestamps");
         const duration = words[words.length - 1].end;
 
@@ -45,13 +45,13 @@ export async function synthesizeVoiceover(script, voiceId, jobId, expectedMaxSec
     }
 }
 
-async function alignGeneratedSpeech(audioBuffer, script) {
+export async function alignGeneratedSpeech(audioBuffer, script, jobId) {
     const file = await toFile(audioBuffer, "voiceover.mp3");
     const transcription = await openai.audio.transcriptions.create({
         file,
         model: "whisper-1",
         response_format: "verbose_json",
-        timestamp_granularities: ["word"],
+        timestamp_granularities: ["word", "segment"],
         prompt: script.slice(0, 220),
     });
     const words = (transcription.words || []).map((word) => ({
@@ -60,8 +60,51 @@ async function alignGeneratedSpeech(audioBuffer, script) {
         end: Number(Number(word.end).toFixed(3)),
     })).filter((word) => word.word && word.end > word.start);
     const expected = script.split(/\s+/).filter(Boolean).length;
-    if (words.length / expected < 0.9) throw new Error(`TTS alignment coverage too low (${words.length}/${expected} words)`);
-    return words;
+    if (words.length / expected >= 0.9) return words;
+
+    // Whisper's word-level timestamps silently omit words even when the
+    // transcript text is complete (reproduced locally: the word "Real" was in
+    // transcript.text but absent from transcription.words) — and word-clip
+    // scripts made of dozens of staccato 2-4 word sentences make the word
+    // list especially sparse, which used to fail an entire production run at
+    // 34/67 here. The transcript TEXT is the honest signal of what was
+    // actually spoken; when it confirms the audio is complete, rebuild the
+    // missing timings from the segment-level timestamps (which are reliable)
+    // by spacing each segment's words across its span, weighted by length.
+    const transcriptWords = String(transcription.text || "").split(/\s+/).filter(Boolean);
+    if (transcriptWords.length / expected < 0.7) {
+        throw new Error(`TTS audio incomplete: transcript heard only ${transcriptWords.length}/${expected} script words`);
+    }
+    const segments = (transcription.segments || []).filter((s) => Number.isFinite(s.start) && Number.isFinite(s.end) && s.end > s.start);
+    if (!segments.length) {
+        throw new Error(`TTS alignment coverage too low (${words.length}/${expected} word timestamps, no segments to rebuild from)`);
+    }
+    const rebuilt = [];
+    for (const segment of segments) {
+        const segWords = String(segment.text || "").split(/\s+/).filter(Boolean);
+        if (!segWords.length) continue;
+        const totalChars = segWords.reduce((sum, w) => sum + w.length, 0) || 1;
+        let cursor = segment.start;
+        const span = segment.end - segment.start;
+        for (const w of segWords) {
+            const dur = span * (w.length / totalChars);
+            rebuilt.push({
+                word: w,
+                start: Number(cursor.toFixed(3)),
+                end: Number((cursor + dur).toFixed(3)),
+            });
+            cursor += dur;
+        }
+    }
+    if (rebuilt.length / expected < 0.7) {
+        throw new Error(`TTS alignment coverage too low even after segment rebuild (${rebuilt.length}/${expected} words)`);
+    }
+    await logEvent(
+        "Agent 3",
+        `Whisper word timestamps were sparse (${words.length}/${expected}) — rebuilt ${rebuilt.length} timings from segment boundaries`,
+        { jobId, level: "warn" }
+    );
+    return rebuilt;
 }
 
 export async function pickMusic(energyLevel, jobId, brief = {}) {

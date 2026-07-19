@@ -35,6 +35,8 @@ async function resolvePythonBin() {
 export async function synthesizeSpeech(text, voiceId = null, options = {}) {
   try {
     switch (PRIMARY_ENGINE) {
+      case 'gtts':
+        return await synthesizeGTTS(text, options);
       case 'chatterbox':
         return await synthesizeChatterbox(text, voiceId, options);
       case 'fish-speech':
