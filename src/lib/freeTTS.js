@@ -13,6 +13,25 @@ const PRIMARY_ENGINE = config.ttsEngine || 'gtts';
 const TTS_API_URL = config.ttsApiUrl || 'http://localhost:5000/tts';
 const FALLBACK_ENGINE = config.ttsFallback || 'gtts';
 
+// Railway/nixpacks and most Linux distros only expose 'python3'; Windows'
+// standard installer only exposes 'python'. Resolved once and cached so
+// every gTTS call doesn't pay for a failed spawn on the wrong platform.
+let pythonBinPromise = null;
+async function resolvePythonBin() {
+  if (!pythonBinPromise) {
+    pythonBinPromise = (async () => {
+      for (const bin of ['python3', 'python']) {
+        try {
+          await execFileAsync(bin, ['--version'], { timeout: 5000 });
+          return bin;
+        } catch {}
+      }
+      return 'python3';
+    })();
+  }
+  return pythonBinPromise;
+}
+
 export async function synthesizeSpeech(text, voiceId = null, options = {}) {
   try {
     switch (PRIMARY_ENGINE) {
@@ -101,7 +120,8 @@ async function synthesizeGTTS(text, options) {
   await writeFile(tmpText, text, 'utf8');
   const script = "import sys\nfrom gtts import gTTS\nwith open(sys.argv[1], encoding='utf-8') as f:\n    text = f.read()\ngTTS(text, lang=sys.argv[2]).save(sys.argv[3])\n";
   try {
-    await execFileAsync('python3', ['-c', script, tmpText, lang, tmpOut], { timeout: 30000 });
+    const pythonBin = await resolvePythonBin();
+    await execFileAsync(pythonBin, ['-c', script, tmpText, lang, tmpOut], { timeout: 30000 });
     const audio = await import('node:fs/promises').then(fs => fs.readFile(tmpOut));
     return audio;
   } finally {
@@ -140,7 +160,8 @@ export async function checkTTSEngine() {
     }
   }
   try {
-    await execFileAsync('python3', ['-c', 'import gtts'], { timeout: 5000 });
+    const pythonBin = await resolvePythonBin();
+    await execFileAsync(pythonBin, ['-c', 'import gtts'], { timeout: 5000 });
     return true;
   } catch {
     return false;
