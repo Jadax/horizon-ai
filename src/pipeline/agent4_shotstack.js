@@ -35,7 +35,7 @@ export function captionClips(words, preset) {
 }
 
 export function buildEditPayload({ cuts, voiceoverUrl, words, duration, musicTrack, preset, jobId, isSourceVideo = false }) {
-  const total = duration + 1.5;
+  const total = duration;
 
   let videoClips = [];
   if (isSourceVideo && cuts.length === 1) {
@@ -47,17 +47,25 @@ export function buildEditPayload({ cuts, voiceoverUrl, words, duration, musicTra
       duration: Math.min(clip.length, total),
     }];
   } else {
-    let cursor = 0;
-    for (const cut of cuts) {
-      if (cursor >= total) break;
-      const length = Math.min(cut.length, total - cursor);
+    for (const cut of cuts.filter((item) => Number.isFinite(item.timelineStart) && Number.isFinite(item.timelineEnd) && item.timelineEnd > item.timelineStart)) {
+      if ((cut.timelineStart ?? 0) >= total) break;
+      const length = Math.min(cut.timelineEnd - cut.timelineStart, total - cut.timelineStart);
       videoClips.push({
         url: cut.url,
         type: cut.type === "image" ? "image" : "video",
         start: cut.start,
         duration: length,
+        timelineStart: cut.timelineStart,
+        timelineEnd: cut.timelineEnd,
       });
-      cursor += length;
+    }
+  }
+  if (!videoClips.length) throw new Error("Render has no timeline-grounded visual clips");
+  if (!words?.length || Number(words.at(-1).end) <= 0) throw new Error("Render requires authoritative TTS word timestamps");
+  if (Number(words.at(-1).end) > duration + 0.1) throw new Error("Word timeline exceeds narration duration");
+  for (let i = 1; i < videoClips.length; i++) {
+    if (Math.abs(videoClips[i].timelineStart - videoClips[i - 1].timelineEnd) > 0.05) {
+      throw new Error("Visual timeline has a gap or overlap greater than 50ms");
     }
   }
 
@@ -74,6 +82,7 @@ export function buildEditPayload({ cuts, voiceoverUrl, words, duration, musicTra
     musicUrl: musicTrack?.track_url || null,
     duration: total,
     captions: captionClips(words, preset),
+    syncPrecisionMs: config.subtitleSyncPrecisionMs,
     output: {
       format: "mp4",
       resolution: "1080x1920",
@@ -93,7 +102,7 @@ export async function render(payload, jobId) {
   const result = await renderVideo(payload, jobId);
   
   await logEvent("Agent 4", `Render complete → ${result.url} (FREE)`, { jobId });
-  return { renderId: result.renderId, url: result.url };
+  return result;
 }
 
 export async function renderProduction(payload, jobId) {

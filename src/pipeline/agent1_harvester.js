@@ -2,7 +2,6 @@ import { config } from "../config.js";
 import OpenAI from "openai";
 import { randomUUID } from "node:crypto";
 import { supabase, logEvent } from "../supabase.js";
-import { batchFetchVideoMetadata, getDownloadUrl } from "../sources/ytDlp.js";
 import { scoreVideoForVirality, quickVideoFilter } from "../lib/viralScoring.js";
 import { fetchRSSFeed } from "../sources/rss.js";
 import { fetchSocialRSSFeeds, normaliseSocialFeeds } from "../sources/socialRss.js";
@@ -59,37 +58,9 @@ async function harvestSocialVideos(niche, jobId, limit = 15) {
         await logEvent("Agent 1", `YouTube Trending fetch failed: ${err.message}`, { jobId, level: "warn" });
     }
 
-    const videoMetadata = [];
-    const urlsToFetch = videos.map(v => v.url).slice(0, 10);
-    
-    if (urlsToFetch.length > 0) {
-        try {
-            const metadataResults = await batchFetchVideoMetadata(urlsToFetch);
-            for (const result of metadataResults) {
-                if (result.error) {
-                    await logEvent("Agent 1", `yt-dlp metadata failed for ${result.url}: ${result.error}`, { jobId, level: "warn" });
-                    continue;
-                }
-                const original = videos.find(v => v.url === result.url || v.url.includes(result.url?.split('?')[0]));
-                let downloadUrl = null;
-                try {
-                    downloadUrl = await getDownloadUrl(result.url);
-                } catch (e) {}
-                videoMetadata.push({
-                    ...original,
-                    ...result,
-                    downloadUrl,
-                    reddit_score: original?.score,
-                    reddit_comments: original?.num_comments,
-                });
-            }
-            await logEvent("Agent 1", `Fetched metadata for ${videoMetadata.length} videos via yt-dlp`, { jobId });
-        } catch (err) {
-            await logEvent("Agent 1", `Batch metadata fetch failed: ${err.message}`, { jobId, level: "warn" });
-        }
-    } else {
-        videoMetadata.push(...videos);
-    }
+    // Official source APIs/RSS provide topic intelligence only. Third-party
+    // social video is never downloaded or repurposed as footage.
+    const videoMetadata = videos;
 
     const scoredVideos = [];
     for (const video of videoMetadata) {
@@ -131,12 +102,13 @@ export async function harvestAllCandidates(niche, jobId = null) {
     await log(`Scanning sources for ${niche.niche_name}...`);
 
     const candidates = [];
+    const enabled = new Set(niche.run_trend_sources || ["google", "reddit", "youtube", "gdelt", "rss", "wikipedia"]);
     const tag = (items, source) => items.map((i) => ({ ...i, source }));
 
-    const socialVideos = await harvestSocialVideos(niche, jobId);
+    const socialVideos = enabled.has("reddit") || enabled.has("youtube") ? await harvestSocialVideos(niche, jobId) : [];
     candidates.push(...socialVideos);
 
-    for (const feedUrl of niche.rss_feeds || []) {
+    for (const feedUrl of enabled.has("rss") ? niche.rss_feeds || [] : []) {
         try {
             const items = await fetchRSSFeed(feedUrl);
             candidates.push(...tag(items, new URL(feedUrl).hostname));
@@ -159,7 +131,7 @@ export async function harvestAllCandidates(niche, jobId = null) {
         }
     }
 
-    try {
+    if (enabled.has("google")) try {
         const trends = await fetchGoogleTrends(niche.trend_region || "US");
         candidates.push(...tag(trends, "Google Trends"));
         await log(`Google Trends: ${trends.length} candidates`);
@@ -167,7 +139,7 @@ export async function harvestAllCandidates(niche, jobId = null) {
         await log(`Google Trends fetch failed: ${err.message}`, "warn");
     }
 
-    try {
+    if (enabled.has("youtube")) try {
         const ytTrending = await fetchYouTubeTrending(niche.trend_region || "US", 8);
         candidates.push(...tag(ytTrending, "YouTube Trending"));
         if (ytTrending.length) await log(`YouTube Trending: ${ytTrending.length} candidates`);
@@ -194,7 +166,7 @@ export async function harvestAllCandidates(niche, jobId = null) {
         }
     }
 
-    if (niche.niche_name === "News") {
+    if (niche.niche_name === "News" && enabled.has("gdelt")) {
         try {
             const gdelt = await fetchGDELT("breaking OR viral OR trending", 12);
             candidates.push(...tag(gdelt, "GDELT"));
@@ -211,7 +183,7 @@ export async function harvestAllCandidates(niche, jobId = null) {
         }
     }
 
-    for (const source of niche.target_sources || []) {
+    for (const source of enabled.has("reddit") ? niche.target_sources || [] : []) {
         if (!source.startsWith('r/')) continue;
         try {
             const posts = await fetchTopReddit(source, 10, 'hot');
@@ -228,7 +200,7 @@ export async function harvestAllCandidates(niche, jobId = null) {
     }
 
     if (!candidates.length) return [];
-    return rankCandidates(candidates);
+    return rankCandidates(candidates, niche.niche_name);
 }
 
 function topicKey(title) {
@@ -268,15 +240,10 @@ export async function harvestTopic(niche, jobId) {
     }
     
     let top = fresh.length ? fresh : ranked;
-    const videoCandidates = top.filter(c => c._type === "video" && c.downloadUrl);
-    if (videoCandidates.length) {
-        top = videoCandidates.sort((a, b) => b._viralScore - a._viralScore)[0];
-    } else {
-        top = top[0];
-    }
+    top = top[0];
 
     let loreContext = null;
-    const wikiApis = niche.lore_wiki_apis || [];
+    const wikiApis = !niche.run_trend_sources || niche.run_trend_sources.includes("wikipedia") ? niche.lore_wiki_apis || [] : [];
     for (const apiRoot of wikiApis) {
         const wikiResults = await searchWiki(apiRoot, top.title.split(" ").slice(0, 6).join(" ")).catch(() => []);
         if (wikiResults.length) {
@@ -440,28 +407,6 @@ async function generateCutawayImage(beat, jobId) {
 }
 
 export async function harvestFootage(niche, jobId, minTotalSeconds = 55, priorityKeywords = null, visualQueries = []) {
-    // If this topic came in via a downloaded source video (ytDlp.js path),
-    // use it directly instead of searching stock footage for it.
-    const { data: job } = await supabase
-        .from("pipeline_logs")
-        .select("source_download_url")
-        .eq("id", jobId)
-        .single();
-
-    if (job?.source_download_url) {
-        await logEvent("Agent 1", `Using downloaded source video as primary footage: ${job.source_download_url}`, { jobId });
-        return [{
-            url: job.source_download_url,
-            duration: 60,
-            provider: "source",
-            license: "source",
-            credit: "Original source",
-            semanticCue: "source video",
-            visualIntent: "source footage",
-            _isSource: true,
-        }];
-    }
-
     await logEvent("Agent 1", `Sourcing licensed b-roll for ${niche.niche_name}...`, { jobId });
     const scriptedQueries = Array.isArray(visualQueries)
         ? visualQueries.map((q) => q?.query).filter((q) => typeof q === "string" && q.trim()).slice(0, 12)

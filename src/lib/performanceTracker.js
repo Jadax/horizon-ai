@@ -67,10 +67,10 @@ export async function refreshPublishedStats(minAgeHours = 6, refreshIntervalHour
         if (views > 0 && revenue > 0) {
           await trackRevenue(j.id, 'youtube', revenue, views);
           
-          // Update affiliate_revenue in pipeline_logs
+          // Estimated platform revenue is not affiliate revenue or payout data.
           await supabase
             .from("pipeline_logs")
-            .update({ affiliate_revenue: revenue })
+            .update({ estimated_platform_revenue: revenue })
             .eq("id", j.id);
         }
       }

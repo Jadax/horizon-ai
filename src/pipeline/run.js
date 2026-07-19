@@ -10,54 +10,7 @@ import { writeScript, calculateTrims } from "./agent2_scriptwriter.js";
 import { synthesizeVoiceover, pickMusic } from "./agent3_audio.js";
 import { buildEditPayload, render } from "./agent4_shotstack.js";
 import { uploadScheduled } from "./agent5_upload.js";
-import { BANNED_WORDS } from "../lib/monetization.js";
-
-// Quality gate: warn only, never fail the run
-async function qualityGateCheck(script, title, niche, jobId) {
-  const issues = [];
-  const warnings = [];
-
-  // Check script length
-  const wordCount = script.split(/\s+/).length;
-  if (wordCount < 20) {
-    warnings.push(`Script is short: ${wordCount} words (minimum 20 recommended)`);
-  }
-
-  // Check for banned words (using single source of truth)
-  const foundBanned = BANNED_WORDS.filter(w => script.toLowerCase().includes(w));
-  if (foundBanned.length > 0) {
-    warnings.push(`Found ${foundBanned.length} banned word(s): ${foundBanned.slice(0, 3).join(", ")}`);
-  }
-
-  // Check title length - warn only, don't fail
-  if (title.length < 10) {
-    warnings.push(`Title is short: ${title.length} chars`);
-  }
-  if (title.length > 60) {
-    warnings.push(`Title is long: ${title.length} chars`);
-  }
-
-  // Check for missing hook
-  const hasHook = /\b(why|how|what|when|where|who|the truth|secret|revealed|finally|never|always|actually|just)\b/i.test(title);
-  if (!hasHook) {
-    warnings.push("Title may lack a strong hook");
-  }
-
-  const mode = config.qualityGateMode || "warn_only";
-  const passed = mode !== "fail" || issues.length === 0;
-
-  if (warnings.length) {
-    await logEvent("Quality Gate", `⚠️ ${warnings.length} warning(s): ${warnings.join("; ")}`, { jobId, level: "warn" });
-  }
-  
-  if (issues.length) {
-    await logEvent("Quality Gate", `❌ ${issues.length} issue(s): ${issues.join("; ")}`, { jobId, level: "error" });
-  }
-
-  await logEvent("Quality Gate", `${passed ? "✅" : "❌"} Quality check ${passed ? "passed" : "failed"} (${wordCount} words, ${warnings.length} warnings)`, { jobId });
-  
-  return { passed, issues, warnings };
-}
+import { buildPublishPackage, createPublishTargets } from "../lib/platformAdapter.js";
 
 export async function runPipelineForNiche(niche) {
   const { data: job, error } = await supabase
@@ -97,8 +50,8 @@ export async function runPipelineForNiche(niche) {
     await updateJob(jobId, {
       topic: topic.title,
       source_url: topic.url,
-      source_platform: topic.platform || null,
-      source_download_url: topic.downloadUrl || null,
+      source_platform: topic.source || topic.platform || null,
+      source_download_url: null,
       original_views: topic.views || null,
       original_likes: topic.likes || null,
       original_comments: topic.comments || null,
@@ -113,18 +66,25 @@ export async function runPipelineForNiche(niche) {
     const scriptOut = await writeScript(effectiveNiche, topic, loreContext, jobId);
     usage.openai_tokens += scriptOut._usage?.tokens || 0;
 
-    // ── Quality Gate (WARN ONLY - never fails the run) ──
-    const qualityResult = await qualityGateCheck(scriptOut.script, scriptOut.title, niche.niche_name, jobId);
-    // Store quality warnings for dashboard visibility (not a fake score)
+    const qualityResult = scriptOut.quality;
+    if (!qualityResult?.passed || qualityResult.score < config.contentQualityThreshold) {
+      throw new Error(`Mandatory quality gate rejected script (${qualityResult?.score || 0}/100)`);
+    }
     await updateJob(jobId, { 
-      content_quality_score: qualityResult.passed ? 8.0 : 5.0, // Still a fake score, will remove in next version
-      error: qualityResult.warnings.length ? `Quality warnings: ${qualityResult.warnings.join("; ")}` : null
+      content_quality_score: qualityResult.score,
+      quality_report: {
+        overall_score: qualityResult.score,
+        hook_score: qualityResult.hookScore,
+        technical_pass: false,
+        retention_prediction: `${qualityResult.score}%`,
+        issues: [],
+        breakdown: qualityResult.breakdown,
+      },
+      error: null,
     });
 
     const clips = await harvestFootage(niche, jobId, 55, decision.footage_mood, scriptOut.visual_plan);
     usage.openai_tokens += clips._usage?.tokens || 0;
-    const cuts = await calculateTrims(scriptOut.script, clips, preset, jobId);
-    usage.openai_tokens += cuts._usage?.tokens || 0;
     await updateJob(jobId, {
       sourced_media_urls: clips.map((c) => ({
         url: c.url, provider: c.provider, license: c.license,
@@ -136,24 +96,27 @@ export async function runPipelineForNiche(niche) {
       title_pattern: scriptOut.title_pattern || null,
       description: scriptOut.description,
       tags: scriptOut.tags,
-      calculated_trim_points: cuts,
       status: "Synthesizing",
       ...usage,
     });
 
     // ── Agent 3: voiceover + music ──
-    const { voiceoverUrl, words, duration } = await synthesizeVoiceover(
+    const { voiceoverUrl, words, duration, syncPrecisionMs } = await synthesizeVoiceover(
       scriptOut.script,
       niche.voice_profile_id,
       jobId,
       decision.target_duration_seconds + 15
     );
+    const cuts = await calculateTrims(scriptOut.script, clips, preset, jobId, words, duration);
+    usage.openai_tokens += cuts._usage?.tokens || 0;
     usage.elevenlabs_characters += scriptOut.script.length;
     const musicTrack = await pickMusic(preset.music_energy, jobId, preset.music_brief);
     await updateJob(jobId, {
       voiceover_url: voiceoverUrl,
       voiceover_words: words,
       duration_seconds: duration,
+      subtitle_sync_precision_ms: syncPrecisionMs,
+      calculated_trim_points: cuts,
       music_track_id: musicTrack?.id || null,
       music_track_url: musicTrack?.track_url || null,
       preset_snapshot: preset,
@@ -171,17 +134,61 @@ export async function runPipelineForNiche(niche) {
       preset,
       jobId,
     });
-    const { renderId, url: renderedUrl } = await render(payload, jobId);
-    usage.shotstack_render_seconds += Number((duration + 1.5).toFixed(1));
+    const renderResult = await render(payload, jobId);
+    const { renderId, url: renderedUrl } = renderResult;
+    usage.shotstack_render_seconds += Number(duration.toFixed(1));
     await updateJob(jobId, {
       shotstack_render_id: renderId,
       rendered_video_url: renderedUrl,
+      subtitles_url: renderResult.subtitleUrl,
+      thumbnail_url: renderResult.thumbnailUrl,
+      cover_variants: renderResult.coverVariants,
+      quality_report: {
+        overall_score: qualityResult.score,
+        hook_score: qualityResult.hookScore,
+        technical_pass: true,
+        retention_prediction: `${qualityResult.score}%`,
+        issues: [],
+        breakdown: qualityResult.breakdown,
+      },
       status: config.autopilot ? "Rendered" : "Awaiting Approval",
       ...usage,
     });
 
+    const qualityReport = {
+      overall_score: qualityResult.score,
+      hook_score: qualityResult.hookScore,
+      technical_pass: true,
+      retention_prediction: `${qualityResult.score}%`,
+      issues: [],
+      breakdown: qualityResult.breakdown,
+    };
+    const publishPackage = buildPublishPackage({
+      jobId,
+      niche: niche.niche_name,
+      videoUrl: renderedUrl,
+      subtitleUrl: renderResult.subtitleUrl,
+      syncPrecisionMs,
+      duration,
+      title: scriptOut.title,
+      description: scriptOut.description,
+      tags: scriptOut.tags,
+      thumbnailUrl: renderResult.thumbnailUrl,
+      coverVariants: renderResult.coverVariants,
+      qualityReport,
+      platforms: niche.run_platforms || config.publishPlatforms,
+      monetizationEnabled: niche.run_monetization ?? Boolean(config.affiliate.trackingId),
+    });
+    const publishTargets = createPublishTargets(publishPackage, niche.run_platforms || config.publishPlatforms);
+    await updateJob(jobId, { publish_package: publishPackage });
+    const { error: targetError } = await supabase.from("publish_targets").upsert(
+      publishTargets.map((target) => ({ pipeline_log_id: jobId, ...target })),
+      { onConflict: "pipeline_log_id,platform" }
+    );
+    if (targetError) throw new Error(`Could not persist publish packages: ${targetError.message}`);
+
     // ── Agent 5: YouTube upload ──
-    if (config.autopilot) {
+    if (config.autopilot && (niche.run_platforms || config.publishPlatforms).includes("youtube")) {
       const result = await uploadScheduled({
         videoUrl: renderedUrl,
         title: scriptOut.title,
@@ -190,6 +197,7 @@ export async function runPipelineForNiche(niche) {
         jobId,
         targetChannel: niche.target_channel,
         niche: niche.niche_name,
+        publishPackage,
       });
       await updateJob(jobId, {
         youtube_video_id: result.videoId,
@@ -198,8 +206,10 @@ export async function runPipelineForNiche(niche) {
         published_to: result.publishedTo,
         status: result.success ? "Scheduled" : "Rendered",
       });
-    } else {
+    } else if (!config.autopilot) {
       await logEvent("Pipeline", `Autopilot OFF — job ${jobId} awaiting manual approval`, { jobId });
+    } else {
+      await logEvent("Pipeline", `YouTube was not selected — platform packages are ready`, { jobId });
     }
 
     await logEvent("Pipeline", `✓ ${niche.niche_name} run complete`, { jobId });

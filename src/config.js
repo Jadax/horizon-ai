@@ -89,7 +89,9 @@ export const config = {
   pipelineCron: process.env.PIPELINE_CRON || "0 3 * * *",
   videosPerRun: parseInt(process.env.VIDEOS_PER_RUN || "6", 10),
   autopilot: (process.env.AUTOPILOT || "true").toLowerCase() === "true",
-  qualityGateMode: process.env.QUALITY_GATE_MODE || "warn_only",
+  contentQualityThreshold: Math.max(85, parseInt(process.env.CONTENT_QUALITY_THRESHOLD || "85", 10)),
+  subtitleSyncPrecisionMs: Math.min(50, parseInt(process.env.SUBTITLE_SYNC_PRECISION_MS || "50", 10)),
+  publishPlatforms: parseArrayEnv("PUBLISH_PLATFORMS", ["youtube"]),
   
   // ─── Affiliate (Optional) ──────────────────────────────────────────
   affiliate: {

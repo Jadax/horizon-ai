@@ -7,6 +7,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import ffmpeg from 'ffmpeg-static';
+import { supabase } from '../supabase.js';
 
 const execFileAsync = promisify(execFile);
 const RENDER_API_URL = config.renderApiUrl || 'http://localhost:3000';
@@ -47,15 +48,33 @@ function buildAssSubtitles(captions) {
   return header + '\n' + lines.join('\n') + '\n';
 }
 
+function toSrtTimestamp(seconds) {
+  const ms = Math.max(0, Math.round(seconds * 1000));
+  const hours = Math.floor(ms / 3600000);
+  const minutes = Math.floor((ms % 3600000) / 60000);
+  const secs = Math.floor((ms % 60000) / 1000);
+  return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(secs).padStart(2, '0')},${String(ms % 1000).padStart(3, '0')}`;
+}
+
+function buildSrt(captions) {
+  return captions.map((caption, index) => [
+    index + 1,
+    `${toSrtTimestamp(caption.start)} --> ${toSrtTimestamp(caption.end)}`,
+    String(caption.text || '').replace(/\n/g, ' '),
+    '',
+  ].join('\n')).join('\n');
+}
+
+async function uploadRenderArtifact(storagePath, body, contentType) {
+  const { error } = await supabase.storage.from('renders').upload(storagePath, body, { contentType, upsert: true });
+  if (error) throw new Error(`Render upload failed: ${error.message}`);
+  return supabase.storage.from('renders').getPublicUrl(storagePath).data.publicUrl;
+}
+
 export async function renderVideo(payload, jobId) {
-  switch (ENGINE) {
-    case 'render-api':
-      return await renderWithAPI(payload, jobId);
-    case 'shottower':
-      return await renderWithShottower(payload, jobId);
-    default:
-      return await renderWithFFmpeg(payload, jobId);
-  }
+  // The local renderer is the only engine implementing the complete 2.0
+  // contract: grounded cuts, captions, SRT, covers, and persistent output.
+  return await renderWithFFmpeg(payload, jobId);
 }
 
 async function renderWithAPI(payload, jobId) {
@@ -140,6 +159,7 @@ async function renderWithFFmpeg(payload, jobId) {
   const tmpDir = tmpdir();
   const outputFile = path.join(tmpDir, `horizon-${randomUUID()}.mp4`);
   const audioFile = path.join(tmpDir, `horizon-audio-${randomUUID()}.mp3`);
+  const musicFile = path.join(tmpDir, `horizon-music-${randomUUID()}.audio`);
   const totalDuration = payload.duration || 60;
 
   // Stitches the FULL cut sequence (video and/or still-image clips) into
@@ -156,12 +176,18 @@ async function renderWithFFmpeg(payload, jobId) {
     clips = [{ url: null, type: 'color', duration: totalDuration }];
   }
   let assFile = null;
+  const thumbnailFiles = [];
 
   try {
     if (payload.audioUrl) {
       const audioRes = await fetch(payload.audioUrl);
       const audioBuffer = await audioRes.arrayBuffer();
       await writeFile(audioFile, Buffer.from(audioBuffer));
+    }
+    if (payload.musicUrl) {
+      const musicRes = await fetch(payload.musicUrl);
+      if (!musicRes.ok) throw new Error(`Could not fetch music: HTTP ${musicRes.status}`);
+      await writeFile(musicFile, Buffer.from(await musicRes.arrayBuffer()));
     }
 
     // Built as an argv array and run via execFile (no shell) instead of a
@@ -185,6 +211,8 @@ async function renderWithFFmpeg(payload, jobId) {
     if (payload.audioUrl) {
       args.push('-i', audioFile);
     }
+    const musicInputIndex = clips.length + (payload.audioUrl ? 1 : 0);
+    if (payload.musicUrl) args.push('-stream_loop', '-1', '-i', musicFile);
 
     // Normalize every background input to the same size/fps/timebase
     // before concatenating — concat requires matching stream properties,
@@ -215,27 +243,50 @@ async function renderWithFFmpeg(payload, jobId) {
     } else {
       filterComplex += ';[vcat]null[vout]';
     }
+    if (payload.audioUrl && payload.musicUrl) {
+      // Sidechain compression is driven by the authoritative narration audio,
+      // so ducking follows actual speech rather than estimated script timing.
+      filterComplex += `;[${audioInputIndex}:a]aresample=async=1,asplit=2[voice_mix][voice_key];[${musicInputIndex}:a]volume=0.20[music];[music][voice_key]sidechaincompress=threshold=0.02:ratio=10:attack=20:release=250[ducked];[voice_mix][ducked]amix=inputs=2:duration=first:normalize=0[aout]`;
+    }
     args.push('-filter_complex', filterComplex);
 
     args.push('-map', '[vout]');
-    if (payload.audioUrl) {
+    if (payload.audioUrl && payload.musicUrl) {
+      args.push('-map', '[aout]');
+    } else if (payload.audioUrl) {
       args.push('-map', `${audioInputIndex}:a`);
     }
     args.push('-c:v', 'libx264', '-preset', 'fast', '-crf', '23', '-c:a', 'aac', '-b:a', '128k', '-t', String(totalDuration), '-pix_fmt', 'yuv420p', outputFile);
 
     await execFileAsync(ffmpeg, args, { timeout: 300000 });
+    await execFileAsync(ffmpeg, ['-v', 'error', '-i', outputFile, '-f', 'null', '-'], { timeout: 300000 });
 
     const video = await import('node:fs/promises').then(fs => fs.readFile(outputFile));
+    const subtitleBody = Buffer.from(buildSrt(payload.captions || []), 'utf8');
+    for (const [index, fraction] of [0.15, 0.5, 0.85].entries()) {
+      const thumbnailFile = path.join(tmpDir, `horizon-cover-${randomUUID()}.png`);
+      thumbnailFiles.push(thumbnailFile);
+      await execFileAsync(ffmpeg, ['-y', '-ss', String(totalDuration * fraction), '-i', outputFile, '-frames:v', '1', '-vf', 'scale=1080:1920', thumbnailFile], { timeout: 60000 });
+    }
+    const [url, subtitleUrl, ...coverVariants] = await Promise.all([
+      uploadRenderArtifact(`videos/${jobId}.mp4`, video, 'video/mp4'),
+      uploadRenderArtifact(`subtitles/${jobId}.srt`, subtitleBody, 'application/x-subrip'),
+      ...thumbnailFiles.map(async (file, index) => uploadRenderArtifact(`covers/${jobId}-${index + 1}.png`, await import('node:fs/promises').then(fs => fs.readFile(file)), 'image/png')),
+    ]);
     await unlink(outputFile).catch(() => {});
     if (payload.audioUrl) {
       await unlink(audioFile).catch(() => {});
     }
+    if (payload.musicUrl) await unlink(musicFile).catch(() => {});
     if (assFile) await unlink(assFile).catch(() => {});
 
-    const url = `data:video/mp4;base64,${video.toString('base64')}`;
     return {
       renderId: `ffmpeg-${randomUUID()}`,
-      url: url,
+      url,
+      subtitleUrl,
+      thumbnailUrl: coverVariants[0],
+      coverVariants,
+      syncPrecisionMs: payload.syncPrecisionMs,
       status: 'done',
     };
   } catch (error) {
@@ -244,8 +295,12 @@ async function renderWithFFmpeg(payload, jobId) {
     if (payload.audioUrl) {
       await unlink(audioFile).catch(() => {});
     }
+    if (payload.musicUrl) await unlink(musicFile).catch(() => {});
     if (assFile) await unlink(assFile).catch(() => {});
+    await Promise.all(thumbnailFiles.map((file) => unlink(file).catch(() => {})));
     throw error;
+  } finally {
+    await Promise.all(thumbnailFiles.map((file) => unlink(file).catch(() => {})));
   }
 }
 

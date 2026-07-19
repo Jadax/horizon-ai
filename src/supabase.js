@@ -10,8 +10,7 @@ export const supabase = createClient(
 
 /**
  * In-memory event bus. Everything the agents do is emitted here and
- * simultaneously persisted to pipeline_logs — the dashboard's Live Status
- * Stream subscribes to this via SSE.
+ * retained in process for the dashboard's Live Status Stream via SSE.
  */
 export const bus = new EventEmitter();
 bus.setMaxListeners(50);

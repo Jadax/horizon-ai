@@ -64,6 +64,7 @@ clipsRouter.post("/clips/upload", upload.single("video"), async (req, res) => {
         source_url: pub.publicUrl,
         source_label: req.file.originalname || null,
         niche,
+        transcript: req.body.transcript ? JSON.parse(req.body.transcript) : null,
         status: "Transcribing",
       })
       .select()

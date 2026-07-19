@@ -9,7 +9,7 @@ import { config } from "./config.js";
 import { bus, getRecentEvents, logEvent } from "./supabase.js";
 import { runFullPipeline } from "./pipeline/run.js";
 import { refreshPublishedStats } from "./lib/performanceTracker.js";
-import { recalibrateFromPerformance } from "./lib/trendScoring.js";
+import { runWeeklyLearning } from "./lib/closedLoopLearner.js";
 import { jobsRouter } from "./routes/jobs.js";
 import { runRouter } from "./routes/run.js";
 import { trendingRouter } from "./routes/trending.js";
@@ -67,10 +67,11 @@ cron.schedule("0 */6 * * *", async () => {
   await refreshPublishedStats().catch((e) =>
     logEvent("Scheduler", `Stats refresh failed: ${e.message}`, { level: "error" })
   );
-  await recalibrateFromPerformance().catch((e) =>
-    logEvent("Scheduler", `Performance recalibration failed: ${e.message}`, { level: "error" })
-  );
 });
+
+cron.schedule("0 4 * * 1", () => {
+  runWeeklyLearning().catch((e) => logEvent("Scheduler", `Weekly learning failed: ${e.message}`, { level: "error" }));
+}, { timezone: "UTC" });
 
 // ── Start server ─────────────────────────────────────────────────────
 app.listen(config.port, () => {

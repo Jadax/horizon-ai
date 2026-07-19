@@ -7,6 +7,7 @@ import OpenAI from "openai";
 import { config } from "../config.js";
 import { logEvent } from "../supabase.js";
 import { getTitlePatternInsight } from "../lib/trendScoring.js";
+import { gradeContent } from "../lib/contentQuality.js";
 
 const TITLE_PATTERNS = ["curiosity_gap", "number_stakes", "contrarian_reframe", "direct_consequence", "insider_callout"];
 
@@ -134,6 +135,7 @@ export async function writeScript(niche, topic, loreContext, jobId) {
   const context = [
     `NICHE: ${niche.niche_name}`,
     `LANGUAGE: ${language}`,
+    `TONE: ${niche.run_tone || "casual"}`,
     `WORD_CLIP_MODE: ${wordClipMode}`,
     `LOOP_MODE: ${loopMode}`,
     `TARGET_WORDS_MIN: ${wordsMin}`,
@@ -149,20 +151,16 @@ export async function writeScript(niche, topic, loreContext, jobId) {
   const minWords = Math.max(20, Math.round(wordsMin * 0.7));
   let out, usedTokens = 0;
 
-  // One bounded retry with an explicit correction before failing the whole
-  // run — a single short generation is normal model variance (temperature
-  // 0.9), not worth burning the topic/footage/cost that already went into
-  // this job over. A second short result after being told exactly how many
-  // words it was missing is treated as a real failure, not retried further.
-  for (let attempt = 1; attempt <= 2; attempt++) {
+  let review = null;
+  for (let attempt = 1; attempt <= 4; attempt++) {
     const messages = [
       { role: "system", content: SCRIPT_SYSTEM },
       { role: "user", content: context },
     ];
-    if (attempt === 2) {
+    if (attempt > 1) {
       messages.push({
         role: "user",
-        content: `Your previous script was only ${out.script?.split(/\s+/).length || 0} words — at least ${minWords} are required. Write a new script that actually reaches the TARGET_WORDS range above; add more narrative detail/stakes, don't just repeat the same beats more slowly.`,
+        content: `The strict critic rejected the previous draft. Rewrite it and apply every note without inventing facts. Previous draft: ${JSON.stringify(out)}. Critic: ${JSON.stringify(review)}`,
       });
     }
     const res = await openai.chat.completions.create({
@@ -173,11 +171,20 @@ export async function writeScript(niche, topic, loreContext, jobId) {
     });
     usedTokens += res.usage?.total_tokens || 0;
     out = JSON.parse(res.choices[0].message.content);
-    if (out.script && out.script.split(/\s+/).length >= minWords) break;
-    if (attempt === 2) {
-      throw new Error("Script generation returned insufficient content (after retry)");
+    if (!out.script || out.script.split(/\s+/).length < minWords) {
+      review = { revisionNotes: [{ line: "script", required_change: `Reach at least ${minWords} words without repetition` }] };
+    } else {
+      review = await gradeContent({
+        script: out.script,
+        title: out.title,
+        niche: niche.niche_name,
+        platforms: niche.run_platforms || config.publishPlatforms,
+      });
+      usedTokens += review.tokens || 0;
+      if (review.passed) break;
     }
-    await logEvent("Agent 2", `Script came back short (${out.script?.split(/\s+/).length || 0}/${minWords} words) — retrying once...`, { jobId, level: "warn" });
+    if (attempt === 4) throw new Error(`Mandatory content quality gate failed after 3 revisions (best score ${review?.score || 0}/100)`);
+    await logEvent("Agent 2", `Draft scored ${review?.score || 0}/100 — forcing revision ${attempt}/3`, { jobId, level: "warn" });
   }
   if (!Array.isArray(out.visual_plan) || out.visual_plan.length < 4) {
     throw new Error("Script generation returned no usable visual plan");
@@ -211,6 +218,7 @@ export async function writeScript(niche, topic, loreContext, jobId) {
   }
 
   out._usage = { tokens: usedTokens };
+  out.quality = review;
   await logEvent(
     "Agent 2",
     `Script done — loop: "…${out.loop_tail}" → "${out.hook_word}…" | title: ${out.title}`,
@@ -236,7 +244,7 @@ Respond ONLY with JSON:
 {"cuts":[{"index":0,"start":2.5,"length":2.0,"reason":"illustrates '...'"}, ...],"total_seconds":47.0}
 index refers to the clip's position in the provided list.`;
 
-export async function calculateTrims(script, clips, stylePreset, jobId) {
+export async function calculateTrims(script, clips, stylePreset, jobId, words = [], duration = null) {
   await logEvent("Agent 2", `Calculating trim points across ${clips.length} clips...`, { jobId });
 
   const clipManifest = clips.map((c, i) => ({
@@ -280,6 +288,27 @@ export async function calculateTrims(script, clips, stylePreset, jobId) {
     });
 
   if (!validated.length) throw new Error("Trim calculation produced no usable cuts");
+  const authoritativeEnd = Number(duration) || words.at(-1)?.end;
+  if (!authoritativeEnd || !words.length) throw new Error("Trim calculation requires authoritative TTS word timestamps");
+  let cursor = 0;
+  for (let i = 0; i < validated.length; i++) {
+    const cut = validated[i];
+    const requestedEnd = i === validated.length - 1 ? authoritativeEnd : Math.min(authoritativeEnd, cursor + cut.length);
+    const boundary = words.find((word) => word.end >= requestedEnd)?.end || authoritativeEnd;
+    cut.timelineStart = Number(cursor.toFixed(3));
+    cut.timelineEnd = Number(Math.max(cursor, boundary).toFixed(3));
+    cut.length = Number((cut.timelineEnd - cut.timelineStart).toFixed(3));
+    cursor = cut.timelineEnd;
+    if (cursor >= authoritativeEnd) break;
+  }
+  for (let i = validated.length - 1; i >= 0; i--) {
+    if (!Number.isFinite(validated[i].timelineStart) || !Number.isFinite(validated[i].timelineEnd) || validated[i].length <= 0) validated.splice(i, 1);
+  }
+  while (validated.at(-1)?.timelineEnd < authoritativeEnd) {
+    const source = validated[validated.length % Math.max(1, validated.length)];
+    const start = validated.at(-1).timelineEnd;
+    validated.push({ ...source, timelineStart: start, timelineEnd: authoritativeEnd, length: authoritativeEnd - start });
+  }
   validated._usage = { tokens: res.usage?.total_tokens || 0 };
   await logEvent(
     "Agent 2",

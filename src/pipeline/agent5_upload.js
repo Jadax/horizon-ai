@@ -67,7 +67,7 @@ async function addAffiliateLinks(description, title, niche, jobId) {
   return { description: description + affiliateText, products };
 }
 
-export async function uploadScheduled({ videoUrl, title, description, tags, jobId, targetChannel, niche }) {
+export async function uploadScheduled({ videoUrl, title, description, tags, jobId, targetChannel, niche, publishPackage }) {
   const { region, publishAt } = nextPublishSlot();
   const channelKey = targetChannel || "primary";
   
@@ -111,7 +111,7 @@ export async function uploadScheduled({ videoUrl, title, description, tags, jobI
           snippet: {
             title: title.slice(0, 100),
             description: `${finalDescription}\n\n#Shorts\n\nA MythosVibe production — Tushant Sharma`,
-            tags: tags?.slice(0, 15),
+            tags: (publishPackage?.platform_variants?.youtube?.tags || tags || []).slice(0, 60),
             categoryId: "24",
           },
           status: {
@@ -126,6 +126,21 @@ export async function uploadScheduled({ videoUrl, title, description, tags, jobI
 
       videoId = data.id;
       publishedTo.push({ platform: 'youtube', videoId: data.id, status: 'scheduled' });
+      await supabase.from("publish_targets").upsert({
+        pipeline_log_id: jobId,
+        platform: "youtube",
+        mode: "direct",
+        status: "scheduled",
+        package: publishPackage ? {
+          video: publishPackage.video,
+          subtitles: publishPackage.subtitles,
+          metadata: publishPackage.metadata,
+          variant: publishPackage.platform_variants?.youtube || {},
+          monetization: publishPackage.monetization,
+        } : {},
+        external_id: data.id,
+        scheduled_at: publishAt.toISOString(),
+      }, { onConflict: "pipeline_log_id,platform" });
       uploadSuccess = true;
       await logEvent("Agent 5", `✓ YouTube scheduled: ${data.id} → ${region}`, { jobId });
     }

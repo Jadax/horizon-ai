@@ -59,22 +59,30 @@ const SOURCE_RELIABILITY_SEED = {
 
 let cachedWeights = null;
 
-async function loadWeights() {
-  if (cachedWeights) return cachedWeights;
+export function invalidateTrendWeightCache() {
+  cachedWeights = null;
+}
+
+async function loadWeights(nicheName = null) {
+  const cacheKey = nicheName || "global";
+  if (cachedWeights?.[cacheKey]) return cachedWeights[cacheKey];
   const { data, error } = await supabase.from("trend_rules").select("*");
-  if (error || !data?.length) {
-    cachedWeights = { ...DEFAULT_WEIGHTS, sources: { ...SOURCE_RELIABILITY_SEED } };
-    return cachedWeights;
-  }
   const weights = { ...DEFAULT_WEIGHTS, sources: { ...SOURCE_RELIABILITY_SEED } };
-  for (const row of data) {
+  for (const row of error ? [] : data || []) {
     if (row.rule_key.startsWith("source:")) {
       weights.sources[row.rule_key.replace("source:", "")] = row.weight;
     } else if (row.rule_key in DEFAULT_WEIGHTS) {
       weights[row.rule_key] = row.weight;
     }
   }
-  cachedWeights = weights;
+  let learnedQuery = supabase.from("bayesian_posteriors").select("arm_key,posterior_mean,samples").eq("dimension", "source_platform").gte("samples", 3);
+  if (nicheName) learnedQuery = learnedQuery.eq("niche", nicheName);
+  const { data: learned } = await learnedQuery;
+  for (const row of learned || []) {
+    weights.sources[row.arm_key] = Math.max(2, Math.min(25, Number(row.posterior_mean) * 25));
+  }
+  cachedWeights = cachedWeights || {};
+  cachedWeights[cacheKey] = weights;
   return weights;
 }
 
@@ -117,8 +125,8 @@ function groupByTopic(candidates) {
  * (not just the winner) so the ad-hoc "check trending now" dashboard tool
  * can show the full picture, not just what the pipeline would auto-pick.
  */
-export async function rankCandidates(candidates) {
-  const weights = await loadWeights();
+export async function rankCandidates(candidates, nicheName = null) {
+  const weights = await loadWeights(nicheName);
   const groups = groupByTopic(candidates);
 
   return candidates

@@ -1,6 +1,9 @@
 import { config } from "../config.js";
 import { supabase, logEvent } from "../supabase.js";
 import { synthesizeSpeech } from "../lib/freeTTS.js";
+import OpenAI, { toFile } from "openai";
+
+const openai = new OpenAI({ apiKey: config.openaiKey });
 
 export async function synthesizeVoiceover(script, voiceId, jobId, expectedMaxSeconds = 58) {
     await logEvent("Agent 3", `Synthesizing voiceover using free TTS (${config.ttsEngine || 'chatterbox'})...`, { jobId });
@@ -11,7 +14,9 @@ export async function synthesizeVoiceover(script, voiceId, jobId, expectedMaxSec
             lang: 'en',
         });
 
-        const duration = estimateDuration(audioBuffer);
+        const words = await alignGeneratedSpeech(audioBuffer, script);
+        if (!words.length) throw new Error("TTS alignment produced no word timestamps");
+        const duration = words[words.length - 1].end;
 
         const path = `voiceovers/${jobId}.mp3`;
         const { error } = await supabase.storage
@@ -20,8 +25,6 @@ export async function synthesizeVoiceover(script, voiceId, jobId, expectedMaxSec
         if (error) throw new Error(`Voiceover upload failed: ${error.message}`);
 
         const { data } = supabase.storage.from("renders").getPublicUrl(path);
-        const words = generateWordTimestamps(script, duration);
-
         if (duration > expectedMaxSeconds) {
             await logEvent(
                 "Agent 3",
@@ -35,33 +38,30 @@ export async function synthesizeVoiceover(script, voiceId, jobId, expectedMaxSec
             `Voiceover ready: ${Math.round(duration)}s, ${words.length} word timestamps (FREE: ${config.ttsEngine || 'chatterbox'})`,
             { jobId }
         );
-        return { voiceoverUrl: data.publicUrl, words, duration };
+        return { voiceoverUrl: data.publicUrl, words, duration, syncPrecisionMs: config.subtitleSyncPrecisionMs };
     } catch (error) {
         await logEvent("Agent 3", `TTS failed: ${error.message}`, { jobId, level: "error" });
         throw error;
     }
 }
 
-function estimateDuration(audioBuffer) {
-    const sizeMB = audioBuffer.length / (1024 * 1024);
-    return Math.max(10, sizeMB * 60);
-}
-
-function generateWordTimestamps(script, duration) {
-    const words = script.split(/\s+/);
-    const wordsPerSecond = words.length / duration;
-    const timestamps = [];
-    let currentTime = 0;
-    for (const word of words) {
-        const wordDuration = 1 / wordsPerSecond;
-        timestamps.push({
-            word: word,
-            start: currentTime,
-            end: currentTime + wordDuration,
-        });
-        currentTime += wordDuration;
-    }
-    return timestamps;
+async function alignGeneratedSpeech(audioBuffer, script) {
+    const file = await toFile(audioBuffer, "voiceover.mp3");
+    const transcription = await openai.audio.transcriptions.create({
+        file,
+        model: "whisper-1",
+        response_format: "verbose_json",
+        timestamp_granularities: ["word"],
+        prompt: script.slice(0, 220),
+    });
+    const words = (transcription.words || []).map((word) => ({
+        word: String(word.word || "").trim(),
+        start: Number(Number(word.start).toFixed(3)),
+        end: Number(Number(word.end).toFixed(3)),
+    })).filter((word) => word.word && word.end > word.start);
+    const expected = script.split(/\s+/).filter(Boolean).length;
+    if (words.length / expected < 0.9) throw new Error(`TTS alignment coverage too low (${words.length}/${expected} words)`);
+    return words;
 }
 
 export async function pickMusic(energyLevel, jobId, brief = {}) {

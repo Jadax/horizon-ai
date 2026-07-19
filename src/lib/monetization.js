@@ -152,7 +152,7 @@ export async function trackRevenue(jobId, platform, revenue, views = 0, clicks =
         .insert({
             pipeline_log_id: jobId,
             platform,
-            revenue,
+            estimated_revenue: revenue,
             views,
             clicks,
             conversions,
@@ -174,27 +174,27 @@ export async function trackRevenue(jobId, platform, revenue, views = 0, clicks =
 export function estimateRevenue(views, platform, niche) {
     const rpmMap = {
         'youtube': {
-            'Finance': 300,
-            'Technology': 200,
-            'Business': 180,
-            'Health/Wellness': 150,
-            'Education': 100,
-            'Gaming/Lore': 40,
-            'Aesthetic': 50,
-            'Psychology': 60,
-            'Travel': 70,
-            'Food': 80,
-            'Viral': 30,
-            'News India': 20,
-            'Mindful/Calm': 40,
-            'default': 40,
+            'Finance': 8,
+            'Technology': 6,
+            'Business': 7,
+            'Health/Wellness': 5,
+            'Education': 4,
+            'Gaming/Lore': 2,
+            'Aesthetic': 2.5,
+            'Psychology': 3,
+            'Travel': 3.5,
+            'Food': 3,
+            'Viral': 1.5,
+            'News India': 1,
+            'Mindful/Calm': 2.5,
+            'default': 2,
         },
-        'instagram': { 'default': 50 },
-        'facebook': { 'default': 30 },
-        'tiktok': { 'default': 20 },
+        'instagram': { 'default': 1.5 },
+        'facebook': { 'default': 2 },
+        'tiktok': { 'default': 0.5 },
     };
 
-    let rpm = rpmMap[platform]?.default || 20;
+    let rpm = rpmMap[platform]?.default || 1;
     for (const [nicheKey, value] of Object.entries(rpmMap[platform] || {})) {
         if (niche.includes(nicheKey)) {
             rpm = value;

@@ -8,6 +8,8 @@ import { supabase, logEvent, updateJob } from "../supabase.js";
 import { retryJob } from "../pipeline/run.js";
 import { uploadScheduled } from "../pipeline/agent5_upload.js";
 import { buildEditPayload, renderProduction } from "../pipeline/agent4_shotstack.js";
+import { assertPublishableQuality, gradeContent } from "../lib/contentQuality.js";
+import { config } from "../config.js";
 
 export const jobsRouter = express.Router();
 
@@ -80,6 +82,10 @@ jobsRouter.post("/jobs/:id/approve", async (req, res) => {
     return res.status(409).json({ error: "This job has already been scheduled or published." });
   }
   try {
+    assertPublishableQuality(job);
+    if (!job.publish_package?.platform_variants?.youtube) {
+      return res.status(409).json({ error: "YouTube was not selected for this run. Use its package target instead." });
+    }
     const result = await uploadScheduled({
       videoUrl: job.rendered_video_url,
       title: job.title,
@@ -87,17 +93,38 @@ jobsRouter.post("/jobs/:id/approve", async (req, res) => {
       tags: job.tags,
       jobId: job.id,
       targetChannel: job.target_channel,
+      niche: job.niche,
+      publishPackage: job.publish_package,
     });
     await updateJob(job.id, {
       youtube_video_id: result.videoId,
       target_region: result.region,
       publish_schedule: result.publishAt.toISOString(),
-      status: result.held ? "Rendered" : "Scheduled",
+      status: result.success ? "Scheduled" : "Rendered",
     });
     res.json({ ok: true, ...result });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
+});
+
+jobsRouter.get("/jobs/:id/publish-packages", async (req, res) => {
+  const { data, error } = await supabase.from("publish_targets").select("*").eq("pipeline_log_id", req.params.id);
+  if (error) return res.status(500).json({ error: error.message });
+  res.json(data || []);
+});
+
+jobsRouter.post("/publish-targets/:id/mark-published", async (req, res) => {
+  const externalUrl = String(req.body.external_url || "");
+  if (!/^https:\/\//.test(externalUrl)) return res.status(400).json({ error: "A valid external_url is required" });
+  const { error } = await supabase.from("publish_targets").update({
+    status: "published",
+    external_id: req.body.external_id || null,
+    external_url: externalUrl,
+    published_at: new Date().toISOString(),
+  }).eq("id", req.params.id);
+  if (error) return res.status(500).json({ error: error.message });
+  res.json({ ok: true });
 });
 
 // Re-render an already-approved job at full production quality (v1, no
@@ -115,8 +142,28 @@ jobsRouter.post("/jobs/:id/render-production", async (req, res) => {
     return res.status(400).json({ error: "Job is missing data needed to re-render (voiceover_words/calculated_trim_points)" });
   }
   try {
+    let contentScore = Number(job.content_quality_score);
+    let qualityReport = job.quality_report;
+    if (!Number.isFinite(contentScore) || contentScore < config.contentQualityThreshold) {
+      const review = await gradeContent({ script: job.script, title: job.title, niche: job.niche, platforms: Object.keys(job.publish_package?.platform_variants || { youtube: {} }) });
+      if (!review.passed) return res.status(409).json({ error: `Legacy job failed the mandatory content gate (${review.score}/100). Retry it as a fresh run.` });
+      contentScore = review.score;
+      qualityReport = { overall_score: review.score, hook_score: review.hookScore, technical_pass: false, retention_prediction: `${review.score}%`, issues: [], breakdown: review.breakdown };
+      await updateJob(job.id, { content_quality_score: contentScore, quality_report: qualityReport });
+    }
+    let cuts = job.calculated_trim_points;
+    if (cuts.some((cut) => !Number.isFinite(cut.timelineStart) || !Number.isFinite(cut.timelineEnd))) {
+      let cursor = 0;
+      cuts = cuts.map((cut, index) => {
+        const remaining = Math.max(0, Number(job.duration_seconds) - cursor);
+        const length = index === cuts.length - 1 ? remaining : Math.min(remaining, Number(cut.length || 4));
+        const grounded = { ...cut, timelineStart: cursor, timelineEnd: cursor + length, length };
+        cursor += length;
+        return grounded;
+      }).filter((cut) => cut.length > 0);
+    }
     const payload = buildEditPayload({
-      cuts: job.calculated_trim_points,
+      cuts,
       voiceoverUrl: job.voiceover_url,
       words: job.voiceover_words,
       duration: job.duration_seconds,
@@ -124,9 +171,17 @@ jobsRouter.post("/jobs/:id/render-production", async (req, res) => {
       preset: job.preset_snapshot || {},
       jobId: job.id,
     });
-    const { renderId, url } = await renderProduction(payload, job.id);
-    await updateJob(job.id, { rendered_video_url: url, shotstack_render_id: renderId });
-    res.json({ ok: true, url });
+    const result = await renderProduction(payload, job.id);
+    qualityReport = { ...qualityReport, overall_score: contentScore, technical_pass: true, issues: [] };
+    await updateJob(job.id, {
+      rendered_video_url: result.url,
+      shotstack_render_id: result.renderId,
+      subtitles_url: result.subtitleUrl,
+      thumbnail_url: result.thumbnailUrl,
+      cover_variants: result.coverVariants,
+      quality_report: qualityReport,
+    });
+    res.json({ ok: true, url: result.url });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
