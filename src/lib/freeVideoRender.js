@@ -35,8 +35,10 @@ function buildAssSubtitles(captions) {
     'PlayResY: 1920',
     '',
     '[V4+ Styles]',
-    'Format: Name, Fontname, Fontsize, PrimaryColour, OutlineColour, BackColour, Bold, BorderStyle, Outline, Shadow, Alignment, MarginV',
-    'Style: Default,Arial,64,&H00FFFFFF,&H00000000,&H00000000,1,1,3,1,2,140',
+    // Short-form standard look: big bold white with a heavy black outline —
+    // readable over any footage at feed size, no background box.
+    'Format: Name, Fontname, Fontsize, PrimaryColour, OutlineColour, BackColour, Bold, BorderStyle, Outline, Shadow, Alignment, MarginV, Spacing',
+    'Style: Default,Arial,80,&H00FFFFFF,&H00000000,&H80000000,1,1,5,2,2,220,1',
     '',
     '[Events]',
     'Format: Layer, Start, End, Style, Text',
@@ -198,7 +200,9 @@ async function renderWithFFmpeg(payload, jobId) {
     for (const clip of clips) {
       const clipDuration = Math.max(0.5, clip.duration || 4);
       if (clip.type === 'image') {
-        args.push('-loop', '1', '-t', String(clipDuration), '-i', clip.url);
+        // Single-frame input; zoompan in the filter leg below generates the
+        // clip's frames from it (ken-burns motion instead of a frozen still).
+        args.push('-i', clip.url);
       } else if (clip.type === 'color' || !clip.url) {
         args.push('-f', 'lavfi', '-i', `color=c=black:s=1080x1920:d=${clipDuration}`);
       } else {
@@ -217,9 +221,18 @@ async function renderWithFFmpeg(payload, jobId) {
     // Normalize every background input to the same size/fps/timebase
     // before concatenating — concat requires matching stream properties,
     // and inputs here can be a mix of stock video and generated stills.
-    const legs = clips.map((_, i) =>
-      `[${i}:v]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,setsar=1,fps=30,setpts=PTS-STARTPTS[v${i}]`
-    );
+    const legs = clips.map((clip, i) => {
+      if (clip.type === 'image') {
+        // Ken-burns: pre-scale the still to 2x target so the zoom window
+        // always samples above output resolution (no softening), then let
+        // zoompan generate the clip's frames — slow push-in on even clips,
+        // pull-out on odd ones so consecutive stills don't move identically.
+        const frames = Math.round(Math.max(0.5, clip.duration || 4) * 30);
+        const zoomExpr = i % 2 === 0 ? 'min(1+0.0012*on,1.14)' : 'max(1.14-0.0012*on,1.0)';
+        return `[${i}:v]scale=2160:3840:force_original_aspect_ratio=increase,crop=2160:3840,zoompan=z='${zoomExpr}':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=${frames}:s=1080x1920:fps=30,setsar=1,setpts=PTS-STARTPTS[v${i}]`;
+      }
+      return `[${i}:v]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,setsar=1,fps=30,setpts=PTS-STARTPTS[v${i}]`;
+    });
     const concatInputs = clips.map((_, i) => `[v${i}]`).join('');
     let filterComplex = [...legs, `${concatInputs}concat=n=${clips.length}:v=1:a=0[vcat]`].join(';');
 
