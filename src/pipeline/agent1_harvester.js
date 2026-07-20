@@ -403,10 +403,21 @@ const AI_CUTAWAY_MAX_PER_VIDEO = 4; // caps real per-video OpenAI image cost
  * This is a real, per-image OpenAI cost, so it's capped per video and only
  * used for beats stock search genuinely couldn't cover.
  */
-async function generateCutawayImage(beat, jobId) {
+// One fixed style block shared by every illustration in a video so the
+// output reads as one artist's work, not eight unrelated AI images — the
+// defining trait of the stick-figure explainer format (Sam O'Nella /
+// Casually Explained / infographics-style channels).
+const ILLUSTRATION_STYLE =
+    "Simple flat cartoon illustration in a consistent hand-drawn explainer style: " +
+    "a white stick-figure-like character with a plain round head and dot eyes, thick clean black outlines, " +
+    "flat warm colors, minimal simple background, slightly naive comic look, absolutely no text, no words, no letters, no watermark.";
+
+async function generateCutawayImage(beat, jobId, style = "photo") {
     if (!config.enableAiCutaway) return null;
     try {
-        const prompt = `Vertical 9:16 photorealistic cinematic still, no text or watermarks: ${beat.query}. Context: ${beat.intent || beat.line}. Natural lighting, shallow depth of field, looks like a real photograph, not illustration or CGI.`;
+        const prompt = style === "illustrated"
+            ? `Vertical 9:16. ${ILLUSTRATION_STYLE} Scene to depict: ${beat.query}. What it should convey: ${beat.intent || beat.line}.`
+            : `Vertical 9:16 photorealistic cinematic still, no text or watermarks: ${beat.query}. Context: ${beat.intent || beat.line}. Natural lighting, shallow depth of field, looks like a real photograph, not illustration or CGI.`;
         const res = await withRetry(
             () => openai.images.generate({
                 model: "gpt-image-1",
@@ -423,7 +434,9 @@ async function generateCutawayImage(beat, jobId) {
         const { error } = await supabase.storage.from("renders").upload(path, buffer, { contentType: "image/png", upsert: true });
         if (error) throw new Error(error.message);
         const { data } = supabase.storage.from("renders").getPublicUrl(path);
-        await logEvent("Agent 1", `AI-generated cutaway for "${beat.query}" (no stock match found)`, { jobId });
+        await logEvent("Agent 1", style === "illustrated"
+            ? `Illustrated: "${beat.query}"`
+            : `AI-generated cutaway for "${beat.query}" (no stock match found)`, { jobId });
         return {
             url: data.publicUrl,
             type: "image",
@@ -439,7 +452,49 @@ async function generateCutawayImage(beat, jobId) {
     }
 }
 
+// Fully-illustrated visual mode (editing_style_preset.visualMode =
+// "illustrated"): every script beat gets a style-consistent cartoon
+// illustration instead of stock footage — no stock search, no visual QA,
+// no license juggling; the render's ken-burns motion animates the stills.
+// Real per-image OpenAI cost (~8 images/video), so it's opt-in per niche.
+const ILLUSTRATED_MAX_IMAGES = 8;
+
+async function harvestIllustrated(niche, jobId, minTotalSeconds, visualQueries) {
+    const beats = (Array.isArray(visualQueries) ? visualQueries : [])
+        .filter((q) => q && typeof q.query === "string" && q.query.trim())
+        .slice(0, ILLUSTRATED_MAX_IMAGES);
+    if (!beats.length) return null;
+    await logEvent("Agent 1", `Illustrated mode: generating ${beats.length} style-consistent cartoon frames (no stock search)...`, { jobId });
+    const perImageSeconds = Math.max(4, Math.ceil(minTotalSeconds / beats.length) + 1);
+    const clips = [];
+    for (const beat of beats) {
+        const image = await generateCutawayImage(beat, jobId, "illustrated");
+        if (image) {
+            clips.push({
+                ...image,
+                duration: perImageSeconds,
+                keyword: beat.query,
+                semanticCue: beat.line,
+                visualIntent: beat.intent || null,
+            });
+        }
+    }
+    // Below 3 usable frames the video would sit on one or two stills for
+    // most of its runtime — let the caller fall back to the stock path.
+    if (clips.length < 3) {
+        await logEvent("Agent 1", `Illustrated mode only produced ${clips.length} frame(s) — falling back to stock footage`, { jobId, level: "warn" });
+        return null;
+    }
+    clips._usage = { tokens: 0 };
+    await logEvent("Agent 1", `Media locked: ${clips.length} illustrated frames, ~${clips.length * perImageSeconds}s of coverage`, { jobId });
+    return clips;
+}
+
 export async function harvestFootage(niche, jobId, minTotalSeconds = 55, priorityKeywords = null, visualQueries = []) {
+    if (niche.editing_style_preset?.visualMode === "illustrated" && config.enableAiCutaway) {
+        const illustrated = await harvestIllustrated(niche, jobId, minTotalSeconds, visualQueries);
+        if (illustrated) return illustrated;
+    }
     await logEvent("Agent 1", `Sourcing licensed b-roll for ${niche.niche_name}...`, { jobId });
     const scriptedQueries = Array.isArray(visualQueries)
         ? visualQueries.map((q) => q?.query).filter((q) => typeof q === "string" && q.trim()).slice(0, 12)

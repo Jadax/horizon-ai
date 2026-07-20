@@ -19,7 +19,7 @@ export function captionClips(words, preset) {
   const chunkSize = preset.wordClipMode ? 1 : preset.transitions === "fast-cut" ? 2 : 3;
   const font = preset.wordClipMode
     ? STYLE_FONTS["word-clip"]
-    : STYLE_FONTS[preset.caption.style] || STYLE_FONTS.minimal;
+    : STYLE_FONTS[preset.caption?.style] || STYLE_FONTS.minimal;
   const clips = [];
   for (let i = 0; i < words.length; i += chunkSize) {
     const chunk = words.slice(i, i + chunkSize);

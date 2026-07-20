@@ -140,6 +140,9 @@ export async function writeScript(niche, topic, loreContext, jobId) {
     `LOOP_MODE: ${loopMode}`,
     `TARGET_WORDS_MIN: ${wordsMin}`,
     `TARGET_WORDS_MAX: ${wordsMax}`,
+    niche.editing_style_preset?.visualMode === "illustrated"
+      ? "VISUAL_MODE: illustrated — every visual_plan query must describe a simple drawable cartoon scene (a character doing or reacting to something concrete from that line, e.g. 'stick figure king proudly holding a tiny potato'), NOT a stock-footage search phrase. One clear subject per scene. Never put written words, labels, signs, or numbers in the scene — the image model misspells them; convey meaning through objects and expressions only."
+      : null,
     `TRENDING TOPIC: ${topic.title}`,
     topic.selftext ? `THREAD CONTEXT: ${topic.selftext}` : null,
     loreContext ? `LORE GROUNDING (paraphrase only): ${JSON.stringify(loreContext)}` : null,
