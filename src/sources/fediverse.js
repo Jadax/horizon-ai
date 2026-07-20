@@ -39,6 +39,10 @@ export async function fetchMastodonHashtag(tag, instance = "mastodon.social", li
   if (!res.ok) throw new Error(`Mastodon #${tag}@${instance} → HTTP ${res.status}`);
   const json = await res.json();
   return (json || [])
+    // Self-declared bot accounts (Mastodon's account.bot flag) are mostly
+    // crosspost mirrors and auto-promo — a production run picked "The Mad
+    // Red Hatter bot by ..." as a video topic from one of these.
+    .filter((post) => post.account?.bot !== true)
     .map((post) => ({
       title: cleanMastodonTitle(post.content),
       url: post.url || post.uri,

@@ -9,6 +9,9 @@ import { fetchGoogleTrends, fetchGoogleNews } from "../sources/googleTrends.js";
 import { fetchGDELT } from "../sources/gdelt.js";
 import { fetchYouTubeTrending } from "../sources/youtubeTrending.js";
 import { fetchMastodonHashtag, fetchLemmyHot } from "../sources/fediverse.js";
+import { fetchHackerNewsTop } from "../sources/hackerNews.js";
+import { fetchWikipediaTrending } from "../sources/wikipediaTrending.js";
+import { fetchBlueskyHot } from "../sources/bluesky.js";
 import { fetchTopReddit, searchWiki } from "../sources/reddit.js";
 import { rankCandidates, recalibrateWeights } from "../lib/trendScoring.js";
 import { withRetry } from "../lib/openaiRetry.js";
@@ -102,7 +105,7 @@ export async function harvestAllCandidates(niche, jobId = null) {
     await log(`Scanning sources for ${niche.niche_name}...`);
 
     const candidates = [];
-    const enabled = new Set(niche.run_trend_sources || ["google", "reddit", "youtube", "gdelt", "rss", "wikipedia"]);
+    const enabled = new Set(niche.run_trend_sources || ["google", "reddit", "youtube", "gdelt", "rss", "wikipedia", "hackernews", "wikipedia_trending", "bluesky"]);
     const tag = (items, source) => items.map((i) => ({ ...i, source }));
 
     const socialVideos = enabled.has("reddit") || enabled.has("youtube") ? await harvestSocialVideos(niche, jobId) : [];
@@ -129,6 +132,30 @@ export async function harvestAllCandidates(niche, jobId = null) {
             candidates.push(...tag(result.items, result.source));
             await log(`${result.source}: ${result.items.length} candidates`);
         }
+    }
+
+    if (enabled.has("hackernews")) try {
+        const hn = await fetchHackerNewsTop(12);
+        candidates.push(...tag(hn, "Hacker News"));
+        await log(`Hacker News front page: ${hn.length} candidates`);
+    } catch (err) {
+        await log(`Hacker News fetch failed: ${err.message}`, "warn");
+    }
+
+    if (enabled.has("wikipedia_trending")) try {
+        const wiki = await fetchWikipediaTrending(niche.language === "hi" ? "hi" : "en", 12);
+        candidates.push(...tag(wiki, "Wikipedia Trending"));
+        await log(`Wikipedia trending: ${wiki.length} candidates`);
+    } catch (err) {
+        await log(`Wikipedia trending fetch failed: ${err.message}`, "warn");
+    }
+
+    if (enabled.has("bluesky")) try {
+        const bsky = await fetchBlueskyHot(12);
+        candidates.push(...tag(bsky, "Bluesky"));
+        await log(`Bluesky What's Hot: ${bsky.length} candidates`);
+    } catch (err) {
+        await log(`Bluesky fetch failed: ${err.message}`, "warn");
     }
 
     if (enabled.has("google")) try {

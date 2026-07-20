@@ -26,7 +26,11 @@ export const config = {
   // with no HTTP server, so it can't work without you deploying your own
   // wrapper for it first (see .env.example). gtts runs in-process via a
   // python3 subprocess, no separate service needed.
-  ttsEngine: process.env.TTS_ENGINE || 'gtts',
+  // 'openai' (gpt-4o-mini-tts) is the default: dramatically more natural
+  // than gTTS's robotic translate voice, uses the already-required OpenAI
+  // key (~$0.01 per video of narration), and freeTTS.js still falls back to
+  // gtts automatically if the call fails.
+  ttsEngine: process.env.TTS_ENGINE || 'openai',
   ttsApiUrl: process.env.TTS_API_URL || 'http://localhost:5000/tts',
   ttsFallback: process.env.TTS_FALLBACK || 'gtts',
   
