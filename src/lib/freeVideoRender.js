@@ -256,18 +256,21 @@ async function renderWithFFmpeg(payload, jobId) {
     } else {
       filterComplex += ';[vcat]null[vout]';
     }
+    // Final audio is loudness-normalized to -14 LUFS (what YouTube/TikTok
+    // normalize to anyway) so uploads land at platform loudness instead of
+    // whatever level the TTS + music mix happened to sum to.
     if (payload.audioUrl && payload.musicUrl) {
       // Sidechain compression is driven by the authoritative narration audio,
       // so ducking follows actual speech rather than estimated script timing.
-      filterComplex += `;[${audioInputIndex}:a]aresample=async=1,asplit=2[voice_mix][voice_key];[${musicInputIndex}:a]volume=0.20[music];[music][voice_key]sidechaincompress=threshold=0.02:ratio=10:attack=20:release=250[ducked];[voice_mix][ducked]amix=inputs=2:duration=first:normalize=0[aout]`;
+      filterComplex += `;[${audioInputIndex}:a]aresample=async=1,asplit=2[voice_mix][voice_key];[${musicInputIndex}:a]volume=0.20[music];[music][voice_key]sidechaincompress=threshold=0.02:ratio=10:attack=20:release=250[ducked];[voice_mix][ducked]amix=inputs=2:duration=first:normalize=0,loudnorm=I=-14:TP=-1.5:LRA=11[aout]`;
+    } else if (payload.audioUrl) {
+      filterComplex += `;[${audioInputIndex}:a]loudnorm=I=-14:TP=-1.5:LRA=11[aout]`;
     }
     args.push('-filter_complex', filterComplex);
 
     args.push('-map', '[vout]');
-    if (payload.audioUrl && payload.musicUrl) {
+    if (payload.audioUrl) {
       args.push('-map', '[aout]');
-    } else if (payload.audioUrl) {
-      args.push('-map', `${audioInputIndex}:a`);
     }
     args.push('-c:v', 'libx264', '-preset', 'fast', '-crf', '23', '-c:a', 'aac', '-b:a', '128k', '-t', String(totalDuration), '-pix_fmt', 'yuv420p', outputFile);
 

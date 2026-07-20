@@ -36,12 +36,6 @@
 import OpenAI, { toFile } from "openai";
 import { config } from "../config.js";
 import { supabase, logEvent } from "../supabase.js";
-// buildClipPayload/buildActionClipPayload no longer exist — agent4_shotstack.js
-// was rewritten around the free render engine's payload shape (background video +
-// separate voiceover + captions), which has no equivalent for "keep the source
-// clip's own embedded audio" that both clipper modes depend on. Importing the old
-// names would crash the whole app at boot (ESM throws on a missing named export).
-// Left both render functions failing per-clip below until that's designed for real.
 import { detectAudioPeaks } from "../lib/audioPeaks.js";
 import { renderSourceClip } from "../lib/sourceClipRender.js";
 import { execFile } from "node:child_process";
