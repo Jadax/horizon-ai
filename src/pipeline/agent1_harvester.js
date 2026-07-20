@@ -422,30 +422,59 @@ const ILLUSTRATION_STYLE =
     "a white stick-figure-like character with a plain round head and dot eyes, thick clean black outlines, " +
     "flat warm colors, minimal simple background, slightly naive comic look, absolutely no text, no words, no letters, no watermark.";
 
-async function generateCutawayImage(beat, jobId, style = "photo") {
+/**
+ * Free image generation via Pollinations (FLUX-based, no API key, no cost —
+ * verified live: the flat-cartoon output is actually closer to the target
+ * explainer style than gpt-image-1's). A fixed seed per prompt keeps
+ * results reproducible; gpt-image-1 remains the fallback when Pollinations
+ * fails or IMAGE_ENGINE=openai is set.
+ */
+async function fetchPollinationsImage(prompt) {
+    const url = `https://image.pollinations.ai/prompt/${encodeURIComponent(prompt)}?width=1024&height=1536&nologo=true&seed=${Math.floor(Math.random() * 1e6)}`;
+    const res = await fetch(url, { signal: AbortSignal.timeout(120000) });
+    if (!res.ok) throw new Error(`Pollinations → HTTP ${res.status}`);
+    const buffer = Buffer.from(await res.arrayBuffer());
+    if (buffer.length < 5000) throw new Error("Pollinations returned a suspiciously small image");
+    return buffer;
+}
+
+export async function generateCutawayImage(beat, jobId, style = "photo") {
     if (!config.enableAiCutaway) return null;
     try {
         const prompt = style === "illustrated"
             ? `Vertical 9:16. ${ILLUSTRATION_STYLE} Scene to depict: ${beat.query}. What it should convey: ${beat.intent || beat.line}.`
             : `Vertical 9:16 photorealistic cinematic still, no text or watermarks: ${beat.query}. Context: ${beat.intent || beat.line}. Natural lighting, shallow depth of field, looks like a real photograph, not illustration or CGI.`;
-        const res = await withRetry(
-            () => openai.images.generate({
-                model: "gpt-image-1",
-                prompt: prompt.slice(0, 900),
-                size: "1024x1536",
-                n: 1,
-                // Flat thick-outline cartoons lose nothing at medium quality,
-                // and it roughly halves the per-image cost of illustrated
-                // videos (~8 images each). Photo cutaways keep the default.
-                ...(style === "illustrated" ? { quality: "medium" } : {}),
-            }),
-            { jobId, label: "generateCutawayImage" }
-        );
-        const b64 = res.data?.[0]?.b64_json;
-        if (!b64) return null;
-        const buffer = Buffer.from(b64, "base64");
-        const path = `broll-generated/${jobId}-${randomUUID().slice(0, 8)}.png`;
-        const { error } = await supabase.storage.from("renders").upload(path, buffer, { contentType: "image/png", upsert: true });
+        let buffer = null;
+        if (style === "illustrated" && config.imageEngine !== "openai") {
+            try {
+                buffer = await fetchPollinationsImage(prompt.slice(0, 900));
+            } catch (err) {
+                await logEvent("Agent 1", `Free image engine failed (${err.message}) — falling back to gpt-image-1`, { jobId, level: "warn" });
+            }
+        }
+        if (!buffer) {
+            const res = await withRetry(
+                () => openai.images.generate({
+                    model: "gpt-image-1",
+                    prompt: prompt.slice(0, 900),
+                    size: "1024x1536",
+                    n: 1,
+                    // Flat thick-outline cartoons lose nothing at medium quality,
+                    // and it roughly halves the per-image cost of illustrated
+                    // videos (~8 images each). Photo cutaways keep the default.
+                    ...(style === "illustrated" ? { quality: "medium" } : {}),
+                }),
+                { jobId, label: "generateCutawayImage" }
+            );
+            const b64 = res.data?.[0]?.b64_json;
+            if (!b64) return null;
+            buffer = Buffer.from(b64, "base64");
+        }
+        // Pollinations returns JPEG, gpt-image-1 returns PNG — sniff the magic
+        // bytes so the stored object's extension/content-type match reality.
+        const isJpeg = buffer[0] === 0xff && buffer[1] === 0xd8;
+        const path = `broll-generated/${jobId}-${randomUUID().slice(0, 8)}.${isJpeg ? "jpg" : "png"}`;
+        const { error } = await supabase.storage.from("renders").upload(path, buffer, { contentType: isJpeg ? "image/jpeg" : "image/png", upsert: true });
         if (error) throw new Error(error.message);
         const { data } = supabase.storage.from("renders").getPublicUrl(path);
         await logEvent("Agent 1", style === "illustrated"

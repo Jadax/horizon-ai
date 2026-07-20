@@ -55,6 +55,10 @@ export const config = {
   // reaching for scraped third-party video. Real per-image cost — capped at
   // 4/video in agent1_harvester.js (AI_CUTAWAY_MAX_PER_VIDEO).
   enableAiCutaway: (process.env.ENABLE_AI_CUTAWAY || "true").toLowerCase() === "true",
+  // "pollinations" (default): free FLUX-based generation, no key, $0 — used
+  // for illustrated-mode frames, with gpt-image-1 as automatic fallback.
+  // Set IMAGE_ENGINE=openai to force gpt-image-1 for everything.
+  imageEngine: (process.env.IMAGE_ENGINE || "pollinations").toLowerCase(),
   // Minimum virality score (1-10) for a scraped video candidate to be used
   // as a topic — restored, was dropped in the free-stack rewrite (agent1_harvester.js
   // still reads this with a || 7.0 fallback, so it degraded silently, not a crash).
