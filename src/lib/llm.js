@@ -47,6 +47,61 @@ async function geminiJson(model, messages, temperature) {
 }
 
 /**
+ * Vision call: one prompt + one or more images (as {mimeType, base64} or
+ * URLs, which get fetched). Gemini free tier first, gpt-4o-mini fallback.
+ * Returns plain text.
+ */
+export async function llmVision({ prompt, images, label = "vision", maxTokens = 300 }) {
+  const resolved = [];
+  for (const img of images) {
+    if (typeof img === "string") {
+      const res = await fetch(img, { signal: AbortSignal.timeout(20000) });
+      if (!res.ok) continue;
+      const mimeType = res.headers.get("content-type")?.split(";")[0] || "image/jpeg";
+      resolved.push({ mimeType, base64: Buffer.from(await res.arrayBuffer()).toString("base64") });
+    } else {
+      resolved.push(img);
+    }
+  }
+  if (!resolved.length) throw new Error("no fetchable images");
+  if (config.geminiKey) {
+    try {
+      const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODELS.fast}:generateContent?key=${config.geminiKey}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: prompt }, ...resolved.map((i) => ({ inlineData: { mimeType: i.mimeType, data: i.base64 } }))] }],
+          generationConfig: { temperature: 0.2, maxOutputTokens: maxTokens },
+        }),
+        signal: AbortSignal.timeout(60000),
+      });
+      const json = await res.json();
+      if (json.error) throw new Error(json.error.message?.slice(0, 120));
+      const text = json.candidates?.[0]?.content?.parts?.map((p) => p.text).join("") || "";
+      if (!text.trim()) throw new Error("empty vision response");
+      return { content: text, provider: `gemini/${GEMINI_MODELS.fast}` };
+    } catch (err) {
+      console.warn(`[${label}] Gemini vision failed (${err.message}) — falling back to OpenAI`);
+    }
+  }
+  const res = await withRetry(
+    () => openai.chat.completions.create({
+      model: "gpt-4o-mini",
+      max_tokens: maxTokens,
+      messages: [{
+        role: "user",
+        content: [
+          { type: "text", text: prompt },
+          ...resolved.map((i) => ({ type: "image_url", image_url: { url: `data:${i.mimeType};base64,${i.base64}` } })),
+        ],
+      }],
+    }),
+    { label }
+  );
+  return { content: res.choices[0].message.content, provider: "openai/gpt-4o-mini" };
+}
+
+/**
  * JSON chat completion. `messages` uses the OpenAI role/content shape;
  * returns { content, tokens, provider } where content is a JSON string.
  */

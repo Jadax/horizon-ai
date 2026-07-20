@@ -841,12 +841,20 @@ async function loadNiches(){
         <select onchange="setChannel('${n.niche_name}', this.value)" title="Channel">
           ${knownChannels.map(c=>`<option value="${c}" ${n.target_channel===c?"selected":""}>${c}</option>`).join("")}
         </select>
+        <select onchange="setCadence('${n.niche_name}', this.value)" title="Upload cadence">
+          ${[[1,"Daily"],[2,"Every 2d"],[3,"Every 3d"],[7,"Weekly"]].map(([d,label])=>
+            `<option value="${d}" ${(Number(n.editing_style_preset?.cadenceDays)||1)===d?"selected":""}>${label}</option>`).join("")}
+        </select>
       </span>
     </div>`).join("");
 }
 async function setChannel(niche, channel){
   await fetch("/api/niches/"+encodeURIComponent(niche),{method:"PATCH",headers:H,
     body:JSON.stringify({target_channel:channel})});
+}
+async function setCadence(niche, days){
+  await fetch("/api/niches/"+encodeURIComponent(niche),{method:"PATCH",headers:H,
+    body:JSON.stringify({cadence_days:Number(days)})});
 }
 async function setLanguage(niche, language){
   await fetch("/api/niches/"+encodeURIComponent(niche),{method:"PATCH",headers:H,

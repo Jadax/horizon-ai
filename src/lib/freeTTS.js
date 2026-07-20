@@ -2,10 +2,11 @@ import axios from 'axios';
 import { config } from '../config.js';
 import { exec, execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { writeFile, unlink } from 'node:fs/promises';
+import { readFile, writeFile, unlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
+import ffmpeg from 'ffmpeg-static';
 
 const execAsync = promisify(exec);
 const execFileAsync = promisify(execFile);
@@ -36,6 +37,8 @@ export async function synthesizeSpeech(text, voiceId = null, options = {}) {
   const engine = options.engine || PRIMARY_ENGINE;
   try {
     switch (engine) {
+      case 'gemini':
+        return await synthesizeGeminiTTS(text, voiceId, options);
       case 'elevenlabs':
         return await synthesizeElevenLabs(text, voiceId, options);
       case 'openai':
@@ -67,6 +70,43 @@ const OPENAI_VOICES = new Set(['alloy', 'ash', 'ballad', 'coral', 'echo', 'fable
 const OPENAI_TTS_INSTRUCTIONS =
   'Narrate like a sharp, casual friend telling a genuinely interesting story: conversational pace with natural variation, ' +
   'clear emphasis on the surprising words, brief pauses at sentence breaks, energetic but never salesy or breathless.';
+
+/**
+ * Gemini TTS — FREE tier (verified live: real speech, healthy levels).
+ * Returns raw PCM L16/24kHz, converted to mp3 via the bundled ffmpeg so
+ * every downstream consumer (upload, whisper/gemini alignment, render mix)
+ * sees the same format as the other engines.
+ */
+const GEMINI_VOICES = new Set(['Zephyr', 'Puck', 'Charon', 'Kore', 'Fenrir', 'Leda', 'Orus', 'Aoede', 'Callirhoe', 'Autonoe', 'Enceladus', 'Iapetus']);
+async function synthesizeGeminiTTS(text, voiceId, options) {
+  if (!config.geminiKey) throw new Error('GEMINI_API_KEY is not set');
+  const voice = GEMINI_VOICES.has(String(voiceId)) ? String(voiceId) : 'Iapetus';
+  const res = await axios.post(
+    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-tts:generateContent?key=${config.geminiKey}`,
+    {
+      contents: [{ parts: [{ text }] }],
+      generationConfig: {
+        responseModalities: ['AUDIO'],
+        speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: voice } } },
+      },
+    },
+    { timeout: 90000 }
+  );
+  const inline = res.data?.candidates?.[0]?.content?.parts?.[0]?.inlineData;
+  if (!inline?.data) throw new Error('Gemini TTS returned no audio');
+  const pcm = Buffer.from(inline.data, 'base64');
+  const rate = /rate=(\d+)/.exec(inline.mimeType || '')?.[1] || '24000';
+  const tmpPcm = path.join(tmpdir(), `horizon-gtts-${randomUUID()}.pcm`);
+  const tmpMp3 = path.join(tmpdir(), `horizon-gtts-${randomUUID()}.mp3`);
+  try {
+    await writeFile(tmpPcm, pcm);
+    await execFileAsync(ffmpeg, ['-y', '-f', 's16le', '-ar', rate, '-ac', '1', '-i', tmpPcm, '-c:a', 'libmp3lame', '-q:a', '3', tmpMp3], { timeout: 60000 });
+    return await readFile(tmpMp3);
+  } finally {
+    await unlink(tmpPcm).catch(() => {});
+    await unlink(tmpMp3).catch(() => {});
+  }
+}
 
 /**
  * ElevenLabs TTS — the slot for a CLONED personal voice (e.g. a family

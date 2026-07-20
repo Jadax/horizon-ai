@@ -120,7 +120,54 @@ export async function synthesizeVoiceover(script, voiceId, jobId, expectedMaxSec
     }
 }
 
+/**
+ * Free alignment path: Gemini's audio understanding produces per-word
+ * timestamps (verified live: 17/17 words with correct text and monotonic
+ * times on a known clip). Used first when a Gemini key exists; OpenAI
+ * whisper-1 remains the fallback so alignment survives a Gemini outage.
+ */
+async function alignWithGemini(audioBuffer, script) {
+    const res = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-lite-latest:generateContent?key=${config.geminiKey}`,
+        {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                contents: [{ parts: [
+                    { text: `Transcribe this audio with per-word timestamps. Return JSON only: {"words":[{"word":"...","start":0.0,"end":0.4},...]} with start/end in seconds, covering every spoken word in order. For reference, the intended script was: ${script.slice(0, 500)}` },
+                    { inlineData: { mimeType: "audio/mp3", data: audioBuffer.toString("base64") } },
+                ] }],
+                generationConfig: { responseMimeType: "application/json", temperature: 0 },
+            }),
+            signal: AbortSignal.timeout(120000),
+        }
+    );
+    const json = await res.json();
+    if (json.error) throw new Error(`Gemini align: ${json.error.message?.slice(0, 120)}`);
+    const parsed = JSON.parse(json.candidates?.[0]?.content?.parts?.[0]?.text || "{}");
+    const words = (parsed.words || [])
+        .map((w) => ({ word: String(w.word || "").trim(), start: Number(w.start), end: Number(w.end) }))
+        .filter((w) => w.word && Number.isFinite(w.start) && Number.isFinite(w.end) && w.end > w.start);
+    // Monotonicity + coverage sanity — a hallucinated timeline fails here
+    // and falls through to whisper.
+    for (let i = 1; i < words.length; i++) {
+        if (words[i].start < words[i - 1].start - 0.05) throw new Error("Gemini align: non-monotonic timestamps");
+    }
+    const expected = script.split(/\s+/).filter(Boolean).length;
+    if (!words.length || words.length / expected < 0.8) {
+        throw new Error(`Gemini align: coverage too low (${words.length}/${expected})`);
+    }
+    return words;
+}
+
 export async function alignGeneratedSpeech(audioBuffer, script, jobId) {
+    if (config.geminiKey) {
+        try {
+            return await alignWithGemini(audioBuffer, script);
+        } catch (err) {
+            await logEvent("Agent 3", `Gemini alignment failed (${err.message}) — falling back to whisper`, { jobId, level: "warn" });
+        }
+    }
     const file = await toFile(audioBuffer, "voiceover.mp3");
     const transcription = await openai.audio.transcriptions.create({
         file,

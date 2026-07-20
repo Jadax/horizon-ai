@@ -33,7 +33,7 @@ export const config = {
   // than gTTS's robotic translate voice, uses the already-required OpenAI
   // key (~$0.01 per video of narration), and freeTTS.js still falls back to
   // gtts automatically if the call fails.
-  ttsEngine: process.env.TTS_ENGINE || 'openai',
+  ttsEngine: process.env.TTS_ENGINE || 'gemini',
   ttsApiUrl: process.env.TTS_API_URL || 'http://localhost:5000/tts',
   ttsFallback: process.env.TTS_FALLBACK || 'gtts',
   

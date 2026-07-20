@@ -17,7 +17,7 @@ nichesRouter.get("/channels", (_req, res) => {
 nichesRouter.get("/niches", async (_req, res) => {
   const { data, error } = await supabase
     .from("niche_configurations")
-    .select("niche_name, active, target_channel, trend_region, language, target_duration_min_seconds, target_duration_max_seconds")
+    .select("niche_name, active, target_channel, trend_region, language, target_duration_min_seconds, target_duration_max_seconds, editing_style_preset")
     .order("niche_name");
   if (error) return res.status(500).json({ error: error.message });
   res.json(data);
@@ -26,9 +26,16 @@ nichesRouter.get("/niches", async (_req, res) => {
 nichesRouter.patch("/niches/:name", async (req, res) => {
   const allowed = ["target_channel", "active", "trend_region", "language", "social_rss_feeds"];
   const patch = Object.fromEntries(Object.entries(req.body).filter(([k]) => allowed.includes(k)));
-  if (!Object.keys(patch).length) return res.status(400).json({ error: "No valid fields to update" });
+  // cadence_days lives inside editing_style_preset (jsonb) — no schema
+  // change; the daily loop reads it to decide whether a niche runs today.
+  const cadenceDays = Number(req.body.cadence_days);
+  if (!Object.keys(patch).length && !Number.isFinite(cadenceDays)) return res.status(400).json({ error: "No valid fields to update" });
   if (patch.social_rss_feeds !== undefined && !Array.isArray(patch.social_rss_feeds)) {
     return res.status(400).json({ error: "social_rss_feeds must be an array" });
+  }
+  if (Number.isFinite(cadenceDays) && cadenceDays >= 1 && cadenceDays <= 30) {
+    const { data: row } = await supabase.from("niche_configurations").select("editing_style_preset").eq("niche_name", req.params.name).single();
+    patch.editing_style_preset = { ...(row?.editing_style_preset || {}), cadenceDays: Math.round(cadenceDays) };
   }
 
   const { error } = await supabase
@@ -37,7 +44,7 @@ nichesRouter.patch("/niches/:name", async (req, res) => {
     .eq("niche_name", req.params.name);
   if (error) return res.status(500).json({ error: error.message });
 
-  await logEvent("Operator", `Updated ${req.params.name}: ${JSON.stringify(patch)}`);
+  await logEvent("Operator", `Updated ${req.params.name}: ${JSON.stringify(req.body)}`);
   res.json({ ok: true });
 });
 

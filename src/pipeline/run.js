@@ -287,6 +287,24 @@ export async function runFullPipeline() {
   if (error) throw new Error(`Could not load niches: ${error.message}`);
 
   for (const niche of (niches || []).slice(0, config.videosPerRun)) {
+    // Per-niche cadence (editing_style_preset.cadenceDays, dashboard-set):
+    // skip a niche whose last successful job is more recent than its cadence
+    // window, so e.g. Leo can post daily while a niche rests at every 3 days.
+    const cadenceDays = Number(niche.editing_style_preset?.cadenceDays) || 1;
+    if (cadenceDays > 1) {
+      const cutoff = new Date(Date.now() - (cadenceDays - 0.5) * 24 * 60 * 60 * 1000).toISOString();
+      const { data: recent } = await supabase
+        .from("pipeline_logs")
+        .select("id")
+        .eq("niche", niche.niche_name)
+        .neq("status", "Failed")
+        .gte("created_at", cutoff)
+        .limit(1);
+      if (recent?.length) {
+        await logEvent("Scheduler", `${niche.niche_name}: within its ${cadenceDays}-day cadence window — skipping today`);
+        continue;
+      }
+    }
     await runPipelineForNiche(niche);
   }
   await logEvent("Pipeline", "═══ Daily loop finished ═══");
