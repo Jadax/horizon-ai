@@ -11,6 +11,7 @@ import { synthesizeVoiceover, pickMusic } from "./agent3_audio.js";
 import { buildEditPayload, render } from "./agent4_shotstack.js";
 import { uploadScheduled } from "./agent5_upload.js";
 import { buildPublishPackage, createPublishTargets } from "../lib/platformAdapter.js";
+import { notifyAwaitingApproval } from "../lib/telegram.js";
 
 export async function runPipelineForNiche(niche) {
   const { data: job, error } = await supabase
@@ -238,6 +239,13 @@ export async function runPipelineForNiche(niche) {
       });
     } else if (!config.autopilot) {
       await logEvent("Pipeline", `Autopilot OFF — job ${jobId} awaiting manual approval`, { jobId });
+      await notifyAwaitingApproval({
+        jobId,
+        title: scriptOut.title,
+        score: qualityResult.score,
+        duration,
+        videoUrl: renderedUrl,
+      });
     } else {
       await logEvent("Pipeline", `YouTube was not selected — platform packages are ready`, { jobId });
     }

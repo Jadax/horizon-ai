@@ -69,8 +69,11 @@ jobsRouter.patch("/jobs/:id", async (req, res) => {
   res.json({ ok: true });
 });
 
-// Approve + upload a rendered job (used when AUTOPILOT=false)
-jobsRouter.post("/jobs/:id/approve", async (req, res) => {
+// Approve + upload a rendered job (used when AUTOPILOT=false).
+// Registered for GET as well as POST so the one-tap Approve button in
+// Telegram notifications (a plain link) works — auth still applies via the
+// global key check in index.js.
+async function approveJobHandler(req, res) {
   const { data: job } = await supabase
     .from("pipeline_logs")
     .select("*")
@@ -106,7 +109,9 @@ jobsRouter.post("/jobs/:id/approve", async (req, res) => {
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
-});
+}
+jobsRouter.post("/jobs/:id/approve", approveJobHandler);
+jobsRouter.get("/jobs/:id/approve", approveJobHandler);
 
 jobsRouter.get("/jobs/:id/publish-packages", async (req, res) => {
   const { data, error } = await supabase.from("publish_targets").select("*").eq("pipeline_log_id", req.params.id);

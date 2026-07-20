@@ -115,6 +115,15 @@ export const config = {
   affiliate: {
     trackingId: process.env.AFFILIATE_TRACKING_ID || null,
   },
+
+  // ─── Telegram approval notifications (optional, free) ──────────────
+  telegram: {
+    botToken: process.env.TELEGRAM_BOT_TOKEN || null,
+    chatId: process.env.TELEGRAM_CHAT_ID || null,
+    // Public base URL for approve/dashboard links in messages (e.g. the
+    // Railway app URL). Falls back to localhost, which only works locally.
+    publicUrl: process.env.PUBLIC_URL || null,
+  },
 };
 
 export function getChannelToken(channelKey) {
