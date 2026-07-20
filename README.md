@@ -15,13 +15,22 @@ with subtitle sync worse than 50ms are rejected before publish — see
 
 ## How it runs (single service, no satellites)
 
-Everything runs in one Node process, at near-zero marginal cost per video:
-- **LLM**: Gemini free tier first (`GEMINI_API_KEY`), OpenAI as automatic paid fallback — scripts, quality critic, cuts, format decisions.
-- **TTS**: OpenAI `gpt-4o-mini-tts` (~$0.01/video), chunked synthesis with free `gtts` fallback.
-- **Images**: Pollinations (free, no key) for illustrated explainer frames; `gpt-image-1` fallback.
-- **Render**: `ffmpeg` via the bundled `ffmpeg-static` npm package — free, in-process, no separate server.
-- **Stock footage**: Pexels + Pixabay APIs, vision-QA'd against the script by GPT-4o-mini; zero-match beats get AI cutaways (`ENABLE_AI_CUTAWAY`).
+Everything runs in one Node process at **$0 marginal cost per video** (OpenAI is optional fallback only):
+- **LLM**: Gemini free tier (`GEMINI_API_KEY`) for scripts, quality critic, cuts, format, topic curiosity ranking.
+- **TTS**: Gemini TTS free tier (12 natural voices) — chunked synthesis, `gtts` last-resort. ElevenLabs slot for cloned personal voices (Leo).
+- **Captions/alignment**: Gemini audio understanding (per-word timestamps); whisper-1 fallback.
+- **Vision**: Gemini (stock QA, Leo frame descriptions); gpt-4o-mini fallback.
+- **Images**: Pollinations (free, no key) for illustrated frames; `gpt-image-1` fallback.
+- **Render**: in-process `ffmpeg-static` — ken-burns, cross-dissolves, themed captions, hook overlays, ducked music, -14 LUFS.
 - **Music**: Supabase `music_library`, auto-stockable from Jamendo's free API (`npm run music:sync`).
+
+### Niches
+- **Explained** (illustrated explainer shorts — flagship): question-driven sources, curiosity-ranked topics, consistent cartoon frames, comic hook text.
+- **Leo** (local cat channel): drop videos into `leo_inbox/` (+ optional same-named `.txt` of what to say), run `npm run leo:sync` — narrated, captioned, hook-overlaid, natural cat audio preserved, cross-post packages created. Schedule with Task Scheduler for daily cadence.
+- Plus Viral/News/Food/Psychology/etc., all configured in Supabase and controllable from the dashboard.
+
+### Multiple YouTube channels
+Run `npm run auth:youtube` signed into each channel; put each refresh token in the `GOOGLE_CHANNELS` env var as JSON (`{"leo_channel":"1//token..."}`). The dashboard's Channel Routing panel then assigns any niche to any channel, plus per-niche upload cadence (daily/2d/3d/weekly).
 
 `TTS_ENGINE`/`RENDER_ENGINE` also support pointing at external services
 (`chatterbox`, `render-api`, etc.) if you've deployed your own, but that's
@@ -31,7 +40,7 @@ optional extra infrastructure, not required to run this.
 
 - Node.js ≥ 22
 - Python 3 + `pip` (for `gTTS`) — only needed if `TTS_ENGINE=gtts` (the default)
-- Accounts/API keys: OpenAI, Supabase, Pexels, Pixabay, Google Cloud (YouTube Data API OAuth)
+- Accounts/API keys: Gemini (free), Supabase, Pexels/Pixabay, Google Cloud (YouTube OAuth); OpenAI optional
 
 On Windows, make sure `python` (or `python3`) resolves to a **real** Python
 install, not the Microsoft Store stub — `python --version` should print a
@@ -50,16 +59,16 @@ Then edit `.env` and fill in real values — at minimum:
 
 | Variable | Required for |
 |---|---|
-| `OPENAI_API_KEY` | TTS, Whisper alignment, vision QA, LLM fallback |
-| `GEMINI_API_KEY` | free-tier primary LLM (aistudio.google.com) |
+| `GEMINI_API_KEY` | everything AI (free tier) — scripts, TTS, alignment, vision |
+| `OPENAI_API_KEY` | optional fallback only |
 | `SUPABASE_URL` / `SUPABASE_SERVICE_ROLE_KEY` | job storage, generated asset storage, dashboard state |
 | `PEXELS_API_KEY`, `PIXABAY_API_KEY` | stock footage sourcing |
 | `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` / `GOOGLE_REFRESH_TOKEN` | YouTube publishing |
 | `DASHBOARD_PASSWORD` | protects `/api/*` routes and the dashboard |
 
-Leave `TTS_ENGINE=gtts` and `RENDER_ENGINE=ffmpeg` unless you've deployed the
-optional external services — those are the only values that work with zero
-extra infrastructure.
+Defaults (`TTS_ENGINE=gemini`, `RENDER_ENGINE=ffmpeg`, `IMAGE_ENGINE=pollinations`)
+run with zero extra infrastructure and zero marginal cost — change them only if
+you've deployed the optional external services documented in `.env.example`.
 
 Run the Supabase schema once via the Supabase SQL editor: `supabase/COMPLETE_SETUP.sql`
 (this is the single source of truth for the schema — don't add separate migration files).

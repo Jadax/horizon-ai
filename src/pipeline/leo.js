@@ -68,7 +68,7 @@ async function describeFrame(file, duration) {
   }
 }
 
-async function writePetCopy({ note, sceneDescription, filename }) {
+async function writePetCopy({ note, sceneDescription, filename, persona }) {
   const res = await llmJson({
     tier: "fast",
     temperature: 0.8,
@@ -76,7 +76,7 @@ async function writePetCopy({ note, sceneDescription, filename }) {
     messages: [
       {
         role: "system",
-        content: `You write copy for a wholesome cat channel starring Leo. Given what's happening in a clip, return JSON:
+        content: `You write copy for a wholesome cat channel. PERSONA (keep every video consistent with this character): ${persona}. Given what's happening in a clip, return JSON:
 {"narration":"1-2 short warm sentences a doting cat parent would actually say out loud about THIS moment (spoken by a real person, so natural rhythm, no emoji, no hashtags, max 30 words)",
 "hook":"1-4 word ALL-CAPS overlay for the first seconds (POV-style, curious, or affectionate - e.g. CAUGHT IN 4K, HIS ROYAL HIGHNESS, WAIT FOR IT)",
 "title":"cozy clickable title under 60 chars, exactly one cat or paw emoji",
@@ -115,6 +115,7 @@ async function leoQualityCheck(renderUrl, expectedDuration) {
 }
 
 async function processOneVideo(file, nicheRow) {
+  const persona = nicheRow?.editing_style_preset?.persona || "Leo: a dramatic, slightly royal little hunter who takes himself very seriously and is adored for it";
   const base = path.basename(file);
   const { duration: srcDuration, hasAudio } = await probeVideo(file);
   if (!srcDuration) throw new Error("Could not read video duration");
@@ -133,7 +134,7 @@ async function processOneVideo(file, nicheRow) {
     const notePath = file.replace(VIDEO_EXT, ".txt");
     const note = await readFile(notePath, "utf8").then((t) => t.trim()).catch(() => null);
     const scene = note ? null : await describeFrame(file, srcDuration);
-    const copy = await writePetCopy({ note, sceneDescription: scene, filename: base });
+    const copy = await writePetCopy({ note, sceneDescription: scene, filename: base, persona });
     await logEvent("Leo", `"${base}" → narration: "${copy.narration.slice(0, 60)}..." | hook: ${copy.hook}`, { jobId });
 
     const voiceId = config.leoVoiceId || "Leda"; // warm female Gemini voice
@@ -155,6 +156,7 @@ async function processOneVideo(file, nicheRow) {
         return i % 3 === 0 ? { text: chunk.map((c) => c.word).join(" "), start: chunk[0].start, end: chunk[chunk.length - 1].end } : null;
       }).filter(Boolean),
       overlays: [{ text: copy.hook, start: 0.2, end: 2.8 }],
+      captionStyle: nicheRow?.editing_style_preset?.caption || { color: "cream" },
     };
     const renderResult = await renderVideo(payload, jobId);
     const qc = await leoQualityCheck(renderResult.url, outDuration);

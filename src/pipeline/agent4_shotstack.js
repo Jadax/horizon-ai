@@ -83,6 +83,7 @@ export function buildEditPayload({ cuts, voiceoverUrl, words, duration, musicTra
     musicUrl: musicTrack?.track_url || null,
     duration: total,
     captions: captionClips(words, preset),
+    captionStyle: preset.caption || {},
     // Bold comic-style text burned over each clip's first seconds (the
     // attachment-style "ONLY 10 YEARS LEFT!" look) — rendered by libass,
     // never drawn by the image model, so it can't be misspelled. First

@@ -27,7 +27,21 @@ function toAssTimestamp(seconds) {
  * caption text since spoken narration/word-clip text never legitimately
  * needs them and leaving them in would either silently vanish or, worse,
  * accidentally form a real override tag. */
-function buildAssSubtitles(captions, overlays = []) {
+// Per-niche caption color themes (ASS colors are &HAABBGGRR). "Not just
+// white print": each niche can pick its identity color via
+// editing_style_preset.caption.color, flowing here as payload.captionStyle.
+const CAPTION_COLORS = {
+  white: '&H00FFFFFF',
+  cream: '&H00D6F4FF',   // warm cream — Leo's cozy look
+  yellow: '&H0000FFFF',
+  mint: '&H00B4F0C8',
+  sky: '&H00F8CD8C',
+  pink: '&H00C8B4FF',
+};
+
+function buildAssSubtitles(captions, overlays = [], style = {}) {
+  const primary = CAPTION_COLORS[style.color] || CAPTION_COLORS.white;
+  const fontsize = Number(style.fontsize) || 80;
   const header = [
     '[Script Info]',
     'ScriptType: v4.00+',
@@ -35,12 +49,12 @@ function buildAssSubtitles(captions, overlays = []) {
     'PlayResY: 1920',
     '',
     '[V4+ Styles]',
-    // Default: short-form standard look — big bold white, heavy black
-    // outline, bottom-center. Hook: comic-style yellow headline with a
-    // thicker outline, top-center (ASS colors are &HAABBGGRR, so yellow is
-    // 00FFFF), used for per-beat overlay text like "ONLY 10 YEARS LEFT!".
+    // Default: short-form standard look — big bold themed color, heavy
+    // black outline, bottom-center. Hook: comic-style yellow headline with
+    // a thicker outline, top-center, used for per-beat overlay text like
+    // "ONLY 10 YEARS LEFT!".
     'Format: Name, Fontname, Fontsize, PrimaryColour, OutlineColour, BackColour, Bold, BorderStyle, Outline, Shadow, Alignment, MarginV, Spacing',
-    'Style: Default,Arial,80,&H00FFFFFF,&H00000000,&H80000000,1,1,5,2,2,220,1',
+    `Style: Default,Arial,${fontsize},${primary},&H00000000,&H80000000,1,1,5,2,2,220,1`,
     'Style: Hook,Arial,104,&H0000FFFF,&H00000000,&H80000000,1,1,7,3,8,240,1',
     '',
     '[Events]',
@@ -284,7 +298,7 @@ async function renderWithFFmpeg(payload, jobId) {
     // rendered frame with apostrophes/colons/commas in the text.
     if ((payload.captions && payload.captions.length) || (payload.overlays && payload.overlays.length)) {
       assFile = path.join(tmpDir, `horizon-captions-${randomUUID()}.ass`);
-      await writeFile(assFile, buildAssSubtitles(payload.captions || [], payload.overlays || []));
+      await writeFile(assFile, buildAssSubtitles(payload.captions || [], payload.overlays || [], payload.captionStyle || {}));
       const assPath = assFile.replace(/\\/g, '/').replace(/:/g, '\\:').replace(/'/g, '’');
       filterComplex += `;[vcat]ass='${assPath}'[vout]`;
     } else {

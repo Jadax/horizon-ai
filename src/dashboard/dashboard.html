@@ -510,7 +510,7 @@ function renderOverview(){
 
   document.getElementById("kpiRow").innerHTML = [
     ["Jobs run", c.jobCount, "emerald", `${Object.keys(c.byNiche).length} niches active this run`],
-    ["Est. total cost", "$"+c.estTotalCost.toFixed(2), "sky", "OpenAI (see cost note below — rates may be stale)"],
+    ["Est. total cost", "$"+c.estTotalCost.toFixed(2), "sky", "Legacy OpenAI-era estimate — current stack (Gemini/Pollinations) runs ~free"],
     ["Videos published", lastPublished.length, "indigo", "Live on YouTube"],
     ["Active niches", activeNiches===null ? "—" : activeNiches+" / "+lastNiches.length, "amber", "Configured in Supabase"],
   ].map(([label,val,tone,sub])=>`
@@ -846,7 +846,12 @@ async function loadNiches(){
             `<option value="${d}" ${(Number(n.editing_style_preset?.cadenceDays)||1)===d?"selected":""}>${label}</option>`).join("")}
         </select>
       </span>
-    </div>`).join("");
+    </div>`).join("") + `
+    <div style="font-family:var(--mono);font-size:9.5px;color:var(--muted);line-height:1.6;padding:8px 4px 0">
+      + Link another YouTube channel: run <b>npm run auth:youtube</b> while signed into that channel,
+      then add its refresh token to the <b>GOOGLE_CHANNELS</b> env var as JSON
+      (e.g. {"leo_channel":"1//token..."}) and restart — it appears in these dropdowns automatically.
+    </div>`;
 }
 async function setChannel(niche, channel){
   await fetch("/api/niches/"+encodeURIComponent(niche),{method:"PATCH",headers:H,
