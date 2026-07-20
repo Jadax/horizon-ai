@@ -1,6 +1,6 @@
 {
   "name": "horizon-ai-full",
-  "version": "3.0.28",
+  "version": "3.0.29",
   "description": "Complete viral video factory with integrated TTS & render",
   "author": "Tushant Sharma",
   "license": "UNLICENSED",
@@ -11,7 +11,8 @@
     "dev": "node --watch src/index.js",
     "pipeline:once": "node src/pipeline/run.js",
     "auth:youtube": "node src/lib/youtubeAuth.js",
-    "music:sync": "node src/lib/musicSync.js"
+    "music:sync": "node src/lib/musicSync.js",
+    "leo:sync": "node src/pipeline/leo.js"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.45.0",

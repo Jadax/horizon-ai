@@ -36,6 +36,8 @@ export async function synthesizeSpeech(text, voiceId = null, options = {}) {
   const engine = options.engine || PRIMARY_ENGINE;
   try {
     switch (engine) {
+      case 'elevenlabs':
+        return await synthesizeElevenLabs(text, voiceId, options);
       case 'openai':
         return await synthesizeOpenAITTS(text, voiceId, options);
       case 'gtts':
@@ -65,6 +67,28 @@ const OPENAI_VOICES = new Set(['alloy', 'ash', 'ballad', 'coral', 'echo', 'fable
 const OPENAI_TTS_INSTRUCTIONS =
   'Narrate like a sharp, casual friend telling a genuinely interesting story: conversational pace with natural variation, ' +
   'clear emphasis on the surprising words, brief pauses at sentence breaks, energetic but never salesy or breathless.';
+
+/**
+ * ElevenLabs TTS — the slot for a CLONED personal voice (e.g. a family
+ * member narrating pet videos). Requires ELEVENLABS_API_KEY (paid, ~$5/mo
+ * Starter) and a voice id created via their Instant Voice Clone from a
+ * 1-3 minute consented recording. Errors fall through synthesizeSpeech's
+ * catch to gTTS like every other engine.
+ */
+async function synthesizeElevenLabs(text, voiceId, options) {
+  if (!config.elevenlabsKey) throw new Error('ELEVENLABS_API_KEY is not set');
+  if (!voiceId) throw new Error('ElevenLabs needs a voice id (the cloned voice)');
+  const res = await axios.post(`https://api.elevenlabs.io/v1/text-to-speech/${voiceId}`, {
+    text,
+    model_id: 'eleven_multilingual_v2',
+    voice_settings: { stability: 0.45, similarity_boost: 0.8 },
+  }, {
+    headers: { 'xi-api-key': config.elevenlabsKey, 'Content-Type': 'application/json' },
+    responseType: 'arraybuffer',
+    timeout: 60000,
+  });
+  return Buffer.from(res.data);
+}
 
 async function synthesizeOpenAITTS(text, voiceId, options) {
   const voice = OPENAI_VOICES.has(String(voiceId || '').toLowerCase()) ? String(voiceId).toLowerCase() : 'onyx';

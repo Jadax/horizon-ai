@@ -58,7 +58,7 @@ async function concatAudioBuffers(buffers) {
     }
 }
 
-export async function synthesizeVoiceover(script, voiceId, jobId, expectedMaxSeconds = 58) {
+export async function synthesizeVoiceover(script, voiceId, jobId, expectedMaxSeconds = 58, options = {}) {
     await logEvent("Agent 3", `Synthesizing voiceover using free TTS (${config.ttsEngine || 'chatterbox'})...`, { jobId });
 
     try {
@@ -69,14 +69,16 @@ export async function synthesizeVoiceover(script, voiceId, jobId, expectedMaxSec
         const chunks = splitScriptForTTS(script);
         let audioBuffer, words;
         for (let attempt = 1; ; attempt++) {
-            const engine = attempt >= 3 ? "gtts" : undefined;
-            if (engine) {
+            if (attempt >= 3) {
                 await logEvent("Agent 3", `Falling back to gtts for this run (primary engine kept returning incomplete audio)`, { jobId, level: "warn" });
-                audioBuffer = await synthesizeSpeech(script, voiceId, { speed: 1.0, lang: 'en', engine });
+                audioBuffer = await synthesizeSpeech(script, voiceId, { speed: 1.0, lang: 'en', engine: 'gtts' });
             } else {
                 const parts = [];
                 for (const chunk of chunks) {
-                    parts.push(await synthesizeSpeech(chunk, voiceId, { speed: 1.0, lang: 'en' }));
+                    // options.engine lets a caller pin a specific engine (e.g.
+                    // Leo pinning the cloned ElevenLabs voice) without
+                    // changing the global TTS_ENGINE default.
+                    parts.push(await synthesizeSpeech(chunk, voiceId, { speed: 1.0, lang: 'en', engine: options.engine }));
                 }
                 audioBuffer = await concatAudioBuffers(parts);
             }

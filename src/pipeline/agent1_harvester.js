@@ -343,7 +343,21 @@ export async function resolveLoreContext(niche, title, jobId) {
     for (const apiRoot of wikiApis) {
         const wikiResults = await searchWiki(apiRoot, title.split(" ").slice(0, 6).join(" ")).catch(() => []);
         if (wikiResults.length) {
-            await logEvent("Agent 1", `Lore grounding found (${new URL(apiRoot).hostname}): "${wikiResults[0].title}"`, { jobId });
+            // Research stage: pull the top article's actual summary extract —
+            // search snippets alone are fragments, and the scriptwriter needs
+            // real facts (names, dates, mechanisms) to ground its claims and
+            // survive the critic's fabrication check.
+            try {
+                const host = new URL(apiRoot).origin;
+                const res = await fetch(`${host}/api/rest_v1/page/summary/${encodeURIComponent(wikiResults[0].title.replace(/ /g, "_"))}`, {
+                    headers: { "User-Agent": "HorizonAI/1.0" }, signal: AbortSignal.timeout(10000),
+                });
+                if (res.ok) {
+                    const summary = await res.json();
+                    if (summary.extract) wikiResults[0].extract = String(summary.extract).slice(0, 900);
+                }
+            } catch { /* snippets still work without the extract */ }
+            await logEvent("Agent 1", `Lore grounding found (${new URL(apiRoot).hostname}): "${wikiResults[0].title}"${wikiResults[0].extract ? " + article extract" : ""}`, { jobId });
             return wikiResults;
         }
     }

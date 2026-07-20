@@ -116,6 +116,13 @@ export const config = {
     trackingId: process.env.AFFILIATE_TRACKING_ID || null,
   },
 
+  // ─── Leo (local cat-video niche) ────────────────────────────────────
+  leoInboxDir: process.env.LEO_INBOX_DIR || "leo_inbox",
+  // ElevenLabs cloned voice for Leo narrations (the personal-voice slot).
+  // Both unset → OpenAI "coral". Requires the voice owner's consent.
+  leoVoiceId: process.env.LEO_VOICE_ID || null,
+  elevenlabsKey: process.env.ELEVENLABS_API_KEY || null,
+
   // ─── Telegram approval notifications (optional, free) ──────────────
   telegram: {
     botToken: process.env.TELEGRAM_BOT_TOKEN || null,
