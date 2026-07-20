@@ -9,12 +9,26 @@ export async function synthesizeVoiceover(script, voiceId, jobId, expectedMaxSec
     await logEvent("Agent 3", `Synthesizing voiceover using free TTS (${config.ttsEngine || 'chatterbox'})...`, { jobId });
 
     try {
-        const audioBuffer = await synthesizeSpeech(script, voiceId, {
-            speed: 1.0,
-            lang: 'en',
-        });
-
-        const words = await alignGeneratedSpeech(audioBuffer, script, jobId);
+        // gpt-4o-mini-tts is a generative audio model and occasionally stops
+        // early on longer inputs, producing audio missing a chunk of the
+        // script (observed in production: 39/78 words heard, while the same
+        // script synthesized fine on the next call). The alignment step's
+        // transcript check detects exactly this, so treat "audio incomplete"
+        // as a re-synthesis trigger rather than a run-killing failure.
+        let audioBuffer, words;
+        for (let attempt = 1; ; attempt++) {
+            audioBuffer = await synthesizeSpeech(script, voiceId, {
+                speed: 1.0,
+                lang: 'en',
+            });
+            try {
+                words = await alignGeneratedSpeech(audioBuffer, script, jobId);
+                break;
+            } catch (err) {
+                if (!/audio incomplete/i.test(err.message) || attempt >= 3) throw err;
+                await logEvent("Agent 3", `TTS returned incomplete audio (attempt ${attempt}/3) — re-synthesizing`, { jobId, level: "warn" });
+            }
+        }
         if (!words.length) throw new Error("TTS alignment produced no word timestamps");
         const duration = words[words.length - 1].end;
 
