@@ -198,6 +198,9 @@ export async function writeScript(niche, topic, loreContext, jobId) {
         title: out.title,
         niche: niche.niche_name,
         platforms: niche.run_platforms || config.publishPlatforms,
+        // Dashboard-set per-niche quality gate (editing_style_preset
+        // .qualityThreshold) overrides the global default.
+        threshold: niche.editing_style_preset?.qualityThreshold,
       });
       usedTokens += review.tokens || 0;
       if (review.passed) break;

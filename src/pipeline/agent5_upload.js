@@ -19,7 +19,15 @@ const REGIONS = [
 
 let regionCursor = 0;
 
-export function nextPublishSlot() {
+export function nextPublishSlot(fixedUtcHour = null) {
+  // Dashboard-set per-niche upload hour (editing_style_preset.uploadHourUtc)
+  // pins the publish slot instead of rotating through regional peaks.
+  if (Number.isFinite(Number(fixedUtcHour)) && fixedUtcHour !== null && fixedUtcHour !== "") {
+    const now = new Date();
+    const slot = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), Math.floor(Number(fixedUtcHour)) % 24, Math.round((Number(fixedUtcHour) % 1) * 60)));
+    if (slot <= now) slot.setUTCDate(slot.getUTCDate() + 1);
+    return { region: "Custom hour", publishAt: slot };
+  }
   const region = REGIONS[regionCursor % REGIONS.length];
   regionCursor++;
 
@@ -68,7 +76,10 @@ async function addAffiliateLinks(description, title, niche, jobId) {
 }
 
 export async function uploadScheduled({ videoUrl, title, description, tags, jobId, targetChannel, niche, publishPackage }) {
-  const { region, publishAt } = nextPublishSlot();
+  const { data: nicheRow } = niche
+    ? await supabase.from("niche_configurations").select("editing_style_preset").eq("niche_name", niche).single()
+    : { data: null };
+  const { region, publishAt } = nextPublishSlot(nicheRow?.editing_style_preset?.uploadHourUtc ?? null);
   const channelKey = targetChannel || "primary";
   
   // Add affiliate links if tracking ID is set

@@ -23,19 +23,39 @@ nichesRouter.get("/niches", async (_req, res) => {
   res.json(data);
 });
 
+// These dashboard-set preset keys DRIVE the pipeline (each is read by the
+// stage named): cadenceDays → daily-loop skip window; qualityThreshold →
+// agent2/run.js content gate; uploadHourUtc → agent5 publish slot;
+// musicEnergy → music pick; caption.color → renderer caption theme;
+// persona → Leo copy generation.
+const PRESET_KEYS = {
+  cadence_days: { key: "cadenceDays", clean: (v) => (Number(v) >= 1 && Number(v) <= 30 ? Math.round(Number(v)) : undefined) },
+  quality_threshold: { key: "qualityThreshold", clean: (v) => (v === null || v === "" ? null : Number(v) >= 50 && Number(v) <= 95 ? Math.round(Number(v)) : undefined) },
+  upload_hour_utc: { key: "uploadHourUtc", clean: (v) => (v === null || v === "" ? null : Number(v) >= 0 && Number(v) <= 23.75 ? Number(v) : undefined) },
+  music_energy: { key: "musicEnergy", clean: (v) => (v === null || v === "" ? null : ["High", "Chill", "Wonder", "Suspense"].includes(v) ? v : undefined) },
+  caption_color: { key: "caption", clean: (v, preset) => (["white", "cream", "yellow", "mint", "sky", "pink"].includes(v) ? { ...(preset.caption || {}), color: v } : undefined) },
+  persona: { key: "persona", clean: (v) => (typeof v === "string" ? v.slice(0, 300) : undefined) },
+};
+
 nichesRouter.patch("/niches/:name", async (req, res) => {
   const allowed = ["target_channel", "active", "trend_region", "language", "social_rss_feeds"];
   const patch = Object.fromEntries(Object.entries(req.body).filter(([k]) => allowed.includes(k)));
-  // cadence_days lives inside editing_style_preset (jsonb) — no schema
-  // change; the daily loop reads it to decide whether a niche runs today.
-  const cadenceDays = Number(req.body.cadence_days);
-  if (!Object.keys(patch).length && !Number.isFinite(cadenceDays)) return res.status(400).json({ error: "No valid fields to update" });
   if (patch.social_rss_feeds !== undefined && !Array.isArray(patch.social_rss_feeds)) {
     return res.status(400).json({ error: "social_rss_feeds must be an array" });
   }
-  if (Number.isFinite(cadenceDays) && cadenceDays >= 1 && cadenceDays <= 30) {
+
+  const presetPatches = Object.entries(PRESET_KEYS).filter(([bodyKey]) => bodyKey in req.body);
+  if (!Object.keys(patch).length && !presetPatches.length) return res.status(400).json({ error: "No valid fields to update" });
+  if (presetPatches.length) {
     const { data: row } = await supabase.from("niche_configurations").select("editing_style_preset").eq("niche_name", req.params.name).single();
-    patch.editing_style_preset = { ...(row?.editing_style_preset || {}), cadenceDays: Math.round(cadenceDays) };
+    const preset = { ...(row?.editing_style_preset || {}) };
+    for (const [bodyKey, spec] of presetPatches) {
+      const cleaned = spec.clean(req.body[bodyKey], preset);
+      if (cleaned === undefined) return res.status(400).json({ error: `Invalid value for ${bodyKey}` });
+      if (cleaned === null) delete preset[spec.key];
+      else preset[spec.key] = cleaned;
+    }
+    patch.editing_style_preset = preset;
   }
 
   const { error } = await supabase
@@ -46,6 +66,36 @@ nichesRouter.patch("/niches/:name", async (req, res) => {
 
   await logEvent("Operator", `Updated ${req.params.name}: ${JSON.stringify(req.body)}`);
   res.json({ ok: true });
+});
+
+// Per-niche production stats for the dashboard's niche cards: run counts,
+// success rate, published count, avg quality score, avg duration, last run.
+nichesRouter.get("/niches/stats", async (_req, res) => {
+  const since = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString();
+  const { data, error } = await supabase
+    .from("pipeline_logs")
+    .select("niche, status, content_quality_score, duration_seconds, created_at")
+    .gte("created_at", since)
+    .limit(2000);
+  if (error) return res.status(500).json({ error: error.message });
+  const stats = {};
+  for (const row of data || []) {
+    const s = (stats[row.niche] ||= { runs: 0, failed: 0, published: 0, scoreSum: 0, scoreN: 0, durSum: 0, durN: 0, lastRun: null });
+    s.runs++;
+    if (row.status === "Failed") s.failed++;
+    if (["Scheduled", "Published"].includes(row.status)) s.published++;
+    if (Number.isFinite(Number(row.content_quality_score))) { s.scoreSum += Number(row.content_quality_score); s.scoreN++; }
+    if (Number.isFinite(Number(row.duration_seconds))) { s.durSum += Number(row.duration_seconds); s.durN++; }
+    if (!s.lastRun || row.created_at > s.lastRun) s.lastRun = row.created_at;
+  }
+  res.json(Object.fromEntries(Object.entries(stats).map(([niche, s]) => [niche, {
+    runs: s.runs,
+    successRate: s.runs ? Math.round(100 * (s.runs - s.failed) / s.runs) : null,
+    published: s.published,
+    avgScore: s.scoreN ? Math.round(s.scoreSum / s.scoreN) : null,
+    avgDuration: s.durN ? Math.round(s.durSum / s.durN) : null,
+    lastRun: s.lastRun,
+  }])));
 });
 
 // Read-only view of the full feed_library reference database (see

@@ -98,7 +98,8 @@ export async function runPipelineForNiche(niche) {
     }
 
     const qualityResult = scriptOut.quality;
-    if (!qualityResult?.passed || qualityResult.score < config.contentQualityThreshold) {
+    const nicheThreshold = Number(niche.editing_style_preset?.qualityThreshold) || config.contentQualityThreshold;
+    if (!qualityResult?.passed || qualityResult.score < nicheThreshold) {
       throw new Error(`Mandatory quality gate rejected script (${qualityResult?.score || 0}/100)`);
     }
     await updateJob(jobId, { 

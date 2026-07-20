@@ -122,7 +122,29 @@ h1 span{color:var(--emerald)}
 .pub-card .pub-meta{font-family:var(--mono);font-size:9px;color:var(--muted);margin-top:4px}
 .no-published{font-family:var(--mono);font-size:11px;color:var(--muted);padding:20px 0;text-align:center}
 
-/* ── Channel Routing panel ── */
+/* ── Niche Control panel ── */
+.tier-label{font-family:var(--mono);font-size:9px;letter-spacing:.18em;color:var(--muted);
+  text-transform:uppercase;margin:10px 2px 6px}
+.niche-card{border:1px solid var(--border);border-radius:var(--radius);background:var(--panel);
+  padding:13px 15px;margin-bottom:8px;box-shadow:var(--shadow-card);cursor:pointer;transition:.16s}
+.niche-card:hover{border-color:var(--emerald-dim);transform:translateY(-1px)}
+.niche-card.hero{background:linear-gradient(135deg,rgba(16,185,129,.09),rgba(129,140,248,.06)),var(--panel);
+  border-color:rgba(16,185,129,.35)}
+.niche-card .nc-head{display:flex;justify-content:space-between;align-items:center}
+.niche-card .nc-name{font-weight:700;font-size:14px;display:flex;align-items:center;gap:8px}
+.niche-card .nc-dot{width:8px;height:8px;border-radius:50%;background:var(--muted)}
+.niche-card .nc-dot.on{background:var(--emerald);box-shadow:0 0 8px var(--emerald)}
+.niche-card .nc-meta{font-family:var(--mono);font-size:9.5px;color:var(--muted)}
+.nc-stats{display:flex;gap:14px;flex-wrap:wrap;margin-top:9px}
+.nc-stat{font-family:var(--mono);font-size:10px;color:var(--text-dim)}
+.nc-stat b{color:var(--text);font-size:12.5px;display:block}
+.nset-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:6px}
+.nset{display:flex;flex-direction:column;gap:4px}
+.nset label{font-family:var(--mono);font-size:9.5px;color:var(--muted);letter-spacing:.08em;text-transform:uppercase}
+.nset select,.nset input,.nset textarea{background:var(--panel-2);border:1px solid var(--border);color:var(--text);
+  border-radius:8px;padding:8px 10px;font-family:var(--mono);font-size:11.5px}
+.nset select:focus,.nset input:focus,.nset textarea:focus{outline:none;border-color:var(--emerald-dim)}
+/* legacy row styles kept for other panels */
 .channel-panel{margin-bottom:22px}
 .channel-row{display:flex;align-items:center;justify-content:space-between;gap:8px;
   font-family:var(--mono);font-size:11px;padding:8px 12px;border:1px solid var(--border);
@@ -423,7 +445,7 @@ button:disabled{opacity:.4;cursor:not-allowed;background:var(--panel-2);box-shad
   <section>
     <div class="sec-title">Console diagnostics <button onclick="loadDiag()" style="padding:3px 10px">↻</button></div>
     <div class="diag" id="diag"></div>
-    <div class="sec-title">Channel routing <button onclick="loadNiches()" style="padding:3px 10px">↻</button></div>
+    <div class="sec-title">Niche control <button onclick="loadNiches()" style="padding:3px 10px">↻</button></div>
     <div id="channelPanel" class="channel-panel"></div>
     <div class="sec-title">Cost tracker <span id="costTotal" style="color:var(--emerald)"></span></div>
     <div id="costPanel" class="cost-panel"></div>
@@ -818,52 +840,103 @@ async function scanTrending(niche){
   }
 }
 
-// ── Channel Routing ──
+// ── Niche Control ──
 let knownChannels = ["primary"];
+let nicheStats = {};
+const TIER1 = ["Leo", "Explained"];
 async function loadNiches(){
-  const [chRes, nRes] = await Promise.all([
+  const [chRes, nRes, stRes] = await Promise.all([
     fetch("/api/channels",{headers:H}),
     fetch("/api/niches",{headers:H}),
+    fetch("/api/niches/stats",{headers:H}),
   ]);
   if(chRes.ok){ knownChannels = (await chRes.json()).channels; }
+  if(stRes.ok){ nicheStats = await stRes.json(); }
   if(!nRes.ok) return;
   const niches = await nRes.json();
   lastNiches = niches;
   renderOverview();
-  document.getElementById("channelPanel").innerHTML = niches.map(n => `
-    <div class="channel-row">
-      <span class="cn">${n.niche_name}</span>
-      <span style="display:flex;gap:6px">
-        <select onchange="setLanguage('${n.niche_name}', this.value)" title="Language">
-          <option value="en" ${n.language==="en"?"selected":""}>EN</option>
-          <option value="hi" ${n.language==="hi"?"selected":""}>HI</option>
-        </select>
-        <select onchange="setChannel('${n.niche_name}', this.value)" title="Channel">
-          ${knownChannels.map(c=>`<option value="${c}" ${n.target_channel===c?"selected":""}>${c}</option>`).join("")}
-        </select>
-        <select onchange="setCadence('${n.niche_name}', this.value)" title="Upload cadence">
-          ${[[1,"Daily"],[2,"Every 2d"],[3,"Every 3d"],[7,"Weekly"]].map(([d,label])=>
-            `<option value="${d}" ${(Number(n.editing_style_preset?.cadenceDays)||1)===d?"selected":""}>${label}</option>`).join("")}
-        </select>
-      </span>
-    </div>`).join("") + `
+  const card = (n, hero) => {
+    const st = nicheStats[n.niche_name] || {};
+    const p = n.editing_style_preset || {};
+    const last = st.lastRun ? new Date(st.lastRun).toLocaleDateString(undefined,{month:"short",day:"numeric"}) : "never";
+    const cad = {1:"daily",2:"every 2d",3:"every 3d",7:"weekly"}[Number(p.cadenceDays)||1] || (p.cadenceDays+"d");
+    return `<div class="niche-card ${hero?"hero":""}" onclick="openNicheSettings('${n.niche_name}')">
+      <div class="nc-head">
+        <span class="nc-name"><span class="nc-dot ${n.active?"on":""}"></span>${n.niche_name}</span>
+        <span class="nc-meta">${n.target_channel||"primary"} · ${cad} · gate ${p.qualityThreshold||"std"} · ⚙</span>
+      </div>
+      <div class="nc-stats">
+        <span class="nc-stat"><b>${st.runs??0}</b>runs 90d</span>
+        <span class="nc-stat"><b>${st.successRate??"—"}${st.successRate!=null?"%":""}</b>success</span>
+        <span class="nc-stat"><b>${st.published??0}</b>published</span>
+        <span class="nc-stat"><b>${st.avgScore??"—"}</b>avg score</span>
+        <span class="nc-stat"><b>${st.avgDuration?st.avgDuration+"s":"—"}</b>avg length</span>
+        <span class="nc-stat"><b>${last}</b>last run</span>
+      </div>
+    </div>`;
+  };
+  const t1 = niches.filter(n=>TIER1.includes(n.niche_name));
+  const t2 = niches.filter(n=>!TIER1.includes(n.niche_name));
+  document.getElementById("channelPanel").innerHTML =
+    `<div class="tier-label">Tier 1 — flagship</div>` + t1.map(n=>card(n,true)).join("") +
+    `<div class="tier-label">Tier 2 — portfolio</div>` + t2.map(n=>card(n,false)).join("") + `
     <div style="font-family:var(--mono);font-size:9.5px;color:var(--muted);line-height:1.6;padding:8px 4px 0">
-      + Link another YouTube channel: run <b>npm run auth:youtube</b> while signed into that channel,
-      then add its refresh token to the <b>GOOGLE_CHANNELS</b> env var as JSON
-      (e.g. {"leo_channel":"1//token..."}) and restart — it appears in these dropdowns automatically.
+      + Link another YouTube channel: run <b>npm run auth:youtube</b> signed into it, add the refresh
+      token to <b>GOOGLE_CHANNELS</b> env as JSON and restart — it appears in the channel dropdowns.
     </div>`;
 }
-async function setChannel(niche, channel){
-  await fetch("/api/niches/"+encodeURIComponent(niche),{method:"PATCH",headers:H,
-    body:JSON.stringify({target_channel:channel})});
+
+function openNicheSettings(name){
+  const n = lastNiches.find(x=>x.niche_name===name);
+  if(!n) return;
+  const p = n.editing_style_preset || {};
+  const opt = (v,label,cur)=>`<option value="${v}" ${String(cur)===String(v)?"selected":""}>${label}</option>`;
+  document.getElementById("nsetTitle").textContent = name + " settings";
+  document.getElementById("nsetBody").innerHTML = `
+    <div class="nset-grid">
+      <div class="nset"><label>Active</label>
+        <select id="ns_active">${opt(true,"On — runs on schedule",n.active)}${opt(false,"Off — paused",n.active)}</select></div>
+      <div class="nset"><label>YouTube channel</label>
+        <select id="ns_channel">${knownChannels.map(c=>opt(c,c,n.target_channel||"primary")).join("")}</select></div>
+      <div class="nset"><label>Upload cadence</label>
+        <select id="ns_cadence">${[[1,"Daily"],[2,"Every 2 days"],[3,"Every 3 days"],[7,"Weekly"]].map(([d,l])=>opt(d,l,Number(p.cadenceDays)||1)).join("")}</select></div>
+      <div class="nset"><label>Upload time (UTC)</label>
+        <select id="ns_hour"><option value="">Auto (regional peaks)</option>${Array.from({length:24},(_,h)=>opt(h,String(h).padStart(2,"0")+":00 UTC",p.uploadHourUtc??"")).join("")}</select></div>
+      <div class="nset"><label>Quality gate (/100)</label>
+        <select id="ns_quality"><option value="">Default (78)</option>${[70,74,78,82,86,90].map(q=>opt(q,q+(q<78?" — lenient":q>78?" — strict":" — standard"),p.qualityThreshold??"")).join("")}</select></div>
+      <div class="nset"><label>Music register</label>
+        <select id="ns_music"><option value="">Per-topic (auto)</option>${["Wonder","Chill","High","Suspense"].map(m=>opt(m,m,p.musicEnergy??"")).join("")}</select></div>
+      <div class="nset"><label>Caption color</label>
+        <select id="ns_capcolor">${["white","cream","yellow","mint","sky","pink"].map(c=>opt(c,c,(p.caption&&p.caption.color)||"white")).join("")}</select></div>
+      <div class="nset"><label>Language</label>
+        <select id="ns_lang">${opt("en","English",n.language)}${opt("hi","Hindi",n.language)}</select></div>
+    </div>
+    ${name==="Leo"?`<div class="nset" style="margin-top:12px"><label>Leo's persona (voice of every narration)</label>
+      <textarea id="ns_persona" rows="2" style="resize:vertical">${p.persona||""}</textarea></div>`:""}
+    <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:16px">
+      <button class="niche-btn" onclick="closeNicheSettings()">Cancel</button>
+      <button class="niche-btn" style="border-color:var(--emerald-dim);color:var(--emerald)" onclick="saveNicheSettings('${name}')">Save — applies to next run</button>
+    </div>`;
+  document.getElementById("nsetModal").classList.add("open");
 }
-async function setCadence(niche, days){
-  await fetch("/api/niches/"+encodeURIComponent(niche),{method:"PATCH",headers:H,
-    body:JSON.stringify({cadence_days:Number(days)})});
-}
-async function setLanguage(niche, language){
-  await fetch("/api/niches/"+encodeURIComponent(niche),{method:"PATCH",headers:H,
-    body:JSON.stringify({language})});
+function closeNicheSettings(){ document.getElementById("nsetModal").classList.remove("open"); }
+async function saveNicheSettings(name){
+  const g = id => document.getElementById(id);
+  const body = {
+    active: g("ns_active").value === "true",
+    target_channel: g("ns_channel").value,
+    language: g("ns_lang").value,
+    cadence_days: Number(g("ns_cadence").value),
+    upload_hour_utc: g("ns_hour").value === "" ? null : Number(g("ns_hour").value),
+    quality_threshold: g("ns_quality").value === "" ? null : Number(g("ns_quality").value),
+    music_energy: g("ns_music").value === "" ? null : g("ns_music").value,
+    caption_color: g("ns_capcolor").value,
+  };
+  if(g("ns_persona")) body.persona = g("ns_persona").value;
+  const res = await fetch("/api/niches/"+encodeURIComponent(name),{method:"PATCH",headers:H,body:JSON.stringify(body)});
+  if(res.ok){ closeNicheSettings(); loadNiches(); }
+  else { alert("Save failed: "+((await res.json()).error||res.status)); }
 }
 
 // ── Long-form clipper (Agent 6) ──
@@ -973,5 +1046,12 @@ setInterval(loadClips, 20_000);
 setInterval(loadCosts, 60_000);
 setInterval(loadPublished, 60_000);
 </script>
+<div class="modal-backdrop" id="nsetModal">
+  <div class="modal" style="width:min(640px,100%)">
+    <div class="modal-header"><h2 id="nsetTitle">Niche settings</h2>
+      <button class="modal-close" onclick="closeNicheSettings()">×</button></div>
+    <div id="nsetBody"></div>
+  </div>
+</div>
 </body>
 </html>

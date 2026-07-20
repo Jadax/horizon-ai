@@ -56,7 +56,8 @@ function deterministicIssues(script, title) {
   return issues;
 }
 
-export async function gradeContent({ script, title, niche, platforms = ["youtube"] }) {
+export async function gradeContent({ script, title, niche, platforms = ["youtube"], threshold = null }) {
+  const passThreshold = Number.isFinite(Number(threshold)) && Number(threshold) > 0 ? Number(threshold) : config.contentQualityThreshold;
   const hardIssues = deterministicIssues(script, title);
   if (hardIssues.length) {
     return {
@@ -90,7 +91,7 @@ export async function gradeContent({ script, title, niche, platforms = ["youtube
   return {
     score,
     hookScore: scores.hook_strength,
-    passed: score >= config.contentQualityThreshold && blockingIssues.length === 0,
+    passed: score >= passThreshold && blockingIssues.length === 0,
     issues: blockingIssues,
     improvements,
     revisionNotes: Array.isArray(review.revision_notes) ? review.revision_notes : [],
