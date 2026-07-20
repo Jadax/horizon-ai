@@ -25,11 +25,10 @@
  * not creative writing) to keep this cheap — see run.js for how its output
  * feeds into Agent 2/3/4's actual generation.
  */
-import OpenAI from "openai";
 import { config } from "../config.js";
 import { logEvent } from "../supabase.js";
+import { llmJson } from "../lib/llm.js";
 
-const openai = new OpenAI({ apiKey: config.openaiKey });
 
 const FORMAT_SYSTEM = `You direct the presentation format for a short-form
 video pipeline. You receive a topic, the niche's allowed duration range,
@@ -73,10 +72,10 @@ export async function decideFormat(niche, topic, jobId) {
   await logEvent("Format Engine", `Deciding presentation for "${topic.title.slice(0, 60)}"…`, { jobId });
 
   try {
-    const res = await openai.chat.completions.create({
-      model: "gpt-4o-mini",
+    const res = await llmJson({
+      tier: "fast",
       temperature: 0.3,
-      response_format: { type: "json_object" },
+      label: "formatDecision",
       messages: [
         { role: "system", content: FORMAT_SYSTEM },
         {
@@ -94,7 +93,7 @@ export async function decideFormat(niche, topic, jobId) {
       ],
     });
 
-    const decision = JSON.parse(res.choices[0].message.content);
+    const decision = JSON.parse(res.content);
     decision.target_duration_seconds = Math.max(
       minSeconds,
       Math.min(maxSeconds, Math.round(decision.target_duration_seconds || minSeconds))
@@ -113,7 +112,7 @@ export async function decideFormat(niche, topic, jobId) {
       genres: Array.isArray(musicBrief.genres) ? musicBrief.genres.slice(0, 3) : [],
       bpm: Array.isArray(musicBrief.bpm) && musicBrief.bpm.length === 2 ? musicBrief.bpm.map(Number) : [70, 120],
     };
-    decision._usage = { tokens: res.usage?.total_tokens || 0 };
+    decision._usage = { tokens: res.tokens || 0 };
 
     await logEvent(
       "Format Engine",

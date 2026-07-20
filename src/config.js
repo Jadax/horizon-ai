@@ -20,6 +20,9 @@ function parseArrayEnv(name, fallback = []) {
 export const config = {
   // ─── OpenAI (Keep) ──────────────────────────────────────────────────
   openaiKey: process.env.OPENAI_API_KEY,
+  // Free-tier Gemini key — when set, all text-only LLM calls route through
+  // Gemini first (see lib/llm.js) with OpenAI as the paid fallback.
+  geminiKey: process.env.GEMINI_API_KEY,
   
   // ─── Free TTS ──────────────────────────────────────────────────────
   // Defaults to 'gtts', not 'chatterbox' — chatterbox is a Python library

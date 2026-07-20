@@ -1,9 +1,6 @@
-import OpenAI from "openai";
 import { config } from "../config.js";
 import { BANNED_WORDS } from "./monetization.js";
-import { withRetry } from "./openaiRetry.js";
-
-const openai = new OpenAI({ apiKey: config.openaiKey });
+import { llmJson } from "./llm.js";
 
 // The previous "hostile senior editor" prompt had no scoring anchors, so the
 // model defaulted to ~60/100 for everything — production runs showed flat
@@ -72,19 +69,16 @@ export async function gradeContent({ script, title, niche, platforms = ["youtube
     };
   }
 
-  const response = await withRetry(
-    () => openai.chat.completions.create({
-      model: "gpt-4o",
-      temperature: 0,
-      response_format: { type: "json_object" },
-      messages: [
-        { role: "system", content: CRITIC_SYSTEM },
-        { role: "user", content: JSON.stringify({ niche, platforms, title, script }) },
-      ],
-    }),
-    { label: "gradeContent" }
-  );
-  const review = JSON.parse(response.choices[0].message.content || "{}");
+  const response = await llmJson({
+    tier: "smart",
+    temperature: 0,
+    label: "gradeContent",
+    messages: [
+      { role: "system", content: CRITIC_SYSTEM },
+      { role: "user", content: JSON.stringify({ niche, platforms, title, script }) },
+    ],
+  });
+  const review = JSON.parse(response.content || "{}");
   const dimensions = ["hook_strength", "narrative_flow", "information_density", "emotional_curve", "platform_fit"];
   const scores = Object.fromEntries(dimensions.map((key) => [key, Math.max(0, Math.min(100, Number(review.scores?.[key]) || 0))]));
   const score = Math.round(dimensions.reduce((sum, key) => sum + scores[key], 0) / dimensions.length);

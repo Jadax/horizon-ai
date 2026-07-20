@@ -8,6 +8,7 @@ import { config } from "../config.js";
 import { logEvent } from "../supabase.js";
 import { getTitlePatternInsight } from "../lib/trendScoring.js";
 import { gradeContent } from "../lib/contentQuality.js";
+import { llmJson } from "../lib/llm.js";
 
 const TITLE_PATTERNS = ["curiosity_gap", "number_stakes", "contrarian_reframe", "direct_consequence", "insider_callout"];
 
@@ -186,14 +187,9 @@ export async function writeScript(niche, topic, loreContext, jobId) {
         ].filter(Boolean).join("\n"),
       });
     }
-    const res = await openai.chat.completions.create({
-      model: "gpt-4o",
-      temperature: 0.9,
-      response_format: { type: "json_object" },
-      messages,
-    });
-    usedTokens += res.usage?.total_tokens || 0;
-    out = JSON.parse(res.choices[0].message.content);
+    const res = await llmJson({ tier: "smart", temperature: 0.9, label: "writeScript", messages });
+    usedTokens += res.tokens;
+    out = JSON.parse(res.content);
     if (!out.script || out.script.split(/\s+/).length < minWords) {
       review = { revisionNotes: [{ line: "script", required_change: `Reach at least ${minWords} words without repetition` }] };
     } else {
@@ -279,10 +275,10 @@ export async function calculateTrims(script, clips, stylePreset, jobId, words = 
     duration: c.duration,
   }));
 
-  const res = await openai.chat.completions.create({
-    model: "gpt-4o-mini",
+  const res = await llmJson({
+    tier: "fast",
     temperature: 0.4,
-    response_format: { type: "json_object" },
+    label: "calculateTrims",
     messages: [
       { role: "system", content: TRIM_SYSTEM },
       {
@@ -296,7 +292,7 @@ export async function calculateTrims(script, clips, stylePreset, jobId, words = 
     ],
   });
 
-  const { cuts, total_seconds } = JSON.parse(res.choices[0].message.content);
+  const { cuts, total_seconds } = JSON.parse(res.content);
   const validated = cuts
     .filter((c) => clips[c.index])
     .map((c) => {
@@ -334,7 +330,7 @@ export async function calculateTrims(script, clips, stylePreset, jobId, words = 
     const start = validated.at(-1).timelineEnd;
     validated.push({ ...source, timelineStart: start, timelineEnd: authoritativeEnd, length: authoritativeEnd - start });
   }
-  validated._usage = { tokens: res.usage?.total_tokens || 0 };
+  validated._usage = { tokens: res.tokens || 0 };
   await logEvent(
     "Agent 2",
     `Cut list ready: ${validated.length} cuts, ~${Math.round(total_seconds)}s timeline`,

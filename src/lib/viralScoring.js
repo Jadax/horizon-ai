@@ -10,12 +10,10 @@
  * 6. Platform optimization
  * 7. Competitive saturation
  */
-import OpenAI from "openai";
+
 import { config } from "../config.js";
 import { supabase, logEvent } from "../supabase.js";
-import { withRetry } from "./openaiRetry.js";
-
-const openai = new OpenAI({ apiKey: config.openaiKey });
+import { llmJson } from "./llm.js";
 
 // Cache for emotional resonance
 const emotionalResonanceCache = new Map();
@@ -137,34 +135,31 @@ export async function scoreVideoForVirality(video, niche, options = {}) {
 async function analyzeEmotionalResonance(title, description) {
     const text = `${title}\n${description}`.slice(0, 2000);
     
-    const response = await withRetry(
-        () => openai.chat.completions.create({
-            model: "gpt-4o-mini",
-            temperature: 0.3,
-            response_format: { type: "json_object" },
-            messages: [
-                {
-                    role: "system",
-                    content: `Analyze this content for emotional resonance and viral potential.
-                    Score 1-10 on: emotional impact, shareability, and ability to trigger strong reactions.
-                    Return JSON: {"score": number, "triggerWords": string[], "dominantEmotion": string}`
-                },
-                {
-                    role: "user",
-                    content: text,
-                },
-            ],
-        }),
-        { label: "analyzeEmotionalResonance" }
-    );
+    const response = await llmJson({
+        tier: "fast",
+        temperature: 0.3,
+        label: "analyzeEmotionalResonance",
+        messages: [
+            {
+                role: "system",
+                content: `Analyze this content for emotional resonance and viral potential.
+                Score 1-10 on: emotional impact, shareability, and ability to trigger strong reactions.
+                Return JSON: {"score": number, "triggerWords": string[], "dominantEmotion": string}`
+            },
+            {
+                role: "user",
+                content: text,
+            },
+        ],
+    });
 
     try {
-        const result = JSON.parse(response.choices[0].message.content);
+        const result = JSON.parse(response.content);
         return {
             score: Math.min(10, Math.max(1, result.score || 5)),
             triggerWords: result.triggerWords || [],
             dominantEmotion: result.dominantEmotion || "neutral",
-            _usage: { tokens: response.usage?.total_tokens || 0 },
+            _usage: { tokens: response.tokens || 0 },
         };
     } catch {
         return { score: 5, triggerWords: [], dominantEmotion: "neutral", _usage: { tokens: 0 } };
