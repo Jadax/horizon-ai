@@ -148,7 +148,7 @@ export async function writeScript(niche, topic, loreContext, jobId) {
         ].join(" ")
       : null,
     niche.editing_style_preset?.visualMode === "illustrated"
-      ? "VISUAL_MODE: illustrated — every visual_plan query must describe a simple drawable cartoon scene (a character doing or reacting to something concrete from that line, e.g. 'stick figure king proudly holding a tiny potato'), NOT a stock-footage search phrase. One clear subject per scene. Never put written words, labels, signs, or numbers in the scene — the image model misspells them; convey meaning through objects and expressions only."
+      ? "VISUAL_MODE: illustrated — every visual_plan query must describe a simple drawable cartoon scene (a character doing or reacting to something concrete from that line, e.g. 'stick figure king proudly holding a tiny potato'), NOT a stock-footage search phrase. One clear subject per scene. Never put written words, labels, signs, or numbers in the scene — the image model misspells them; convey meaning through objects and expressions only. ADDITIONALLY: every visual_plan entry must include an \"overlay\" field — a punchy 1-4 word ALL-CAPS phrase pulled from that line's most surprising fact or number (e.g. \"ONLY 10 YEARS LEFT!\", \"$86,400 A DAY\", \"YOUR BRAIN LIES\") — it gets rendered as bold comic-style text over the scene, so it must hit hard on its own. The first beat's overlay doubles as the video's 3-second visual hook: make it the single most scroll-stopping claim in the script."
       : null,
     `TRENDING TOPIC: ${topic.title}`,
     topic.selftext ? `THREAD CONTEXT: ${topic.selftext}` : null,
@@ -220,6 +220,7 @@ export async function writeScript(niche, topic, loreContext, jobId) {
       line: beat.line.slice(0, 180),
       query: beat.query.slice(0, 120),
       intent: String(beat.intent || "Direct visual evidence for the narration").slice(0, 220),
+      overlay: typeof beat.overlay === "string" && beat.overlay.trim() ? beat.overlay.trim().toUpperCase().slice(0, 28) : null,
     }));
   if (out.visual_plan.length < 4) throw new Error("Visual plan did not contain four valid beats");
   
@@ -307,6 +308,7 @@ export async function calculateTrims(script, clips, stylePreset, jobId, words = 
         type: src.type === "image" ? "image" : "video",
         reason: String(c.reason || src.semanticCue || src.keyword).slice(0, 240),
         semanticCue: src.semanticCue || src.keyword,
+        overlay: src.overlay || null,
       };
     });
 

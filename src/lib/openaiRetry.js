@@ -12,7 +12,10 @@ export async function withRetry(fn, { maxAttempts = 4, jobId, label = "OpenAI ca
       return await fn();
     } catch (err) {
       lastErr = err;
-      if (err?.status !== 429 || attempt === maxAttempts) throw err;
+      // "exceeded your current quota" is also a 429, but it's billing, not
+      // rate-limiting — no amount of backoff fixes an empty account, so
+      // fail immediately instead of burning minutes on doomed retries.
+      if (err?.status !== 429 || /quota/i.test(err?.message || "") || attempt === maxAttempts) throw err;
       const retryAfter = Number(err.headers?.get?.("retry-after"));
       const waitMs = Number.isFinite(retryAfter) && retryAfter > 0
         ? retryAfter * 1000 + 250

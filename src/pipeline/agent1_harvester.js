@@ -490,6 +490,7 @@ async function harvestIllustrated(niche, jobId, minTotalSeconds, visualQueries) 
                 keyword: beat.query,
                 semanticCue: beat.line,
                 visualIntent: beat.intent || null,
+                overlay: beat.overlay || null,
             });
         }
     }

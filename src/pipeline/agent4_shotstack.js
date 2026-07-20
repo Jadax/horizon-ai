@@ -57,6 +57,7 @@ export function buildEditPayload({ cuts, voiceoverUrl, words, duration, musicTra
         duration: length,
         timelineStart: cut.timelineStart,
         timelineEnd: cut.timelineEnd,
+        overlay: cut.overlay || null,
       });
     }
   }
@@ -82,6 +83,17 @@ export function buildEditPayload({ cuts, voiceoverUrl, words, duration, musicTra
     musicUrl: musicTrack?.track_url || null,
     duration: total,
     captions: captionClips(words, preset),
+    // Bold comic-style text burned over each clip's first seconds (the
+    // attachment-style "ONLY 10 YEARS LEFT!" look) — rendered by libass,
+    // never drawn by the image model, so it can't be misspelled. First
+    // clip's overlay is the 3-second visual hook.
+    overlays: videoClips
+      .filter((clip) => clip.overlay && Number.isFinite(clip.timelineStart))
+      .map((clip) => ({
+        text: clip.overlay,
+        start: clip.timelineStart,
+        end: Math.min(clip.timelineStart + 3.2, clip.timelineEnd ?? clip.timelineStart + 3.2),
+      })),
     syncPrecisionMs: config.subtitleSyncPrecisionMs,
     output: {
       format: "mp4",

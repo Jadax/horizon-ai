@@ -53,7 +53,11 @@ export async function runPipelineForNiche(niche) {
       preset = {
         ...niche.editing_style_preset,
         wordClipMode: decision.word_clip_mode,
-        music_energy: decision.music_energy,
+        // A niche can pin its music energy (editing_style_preset.musicEnergy)
+        // — the per-topic format decision picked "High"-energy dance tracks
+        // for calm explainer videos, where the music should always sit in the
+        // same curious/light register regardless of topic.
+        music_energy: niche.editing_style_preset?.musicEnergy || decision.music_energy,
         music_brief: decision.music_brief,
       };
       const effectiveNiche = {

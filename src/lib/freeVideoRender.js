@@ -27,7 +27,7 @@ function toAssTimestamp(seconds) {
  * caption text since spoken narration/word-clip text never legitimately
  * needs them and leaving them in would either silently vanish or, worse,
  * accidentally form a real override tag. */
-function buildAssSubtitles(captions) {
+function buildAssSubtitles(captions, overlays = []) {
   const header = [
     '[Script Info]',
     'ScriptType: v4.00+',
@@ -35,18 +35,22 @@ function buildAssSubtitles(captions) {
     'PlayResY: 1920',
     '',
     '[V4+ Styles]',
-    // Short-form standard look: big bold white with a heavy black outline —
-    // readable over any footage at feed size, no background box.
+    // Default: short-form standard look — big bold white, heavy black
+    // outline, bottom-center. Hook: comic-style yellow headline with a
+    // thicker outline, top-center (ASS colors are &HAABBGGRR, so yellow is
+    // 00FFFF), used for per-beat overlay text like "ONLY 10 YEARS LEFT!".
     'Format: Name, Fontname, Fontsize, PrimaryColour, OutlineColour, BackColour, Bold, BorderStyle, Outline, Shadow, Alignment, MarginV, Spacing',
     'Style: Default,Arial,80,&H00FFFFFF,&H00000000,&H80000000,1,1,5,2,2,220,1',
+    'Style: Hook,Arial,104,&H0000FFFF,&H00000000,&H80000000,1,1,7,3,8,240,1',
     '',
     '[Events]',
     'Format: Layer, Start, End, Style, Text',
   ].join('\n');
-  const lines = captions.map((cap) => {
-    const text = String(cap.text || '').replace(/[{}]/g, '').replace(/\n/g, ' ');
-    return `Dialogue: 0,${toAssTimestamp(cap.start)},${toAssTimestamp(cap.end)},Default,${text}`;
-  });
+  const clean = (t) => String(t || '').replace(/[{}]/g, '').replace(/\n/g, ' ');
+  const lines = [
+    ...captions.map((cap) => `Dialogue: 0,${toAssTimestamp(cap.start)},${toAssTimestamp(cap.end)},Default,${clean(cap.text)}`),
+    ...overlays.map((o) => `Dialogue: 1,${toAssTimestamp(o.start)},${toAssTimestamp(o.end)},Hook,${clean(o.text)}`),
+  ];
   return header + '\n' + lines.join('\n') + '\n';
 }
 
@@ -278,9 +282,9 @@ async function renderWithFFmpeg(payload, jobId) {
     // — this is what libass (already compiled into this build) exists for,
     // scales to any caption count, and was verified against a real
     // rendered frame with apostrophes/colons/commas in the text.
-    if (payload.captions && payload.captions.length) {
+    if ((payload.captions && payload.captions.length) || (payload.overlays && payload.overlays.length)) {
       assFile = path.join(tmpDir, `horizon-captions-${randomUUID()}.ass`);
-      await writeFile(assFile, buildAssSubtitles(payload.captions));
+      await writeFile(assFile, buildAssSubtitles(payload.captions || [], payload.overlays || []));
       const assPath = assFile.replace(/\\/g, '/').replace(/:/g, '\\:').replace(/'/g, '’');
       filterComplex += `;[vcat]ass='${assPath}'[vout]`;
     } else {
