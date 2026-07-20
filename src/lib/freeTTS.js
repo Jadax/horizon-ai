@@ -33,8 +33,9 @@ async function resolvePythonBin() {
 }
 
 export async function synthesizeSpeech(text, voiceId = null, options = {}) {
+  const engine = options.engine || PRIMARY_ENGINE;
   try {
-    switch (PRIMARY_ENGINE) {
+    switch (engine) {
       case 'openai':
         return await synthesizeOpenAITTS(text, voiceId, options);
       case 'gtts':
@@ -48,11 +49,11 @@ export async function synthesizeSpeech(text, voiceId = null, options = {}) {
       case 'piper':
         return await synthesizePiper(text, voiceId, options);
       default:
-        console.warn(`[TTS] Unknown engine "${PRIMARY_ENGINE}", falling back to gTTS`);
+        console.warn(`[TTS] Unknown engine "${engine}", falling back to gTTS`);
         return await synthesizeGTTS(text, options);
     }
   } catch (error) {
-    console.error(`[TTS] Primary engine (${PRIMARY_ENGINE}) failed:`, error.message);
+    console.error(`[TTS] Engine (${engine}) failed:`, error.message);
     console.log('[TTS] Falling back to gTTS (free, no GPU)');
     return await synthesizeGTTS(text, options);
   }

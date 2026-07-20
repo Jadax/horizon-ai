@@ -2,31 +2,90 @@ import { config } from "../config.js";
 import { supabase, logEvent } from "../supabase.js";
 import { synthesizeSpeech } from "../lib/freeTTS.js";
 import OpenAI, { toFile } from "openai";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
+import { readFile, writeFile, unlink } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import { randomUUID } from "node:crypto";
+import ffmpeg from "ffmpeg-static";
 
+const execFileAsync = promisify(execFile);
 const openai = new OpenAI({ apiKey: config.openaiKey });
+
+// gpt-4o-mini-tts stops generating early on longer inputs often enough that
+// a production run burned all 3 whole-script retries in a row (106-word
+// script, ~44 words of audio each time). Short inputs don't exhibit it, so
+// scripts are synthesized as sentence-grouped chunks and concatenated —
+// each chunk is comfortably inside the reliable range.
+const TTS_CHUNK_MAX_CHARS = 280;
+
+function splitScriptForTTS(script) {
+    const sentences = String(script).match(/[^.!?]+[.!?]*\s*/g) || [String(script)];
+    const chunks = [];
+    let current = "";
+    for (const sentence of sentences) {
+        if (current && (current + sentence).length > TTS_CHUNK_MAX_CHARS) {
+            chunks.push(current.trim());
+            current = sentence;
+        } else {
+            current += sentence;
+        }
+    }
+    if (current.trim()) chunks.push(current.trim());
+    return chunks;
+}
+
+async function concatAudioBuffers(buffers) {
+    if (buffers.length === 1) return buffers[0];
+    const tmpDir = tmpdir();
+    const partFiles = [];
+    const listFile = path.join(tmpDir, `horizon-ttslist-${randomUUID()}.txt`);
+    const outFile = path.join(tmpDir, `horizon-ttscat-${randomUUID()}.mp3`);
+    try {
+        for (const buffer of buffers) {
+            const partFile = path.join(tmpDir, `horizon-ttspart-${randomUUID()}.mp3`);
+            await writeFile(partFile, buffer);
+            partFiles.push(partFile);
+        }
+        await writeFile(listFile, partFiles.map((f) => `file '${f.replace(/\\/g, "/")}'`).join("\n"));
+        // Re-encode rather than -c copy: chunk MP3s can differ in encoder
+        // delay/padding, and copy-concat produces audible clicks at joins.
+        await execFileAsync(ffmpeg, ["-y", "-f", "concat", "-safe", "0", "-i", listFile, "-c:a", "libmp3lame", "-q:a", "2", outFile], { timeout: 120000 });
+        return await readFile(outFile);
+    } finally {
+        for (const f of [...partFiles, listFile, outFile]) await unlink(f).catch(() => {});
+    }
+}
 
 export async function synthesizeVoiceover(script, voiceId, jobId, expectedMaxSeconds = 58) {
     await logEvent("Agent 3", `Synthesizing voiceover using free TTS (${config.ttsEngine || 'chatterbox'})...`, { jobId });
 
     try {
-        // gpt-4o-mini-tts is a generative audio model and occasionally stops
-        // early on longer inputs, producing audio missing a chunk of the
-        // script (observed in production: 39/78 words heard, while the same
-        // script synthesized fine on the next call). The alignment step's
-        // transcript check detects exactly this, so treat "audio incomplete"
-        // as a re-synthesis trigger rather than a run-killing failure.
+        // Escalation ladder: chunked synthesis twice (chunking alone removes
+        // the early-stop failure mode on long inputs), then gTTS for the
+        // whole script as the engine of last resort — robotic beats a dead
+        // run, and the alignment gate still verifies whatever comes out.
+        const chunks = splitScriptForTTS(script);
         let audioBuffer, words;
         for (let attempt = 1; ; attempt++) {
-            audioBuffer = await synthesizeSpeech(script, voiceId, {
-                speed: 1.0,
-                lang: 'en',
-            });
+            const engine = attempt >= 3 ? "gtts" : undefined;
+            if (engine) {
+                await logEvent("Agent 3", `Falling back to gtts for this run (primary engine kept returning incomplete audio)`, { jobId, level: "warn" });
+                audioBuffer = await synthesizeSpeech(script, voiceId, { speed: 1.0, lang: 'en', engine });
+            } else {
+                const parts = [];
+                for (const chunk of chunks) {
+                    parts.push(await synthesizeSpeech(chunk, voiceId, { speed: 1.0, lang: 'en' }));
+                }
+                audioBuffer = await concatAudioBuffers(parts);
+            }
             try {
                 words = await alignGeneratedSpeech(audioBuffer, script, jobId);
                 break;
             } catch (err) {
                 if (!/audio incomplete/i.test(err.message) || attempt >= 3) throw err;
-                await logEvent("Agent 3", `TTS returned incomplete audio (attempt ${attempt}/3) — re-synthesizing`, { jobId, level: "warn" });
+                await logEvent("Agent 3", `TTS returned incomplete audio (attempt ${attempt}/3, ${chunks.length} chunk(s)) — retrying`, { jobId, level: "warn" });
             }
         }
         if (!words.length) throw new Error("TTS alignment produced no word timestamps");
