@@ -221,20 +221,50 @@ async function renderWithFFmpeg(payload, jobId) {
     // Normalize every background input to the same size/fps/timebase
     // before concatenating — concat requires matching stream properties,
     // and inputs here can be a mix of stock video and generated stills.
+    // All-image sets (illustrated explainer videos) get cross-dissolves via a
+    // chained xfade instead of hard concat cuts. xfade eats `fadeDur` from
+    // each junction, so every clip except the last is generated `fadeDur`
+    // longer — total visible duration stays exactly the sum of the intended
+    // clip durations.
+    const allImages = clips.every((c) => c.type === 'image') && clips.length > 1;
+    const fadeDur = 0.5;
+
     const legs = clips.map((clip, i) => {
+      const visibleDur = Math.max(0.5, clip.duration || 4);
       if (clip.type === 'image') {
         // Ken-burns: pre-scale the still to 2x target so the zoom window
         // always samples above output resolution (no softening), then let
-        // zoompan generate the clip's frames — slow push-in on even clips,
-        // pull-out on odd ones so consecutive stills don't move identically.
-        const frames = Math.round(Math.max(0.5, clip.duration || 4) * 30);
-        const zoomExpr = i % 2 === 0 ? 'min(1+0.0012*on,1.14)' : 'max(1.14-0.0012*on,1.0)';
-        return `[${i}:v]scale=2160:3840:force_original_aspect_ratio=increase,crop=2160:3840,zoompan=z='${zoomExpr}':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=${frames}:s=1080x1920:fps=30,setsar=1,setpts=PTS-STARTPTS[v${i}]`;
+        // zoompan generate the clip's frames. Four rotating motion patterns
+        // so consecutive stills never move identically: push-in, pull-out,
+        // pan-right, pan-left.
+        const dur = visibleDur + (allImages && i < clips.length - 1 ? fadeDur : 0);
+        const frames = Math.round(dur * 30);
+        const motions = [
+          `z='min(1+0.0018*on,1.2)':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)'`,
+          `z='max(1.2-0.0018*on,1.0)':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)'`,
+          `z=1.14:x='(iw-iw/zoom)*on/${frames}':y='ih/2-(ih/zoom/2)'`,
+          `z=1.14:x='(iw-iw/zoom)*(1-on/${frames})':y='ih/2-(ih/zoom/2)'`,
+        ];
+        return `[${i}:v]scale=2160:3840:force_original_aspect_ratio=increase,crop=2160:3840,zoompan=${motions[i % 4]}:d=${frames}:s=1080x1920:fps=30,setsar=1,setpts=PTS-STARTPTS[v${i}]`;
       }
       return `[${i}:v]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,setsar=1,fps=30,setpts=PTS-STARTPTS[v${i}]`;
     });
-    const concatInputs = clips.map((_, i) => `[v${i}]`).join('');
-    let filterComplex = [...legs, `${concatInputs}concat=n=${clips.length}:v=1:a=0[vcat]`].join(';');
+    let filterComplex;
+    if (allImages) {
+      const joins = [];
+      let prevLabel = 'v0';
+      let offset = 0;
+      for (let i = 1; i < clips.length; i++) {
+        offset += Math.max(0.5, clips[i - 1].duration || 4);
+        const outLabel = i === clips.length - 1 ? 'vcat' : `x${i}`;
+        joins.push(`[${prevLabel}][v${i}]xfade=transition=fade:duration=${fadeDur}:offset=${offset.toFixed(3)}[${outLabel}]`);
+        prevLabel = outLabel;
+      }
+      filterComplex = [...legs, ...joins].join(';');
+    } else {
+      const concatInputs = clips.map((_, i) => `[v${i}]`).join('');
+      filterComplex = [...legs, `${concatInputs}concat=n=${clips.length}:v=1:a=0[vcat]`].join(';');
+    }
 
     // Chaining one drawtext filter per caption (textfile= per caption, as a
     // previous fix attempted) works for a handful of captions but breaks on

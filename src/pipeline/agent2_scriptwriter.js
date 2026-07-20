@@ -140,6 +140,13 @@ export async function writeScript(niche, topic, loreContext, jobId) {
     `LOOP_MODE: ${loopMode}`,
     `TARGET_WORDS_MIN: ${wordsMin}`,
     `TARGET_WORDS_MAX: ${wordsMax}`,
+    niche.editing_style_preset?.explainerMode
+      ? [
+          "EXPLAINER_MODE: this is an 'explained for dummies' video. The topic candidate is only a pointer — identify the underlying evergreen subject behind it and explain THAT from scratch. If the candidate is about a new movie of the Odyssey, the video is about the Odyssey legend itself (its story, why it survived 2800 years), not the movie. If it's a question, answer the question properly.",
+          "Structure: open with the question or misconception a smart viewer actually has → give the minimum context to care → walk through the actual story/mechanism with 2-3 genuinely surprising concrete details (names, numbers, origins) → end on the payoff insight that reframes how they see it.",
+          "Assume the viewer is intelligent but knows NOTHING about this subject. Define anything a newcomer wouldn't know, in passing, without being condescending. Never reference current news, memes, or drama — the video must be just as watchable in five years.",
+        ].join(" ")
+      : null,
     niche.editing_style_preset?.visualMode === "illustrated"
       ? "VISUAL_MODE: illustrated — every visual_plan query must describe a simple drawable cartoon scene (a character doing or reacting to something concrete from that line, e.g. 'stick figure king proudly holding a tiny potato'), NOT a stock-footage search phrase. One clear subject per scene. Never put written words, labels, signs, or numbers in the scene — the image model misspells them; convey meaning through objects and expressions only."
       : null,

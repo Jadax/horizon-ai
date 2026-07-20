@@ -105,7 +105,17 @@ export async function harvestAllCandidates(niche, jobId = null) {
     await log(`Scanning sources for ${niche.niche_name}...`);
 
     const candidates = [];
-    const enabled = new Set(niche.run_trend_sources || ["google", "reddit", "youtube", "gdelt", "rss", "wikipedia", "hackernews", "wikipedia_trending", "bluesky"]);
+    // editing_style_preset.trendSources restricts a niche to specific source
+    // types without a schema change — the Explained niche uses it to pull
+    // ONLY from question-subreddits and curiosity RSS feeds: trending pools
+    // (Google/Wikipedia-trending/Bluesky/HN) kept steering it toward news
+    // wrappers (a Nolan film) instead of the underlying evergreen subject
+    // (the Odyssey itself).
+    const enabled = new Set(
+        niche.editing_style_preset?.trendSources
+        || niche.run_trend_sources
+        || ["google", "reddit", "youtube", "gdelt", "rss", "wikipedia", "hackernews", "wikipedia_trending", "bluesky"]
+    );
     const tag = (items, source) => items.map((i) => ({ ...i, source }));
 
     const socialVideos = enabled.has("reddit") || enabled.has("youtube") ? await harvestSocialVideos(niche, jobId) : [];
@@ -174,7 +184,7 @@ export async function harvestAllCandidates(niche, jobId = null) {
         await log(`YouTube Trending fetch failed: ${err.message}`, "warn");
     }
 
-    for (const tagName of niche.mastodon_tags || []) {
+    for (const tagName of enabled.has("mastodon") || !niche.editing_style_preset?.trendSources ? niche.mastodon_tags || [] : []) {
         try {
             const posts = await fetchMastodonHashtag(tagName);
             candidates.push(...tag(posts, "Mastodon"));
@@ -183,7 +193,7 @@ export async function harvestAllCandidates(niche, jobId = null) {
             await log(`Mastodon #${tagName} failed: ${err.message}`, "warn");
         }
     }
-    for (const community of niche.lemmy_communities || []) {
+    for (const community of enabled.has("lemmy") || !niche.editing_style_preset?.trendSources ? niche.lemmy_communities || [] : []) {
         try {
             const posts = await fetchLemmyHot(community);
             candidates.push(...tag(posts, "Lemmy"));
@@ -424,6 +434,10 @@ async function generateCutawayImage(beat, jobId, style = "photo") {
                 prompt: prompt.slice(0, 900),
                 size: "1024x1536",
                 n: 1,
+                // Flat thick-outline cartoons lose nothing at medium quality,
+                // and it roughly halves the per-image cost of illustrated
+                // videos (~8 images each). Photo cutaways keep the default.
+                ...(style === "illustrated" ? { quality: "medium" } : {}),
             }),
             { jobId, label: "generateCutawayImage" }
         );
