@@ -15,10 +15,13 @@ with subtitle sync worse than 50ms are rejected before publish — see
 
 ## How it runs (single service, no satellites)
 
-Everything runs in one Node process:
-- **TTS**: `gtts` (Python `gTTS` library, invoked as a subprocess) — free, no GPU, no separate server.
+Everything runs in one Node process, at near-zero marginal cost per video:
+- **LLM**: Gemini free tier first (`GEMINI_API_KEY`), OpenAI as automatic paid fallback — scripts, quality critic, cuts, format decisions.
+- **TTS**: OpenAI `gpt-4o-mini-tts` (~$0.01/video), chunked synthesis with free `gtts` fallback.
+- **Images**: Pollinations (free, no key) for illustrated explainer frames; `gpt-image-1` fallback.
 - **Render**: `ffmpeg` via the bundled `ffmpeg-static` npm package — free, in-process, no separate server.
-- **Stock footage**: Pexels + Pixabay APIs, vision-QA'd against the script by GPT-4o-mini; when a beat has no real match, an AI-generated cutaway image (`gpt-image-1`) can fill the gap instead (`ENABLE_AI_CUTAWAY`).
+- **Stock footage**: Pexels + Pixabay APIs, vision-QA'd against the script by GPT-4o-mini; zero-match beats get AI cutaways (`ENABLE_AI_CUTAWAY`).
+- **Music**: Supabase `music_library`, auto-stockable from Jamendo's free API (`npm run music:sync`).
 
 `TTS_ENGINE`/`RENDER_ENGINE` also support pointing at external services
 (`chatterbox`, `render-api`, etc.) if you've deployed your own, but that's
@@ -47,7 +50,8 @@ Then edit `.env` and fill in real values — at minimum:
 
 | Variable | Required for |
 |---|---|
-| `OPENAI_API_KEY` | scripting, vision QA, TTS fallback text, AI cutaway images |
+| `OPENAI_API_KEY` | TTS, Whisper alignment, vision QA, LLM fallback |
+| `GEMINI_API_KEY` | free-tier primary LLM (aistudio.google.com) |
 | `SUPABASE_URL` / `SUPABASE_SERVICE_ROLE_KEY` | job storage, generated asset storage, dashboard state |
 | `PEXELS_API_KEY`, `PIXABAY_API_KEY` | stock footage sourcing |
 | `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` / `GOOGLE_REFRESH_TOKEN` | YouTube publishing |

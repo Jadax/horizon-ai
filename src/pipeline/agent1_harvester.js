@@ -15,6 +15,7 @@ import { fetchBlueskyHot } from "../sources/bluesky.js";
 import { fetchTopReddit, searchWiki } from "../sources/reddit.js";
 import { rankCandidates, recalibrateWeights } from "../lib/trendScoring.js";
 import { withRetry } from "../lib/openaiRetry.js";
+import { llmJson } from "../lib/llm.js";
 
 const openai = new OpenAI({ apiKey: config.openaiKey });
 
@@ -262,9 +263,51 @@ async function recentTopicKeys(nicheName, days = 14, limit = 30) {
     return new Set(data.map((r) => topicKey(r.topic)).filter(Boolean));
 }
 
+/**
+ * For explainer niches, raw engagement is the wrong ranking signal — a hot
+ * post is often news/drama, while the best explainer topic is the one the
+ * most people are quietly curious about. One free LLM call re-scores the
+ * top candidates on mass curiosity + explainability + evergreen value and
+ * re-ranks by that. Failure degrades to the engagement ranking.
+ */
+async function rerankByCuriosity(candidates, jobId) {
+    const pool = candidates.slice(0, 18);
+    try {
+        const res = await llmJson({
+            tier: "fast",
+            temperature: 0.2,
+            label: "curiosityRerank",
+            messages: [
+                {
+                    role: "system",
+                    content: `Score each topic candidate 1-10 for a "explained for dummies" short-video channel:
+- mass_curiosity: would a broad, all-ages audience genuinely want this explained? (niche in-jokes, local news, personal posts score low)
+- explainability: is there a real story/mechanism to teach in 45 seconds with a surprising payoff?
+- evergreen: will this still be worth watching in five years? (news cycles, drama, memes score low)
+Return JSON: {"scores":[{"index":0,"total":24},...]} where total = sum of the three (max 30). Score every candidate.`,
+                },
+                { role: "user", content: JSON.stringify(pool.map((c, index) => ({ index, title: c.title.slice(0, 140) }))) },
+            ],
+        });
+        const { scores } = JSON.parse(res.content);
+        const byIndex = new Map((scores || []).map((s) => [s.index, Number(s.total) || 0]));
+        const reranked = pool
+            .map((c, index) => ({ ...c, _curiosityScore: byIndex.get(index) ?? 0 }))
+            .sort((a, b) => b._curiosityScore - a._curiosityScore);
+        await logEvent("Agent 1", `Curiosity re-rank: "${reranked[0]?.title.slice(0, 60)}" leads (${reranked[0]?._curiosityScore}/30)`, { jobId });
+        return [...reranked, ...candidates.slice(18)];
+    } catch (err) {
+        await logEvent("Agent 1", `Curiosity re-rank failed (${err.message}) — using engagement ranking`, { jobId, level: "warn" });
+        return candidates;
+    }
+}
+
 export async function harvestTopic(niche, jobId) {
-    const ranked = await harvestAllCandidates(niche, jobId);
+    let ranked = await harvestAllCandidates(niche, jobId);
     if (!ranked.length) throw new Error("No topic candidates found from any source");
+    if (niche.editing_style_preset?.explainerMode) {
+        ranked = await rerankByCuriosity(ranked, jobId);
+    }
 
     const seen = await recentTopicKeys(niche.niche_name);
     const fresh = ranked.filter((c) => !seen.has(topicKey(c.title)));
