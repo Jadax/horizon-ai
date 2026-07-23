@@ -1184,29 +1184,36 @@ async function loadCadence(){
     ]);
     if(!nichesRes.ok) return;
     const niches = await nichesRes.json();
-    const channels = channelsRes.ok ? await channelsRes.json() : [];
-
-    const channelOptions = Object.entries(channels).map(([key, val]) =>
-      `<option value="${key}">${key==="primary"?"Primary (GOOGLE_REFRESH_TOKEN)":(val.label||key)}</option>`
-    ).join("");
+    const channelsData = channelsRes.ok ? await channelsRes.json() : { channels: [], instagramChannels: [] };
+    const ytChannels = channelsData.channels || [];
+    const igChannels = channelsData.instagramChannels || [];
 
     panel.innerHTML = niches.map(n => {
       const preset = n.editing_style_preset || {};
       const cadence = preset.cadenceDays || 0;
       const uploadHour = preset.uploadHourUtc || 14;
-      const channel = n.target_channel || "primary";
+      const primaryChannel = n.target_channel || "primary";
+      const selectedChannels = Array.isArray(preset.targetChannels) && preset.targetChannels.length
+        ? preset.targetChannels
+        : [primaryChannel];
       const active = n.active !== false;
       const quality = preset.qualityThreshold || 78;
+      const cb = (ch) => {
+        const checked = selectedChannels.includes(ch.key) || (ch.key === primaryChannel && !Array.isArray(preset.targetChannels));
+        return `<label style="display:flex;align-items:center;gap:4px;padding:3px 8px;border:1px solid var(--border);border-radius:6px;cursor:pointer;font-size:10px;font-family:var(--mono);${checked?'border-color:var(--emerald-dim);background:var(--emerald-soft);color:var(--emerald)':'color:var(--text-dim)'}">
+          <input type="checkbox" ${checked?'checked':''} onchange="toggleChannel('${n.niche_name}','${ch.key}',this.checked)" style="margin:0;cursor:pointer;accent-color:var(--emerald)"> ${escapeHtml(ch.label)}
+        </label>`;
+      };
       return `
       <div class="niche-card" style="cursor:default;padding:10px 12px">
         <div class="nc-head">
           <span class="nc-name"><span class="nc-dot ${active?'on':''}"></span>${n.niche_name}</span>
-          <span style="font-family:var(--mono);font-size:9px;color:var(--muted)">${channel!=='primary'?'🎯 '+channel:''}</span>
+          <span style="font-family:var(--mono);font-size:9px;color:var(--muted)">${selectedChannels.length > 1 ? `📡 ${selectedChannels.length} channels` : ''}</span>
         </div>
         <div class="nset-grid">
           <div class="nset">
             <label>Cadence (days)</label>
-            <select onchange="updateNicheCadence('${n.niche_name}','cadenceDays',this.value)">
+            <select onchange="updatePreset('${n.niche_name}','cadence_days',this.value)">
               <option value="0" ${cadence===0?'selected':''}>Every run</option>
               <option value="1" ${cadence===1?'selected':''}>Daily</option>
               <option value="2" ${cadence===2?'selected':''}>Every 2 days</option>
@@ -1217,26 +1224,27 @@ async function loadCadence(){
           </div>
           <div class="nset">
             <label>Upload hour (UTC)</label>
-            <select onchange="updateNicheCadence('${n.niche_name}','uploadHourUtc',this.value)">
+            <select onchange="updatePreset('${n.niche_name}','upload_hour_utc',this.value)">
               ${[0,2,4,6,8,10,12,14,16,18,20,22].map(h=>`<option value="${h}" ${uploadHour===h?'selected':''}>${String(h).padStart(2,'0')}:00</option>`).join("")}
             </select>
           </div>
           <div class="nset">
-            <label>Target channel</label>
-            <select onchange="updateNicheChannel('${n.niche_name}',this.value)">
-              ${channelOptions}
-            </select>
-          </div>
-          <div class="nset">
             <label>Quality gate</label>
-            <select onchange="updateNicheCadence('${n.niche_name}','qualityThreshold',this.value)">
+            <select onchange="updatePreset('${n.niche_name}','quality_threshold',this.value)">
               ${[78,80,82,85,88,90].map(q=>`<option value="${q}" ${quality===q?'selected':''}>≥ ${q}</option>`).join("")}
             </select>
+          </div>
+          <div class="nset" style="grid-column:1/-1">
+            <label>Publish to (check all that apply)</label>
+            <div style="display:flex;flex-wrap:wrap;gap:5px;margin-top:3px">
+              ${ytChannels.map(cb).join("")}
+              ${igChannels.map(cb).join("")}
+            </div>
           </div>
         </div>
         <div style="display:flex;justify-content:space-between;align-items:center;margin-top:6px">
           <span style="font-family:var(--mono);font-size:9px;color:var(--muted)">
-            ${active?'⚡ Active':'⏸ Paused'} · ${cadence===0?'Every pipeline run':`Every ${cadence}d`} · Upload ${String(uploadHour).padStart(2,'0')}:00 UTC
+            ${active?'⚡ Active':'⏸ Paused'} · ${cadence===0?'Every pipeline run':`Every ${cadence}d`} · Upload ${String(uploadHour).padStart(2,'0')}:00 UTC · ${selectedChannels.length} channel${selectedChannels.length===1?'':'s'}
           </span>
           <button onclick="toggleNicheActive('${n.niche_name}',${!active})" style="font-size:9px;padding:3px 8px">
             ${active?'Pause':'Activate'}
@@ -1247,21 +1255,30 @@ async function loadCadence(){
   }catch(e){ panel.innerHTML = '<div class="donut-empty">Could not load cadence data</div>'; }
 }
 
-async function updateNicheCadence(niche, key, value){
+async function updatePreset(niche, bodyKey, value){
   try{
-    const preset = { [key]: ["cadenceDays","uploadHourUtc","qualityThreshold"].includes(key) ? Number(value) : value };
-    await fetch(`/api/niches/${encodeURIComponent(niche)}`,{method:"PATCH",headers:H,
-      body:JSON.stringify({editing_style_preset:preset})});
+    const res = await fetch(`/api/niches/${encodeURIComponent(niche)}`,{method:"PATCH",headers:H,
+      body:JSON.stringify({[bodyKey]: value})});
+    if(!res.ok) console.error("updatePreset failed:", await res.text());
     loadCadence();
-  }catch(e){}
+  }catch(e){ console.error("updatePreset failed", e); }
 }
 
-async function updateNicheChannel(niche, channel){
+async function toggleChannel(niche, channelKey, enabled){
   try{
-    await fetch(`/api/niches/${encodeURIComponent(niche)}`,{method:"PATCH",headers:H,
-      body:JSON.stringify({target_channel:channel})});
+    const nichesRes = await fetch("/api/niches",{headers:H});
+    const niches = await nichesRes.json();
+    const niche = niches.find(n => n.niche_name === niche);
+    if(!niche) return;
+    const preset = niche.editing_style_preset || {};
+    let channels = Array.isArray(preset.targetChannels) ? [...preset.targetChannels] : (niche.target_channel ? [niche.target_channel] : ["primary"]);
+    if(enabled && !channels.includes(channelKey)) channels.push(channelKey);
+    if(!enabled) channels = channels.filter(c => c !== channelKey);
+    if(channels.length === 0) channels = ["primary"];
+    await fetch(`/api/niches/${encodeURIComponent(niche.niche_name)}`,{method:"PATCH",headers:H,
+      body:JSON.stringify({target_channels: channels, target_channel: channels[0]})});
     loadCadence();
-  }catch(e){}
+  }catch(e){ console.error("toggleChannel failed", e); }
 }
 
 async function toggleNicheActive(niche, active){

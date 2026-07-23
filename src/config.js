@@ -93,6 +93,16 @@ export const config = {
       }
     })(),
   },
+
+  // Instagram cross-post channels: {"leothecat":{"handle":"@LeoTheCat","user_id":"..."}}
+  // Currently package-mode only (no direct IG API); used for labeled publish targets.
+  instagramChannels: (() => {
+    try {
+      return process.env.INSTAGRAM_CHANNELS ? JSON.parse(process.env.INSTAGRAM_CHANNELS) : {};
+    } catch {
+      return {};
+    }
+  })(),
   
   // ─── Server ──────────────────────────────────────────────────────────
   port: parseInt(process.env.PORT || "8080", 10),

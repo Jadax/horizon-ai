@@ -10,8 +10,21 @@ import { config } from "../config.js";
 
 export const nichesRouter = express.Router();
 
+// Returns a labeled list of all configured YouTube channels (primary + any
+// in GOOGLE_CHANNELS JSON) so the dashboard can show human-readable names
+// like "YouTube — Leo" or "YouTube — MythosVibe" instead of opaque keys.
 nichesRouter.get("/channels", (_req, res) => {
-  res.json({ channels: ["primary", ...Object.keys(config.google.channels)] });
+  const channels = [{ key: "primary", label: "Primary (default YouTube)" }];
+  for (const [key, val] of Object.entries(config.google.channels || {})) {
+    const handle = val.handle || val.label || key;
+    channels.push({ key, label: `YouTube — ${handle}` });
+  }
+  // Add Instagram handles configured for niches (package-mode cross-post)
+  const igChannels = [{ key: "__ig_primary", label: "Instagram — Primary" }];
+  for (const [key, val] of Object.entries(config.instagramChannels || {})) {
+    igChannels.push({ key, label: `Instagram — ${val.handle || val.label || key}` });
+  }
+  res.json({ channels, instagramChannels: igChannels });
 });
 
 nichesRouter.get("/niches", async (_req, res) => {
@@ -27,7 +40,8 @@ nichesRouter.get("/niches", async (_req, res) => {
 // stage named): cadenceDays → daily-loop skip window; qualityThreshold →
 // agent2/run.js content gate; uploadHourUtc → agent5 publish slot;
 // musicEnergy → music pick; caption.color → renderer caption theme;
-// persona → Leo copy generation.
+// persona → Leo copy generation. targetChannels → list of YouTube channel
+// keys to publish the same video to (multi-channel fan-out).
 const PRESET_KEYS = {
   cadence_days: { key: "cadenceDays", clean: (v) => (Number(v) >= 1 && Number(v) <= 30 ? Math.round(Number(v)) : undefined) },
   quality_threshold: { key: "qualityThreshold", clean: (v) => (v === null || v === "" ? null : Number(v) >= 50 && Number(v) <= 95 ? Math.round(Number(v)) : undefined) },
@@ -35,6 +49,7 @@ const PRESET_KEYS = {
   music_energy: { key: "musicEnergy", clean: (v) => (v === null || v === "" ? null : ["High", "Chill", "Wonder", "Suspense"].includes(v) ? v : undefined) },
   caption_color: { key: "caption", clean: (v, preset) => (["white", "cream", "yellow", "mint", "sky", "pink"].includes(v) ? { ...(preset.caption || {}), color: v } : undefined) },
   persona: { key: "persona", clean: (v) => (typeof v === "string" ? v.slice(0, 300) : undefined) },
+  target_channels: { key: "targetChannels", clean: (v) => (Array.isArray(v) ? v.filter((c) => typeof c === "string" && c.length < 80).slice(0, 10) : undefined) },
 };
 
 nichesRouter.patch("/niches/:name", async (req, res) => {

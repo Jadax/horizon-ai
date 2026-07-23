@@ -89,23 +89,40 @@ async function approveJobHandler(req, res) {
     if (!job.publish_package?.platform_variants?.youtube) {
       return res.status(409).json({ error: "YouTube was not selected for this run. Use its package target instead." });
     }
-    const result = await uploadScheduled({
-      videoUrl: job.rendered_video_url,
-      title: job.title,
-      description: job.description,
-      tags: job.tags,
-      jobId: job.id,
-      targetChannel: job.target_channel,
-      niche: job.niche,
-      publishPackage: job.publish_package,
-    });
+    // Multi-channel: fetch niche's targetChannels from the niche config so
+    // the same video publishes to all selected YouTube channels.
+    const { data: nicheRow } = await supabase
+      .from("niche_configurations")
+      .select("editing_style_preset, target_channel")
+      .eq("niche_name", job.niche)
+      .single();
+    const preset = nicheRow?.editing_style_preset || {};
+    const channels = Array.isArray(preset.targetChannels) && preset.targetChannels.length
+      ? preset.targetChannels
+      : [job.target_channel || nicheRow?.target_channel || "primary"];
+    const results = [];
+    for (const channel of channels) {
+      const result = await uploadScheduled({
+        videoUrl: job.rendered_video_url,
+        title: job.title,
+        description: job.description,
+        tags: job.tags,
+        jobId: job.id,
+        targetChannel: channel,
+        niche: job.niche,
+        publishPackage: job.publish_package,
+      });
+      results.push({ channel, result });
+    }
+    const primary = results[0];
     await updateJob(job.id, {
-      youtube_video_id: result.videoId,
-      target_region: result.region,
-      publish_schedule: result.publishAt.toISOString(),
-      status: result.success ? "Scheduled" : "Rendered",
+      youtube_video_id: primary?.result?.videoId || null,
+      target_region: primary?.result?.region,
+      publish_schedule: primary?.result?.publishAt?.toISOString(),
+      published_to: results.map((r) => ({ channel: r.channel, videoId: r.result.videoId, url: r.result.url })),
+      status: primary?.result?.success ? "Scheduled" : "Rendered",
     });
-    res.json({ ok: true, ...result });
+    res.json({ ok: true, channels: results.length, primary: primary?.result });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
