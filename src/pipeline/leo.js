@@ -14,7 +14,7 @@
  * Cadence: `npm run leo:sync` via Windows Task Scheduler (daily).
  * Leo niche row: active=false (cron must not harvest it).
  */
-import { readdir, readFile, rename, stat, unlink, writeFile } from "node:fs/promises";
+import { readdir, readFile, rename, stat, unlink, writeFile, mkdir } from "node:fs/promises";
 import path from "node:path";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
@@ -846,6 +846,7 @@ Return JSON:
  */
 export async function syncLeoInbox() {
   const inbox = config.leoInboxDir;
+  await mkdir(inbox, { recursive: true }).catch(() => {});
   const entries = await readdir(inbox).catch(() => null);
   if (!entries) {
     await logEvent("Leo", `inbox not found: ${inbox} — create it and drop cat videos in.`, { level: "error" });
