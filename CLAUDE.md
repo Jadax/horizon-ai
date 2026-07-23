@@ -4,7 +4,27 @@
 - Supabase schema: ONE file — `supabase/COMPLETE_SETUP.sql`. Never separate migrations. No new columns without asking (jsonb fields like editing_style_preset are the extension point).
 - Every commit: bump `package.json` version (semver), short commit summary, then `GIT_TERMINAL_PROMPT=0 git push origin master` — no confirmation.
 - No new PAID API/service deps without asking (current paid-optional: OpenAI fallback, ElevenLabs voice clone).
-- No YouTube/TikTok/Instagram/Twitter/Twitch/Kick scraping or downloading, ever — no official download API exists, even for owners. Official APIs / RSS / owner uploads only.
+- YouTube/Twitch/Kick downloading via yt-dlp is permitted for content YOU own (your own channels, your own videos). Platform export features are the preferred path; yt-dlp is the programmatic fallback for owner content. Never download or scrape content you don't have rights to.
+
+# TOKEN EFFICIENCY & CONTEXT OPTIMIZATION D IRECTIVE
+
+You are an expert software engineer optimized for token efficiency, accuracy, and clear execution. Apply the following strict constraints to ALL system interactions and responses:
+
+## 1. Output Conciseness (Save Output Tokens)
+- Be extremely direct and concise. Omit pleasantries, repetitive preamble, recap summaries, and fluff.
+- Lead with the direct solution, code change, or direct answer immediately.
+- Use succinct Markdown lists over verbose paragraphs. Explain *why* in 1 sentence max per change.
+- Never output full files when modifying code. Produce ONLY the targeted file diffs or explicit function block changes with minimal surrounding context.
+
+## 2. Input & Context Management (Save Input Tokens)
+- Assume the system/code context provided at the start of the session is cached and static.
+- Do not repeat or echo back code snippets, documentation, or rules provided in previous context turns.
+- If asked to perform a simple task, perform it directly in the minimum necessary steps without requesting or reading extraneous repository files.
+
+## 3. Tool & Execution Rules
+- Prioritize single-turn completion. Verify work internally before submitting to prevent iterative error loops.
+- Use target-specific file searches (grep/glob) rather than broad directory listings or full-file reads.
+- When generating JSON or structured schemas, output strict raw format without prose wrapper text.
 
 ## Stack (near-$0/video, verified live)
 | Function | Primary (free) | Fallback |
@@ -30,7 +50,7 @@
 8. Analytics: `lib/performanceTracker.js` (6h stats refresh) + `lib/closedLoopLearner.js` (weekly, feeds title patterns + source weights back).
 
 ## Leo (local cat niche — `npm run leo:sync`, src/pipeline/leo.js)
-Scans `leo_inbox/` (videos live on the dev box, not Railway). Per video: sidecar `.txt` note OR vision frame description → persona-consistent copy (preset.persona) → TTS (LEO_VOICE_ID+ELEVENLABS_API_KEY = cloned voice, else Gemini "Leda") → render with hook overlay, cream captions, Chill music, keepSourceAudio (meows preserved) → output QC (audio stream, 5-61s, drift ≤2.5s, min size) → publish_targets rows (youtube+tiktok+instagram) → Awaiting Approval / autopilot upload → file moves to processed/. Cadence via Task Scheduler. Leo niche row exists but active=false (cron must not harvest it).
+Scans `leo_inbox/` (videos live on the dev box, not Railway). **v2 multi-clip compilation**: all inbox videos are analyzed via Gemini Vision for "cute factor" scoring across sampled frames; scene detection finds natural cut points; top-scored clips are stitched into a narrative-arc compilation (hook clip first, payoff clip last) with warm color grading, auto-zoom on close-ups, smooth transitions, SFX at action peaks, and adaptive text overlays. Falls back to single-video mode if only one clip present or compilation fails. Publishes to Leo's YouTube channel (`@LeoTheCat-x6q`) and creates packages for Instagram + TikTok. Output QC (audio stream, 5-61s, drift ≤3s, min size) → publish_targets (youtube+tiktok+instagram) → Awaiting Approval / autopilot upload → files move to processed/. Cadence via Task Scheduler. Leo niche row exists but active=false (cron must not harvest it).
 
 ## Niche config (Supabase `niche_configurations`)
 Columns: niche_name, active, target_sources(subreddits), rss_feeds, mastodon_tags, lemmy_communities, lore_wiki_apis, footage_keywords, voice_profile_id, editing_style_preset(jsonb), language, trend_region, target_duration_min/max_seconds, target_channel, social_rss_feeds. NO run_trend_sources column.

@@ -1,8 +1,10 @@
 /**
  * ROUTES: LONG-FORM CLIPPER (Agent 6) — upload a video you have rights to,
- * or point at a direct CC-licensed file URL, and kick off transcription +
- * hook-scored clip extraction. See src/pipeline/agent6_clipper.js for why
- * there is deliberately no "paste a YouTube link" endpoint here.
+ * or point at a direct file URL, and kick off transcription +
+ * hook-scored clip extraction.
+ *
+ * YouTube/Twitch/Kick URLs are accepted for content you own (yt-dlp is the
+ * programmatic fallback; the platform's own export feature is preferred).
  */
 import express from "express";
 import multer from "multer";
@@ -17,16 +19,6 @@ const upload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 100 * 1024 * 1024 }, // 100MB — Whisper itself caps at 25MB, enforced with a clear error in agent6_clipper.js
 });
-
-// None of these platforms expose an official download API, even to a
-// video's own owner — pulling from them means scraping, which breaks their
-// ToS regardless of who owns the content. If it's your own video, use the
-// platform's own download/export feature and upload the file instead.
-const BLOCKED_HOSTS = [
-  "youtube.com", "www.youtube.com", "youtu.be", "m.youtube.com",
-  "twitch.tv", "www.twitch.tv", "clips.twitch.tv",
-  "kick.com", "www.kick.com",
-];
 
 clipsRouter.get("/clips", async (_req, res) => {
   const { data, error } = await supabase
@@ -81,18 +73,26 @@ clipsRouter.post("/clips/upload", upload.single("video"), async (req, res) => {
 clipsRouter.post("/clips/from-url", async (req, res) => {
   const { url, license_note, source_label, niche } = req.body || {};
   if (!url || typeof url !== "string") return res.status(400).json({ error: "url is required" });
-  if (!license_note || !String(license_note).trim()) {
-    return res.status(400).json({ error: "license_note is required for CC-licensed sources — record where this footage came from and what license permits reuse" });
-  }
+
+  // Determine source type: YouTube/Twitch/Kick URLs use yt-dlp for owner content,
+  // direct file URLs (archive.org, CDN, etc.) are CC-licensed sources.
   let hostname;
   try {
     hostname = new URL(url).hostname.toLowerCase();
   } catch {
     return res.status(400).json({ error: "url is not a valid URL" });
   }
-  if (BLOCKED_HOSTS.includes(hostname)) {
+  const isPlatformUrl = ["youtube.com", "www.youtube.com", "youtu.be", "m.youtube.com",
+    "twitch.tv", "www.twitch.tv", "clips.twitch.tv",
+    "kick.com", "www.kick.com",
+    "tiktok.com", "www.tiktok.com",
+    "instagram.com", "www.instagram.com",
+    "reddit.com", "www.reddit.com",
+  ].includes(hostname);
+  const sourceType = isPlatformUrl ? "ytdlp_own" : "cc_licensed";
+  if (isPlatformUrl && (!license_note || !String(license_note).trim())) {
     return res.status(400).json({
-      error: `${hostname} URLs aren't accepted here — none of YouTube/Twitch/Kick expose an official download API, even to a video's own owner, so pulling from them means scraping, which breaks their ToS. If it's your own video, use that platform's own download/export feature and use the "Upload a video you own" form instead. This pipeline only takes a direct video file URL (e.g. archive.org, Wikimedia Commons, your own CDN) you've verified is CC-licensed or public domain — not a page that requires scraping to extract video.`,
+      error: "license_note is required for platform URLs — confirm this is YOUR content: e.g. \"I own this video, posted to my own YouTube channel\"",
     });
   }
 
@@ -100,10 +100,10 @@ clipsRouter.post("/clips/from-url", async (req, res) => {
     const { data: job, error } = await supabase
       .from("clip_jobs")
       .insert({
-        source_type: "cc_licensed",
+        source_type: sourceType,
         source_url: url,
         source_label: source_label || null,
-        license_note,
+        license_note: license_note || null,
         niche: niche || null,
         status: "Transcribing",
       })

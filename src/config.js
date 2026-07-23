@@ -116,12 +116,23 @@ export const config = {
     trackingId: process.env.AFFILIATE_TRACKING_ID || null,
   },
 
+  // ─── yt-dlp (free, open-source video downloader) ─────────────────────
+  // Path to the yt-dlp binary. Defaults to "yt-dlp" (on PATH).
+  ytDlpPath: process.env.YT_DLP_PATH || "yt-dlp",
+
   // ─── Leo (local cat-video niche) ────────────────────────────────────
   leoInboxDir: process.env.LEO_INBOX_DIR || "leo_inbox",
   // ElevenLabs cloned voice for Leo narrations (the personal-voice slot).
   // Both unset → OpenAI "coral". Requires the voice owner's consent.
   leoVoiceId: process.env.LEO_VOICE_ID || null,
   elevenlabsKey: process.env.ELEVENLABS_API_KEY || null,
+  // YouTube channel URL for Leo (for reference analysis of top pet accounts).
+  // Set to a top pet channel to analyze their strategy for your own content.
+  leoReferenceChannel: process.env.LEO_REFERENCE_CHANNEL || null,
+  // Leo's own YouTube channel handle (e.g. @LeoTheCat-x6q) for publish targets.
+  leoYoutubeChannel: process.env.LEO_YOUTUBE_CHANNEL || "@LeoTheCat-x6q",
+  // Leo's Instagram handle for publish package labels.
+  leoInstagramHandle: process.env.LEO_INSTAGRAM_HANDLE || "",
 
   // ─── Telegram approval notifications (optional, free) ──────────────
   telegram: {
