@@ -134,7 +134,7 @@ h1 span{color:var(--emerald)}
 .niche-card .nc-name{font-weight:700;font-size:14px;display:flex;align-items:center;gap:8px}
 .niche-card .nc-dot{width:8px;height:8px;border-radius:50%;background:var(--muted)}
 .niche-card .nc-dot.on{background:var(--emerald);box-shadow:0 0 8px var(--emerald)}
-.niche-card .nc-meta{font-family:var(--mono);font-size:9.5px;color:var(--muted)}
+.niche-card .nc-meta{font-family:var(--mono);font-size:9.5px;color:var(--muted);display:flex;align-items:center;gap:4px;white-space:nowrap}
 .niche-card .nc-run{background:none;border:1px solid var(--emerald-dim);color:var(--emerald);font-size:11px;padding:2px 8px;border-radius:4px;cursor:pointer;margin-left:8px;transition:all .15s}
 .niche-card .nc-run:hover{background:var(--emerald);color:#000}
 .nc-stats{display:flex;gap:14px;flex-wrap:wrap;margin-top:9px}
@@ -992,18 +992,6 @@ async function saveNicheSettings(name){
   const res = await fetch("/api/niches/"+encodeURIComponent(name),{method:"PATCH",headers:H,body:JSON.stringify(body)});
   if(res.ok){ closeNicheSettings(); loadNiches(); }
   else { alert("Save failed: "+((await res.json()).error||res.status)); }
-}
-
-async function runNiche(name){
-  if(!confirm(`Run ${name} pipeline now?`)) return;
-  const res = await fetch("/api/run/"+encodeURIComponent(name),{method:"POST",headers:H});
-  const j = await res.json();
-  if(res.ok){
-    document.getElementById("liveLog").innerHTML =
-      `<div class="log-entry log-info">🚀 ${j.message}</div>` + document.getElementById("liveLog").innerHTML;
-  } else {
-    alert("Failed: "+(j.error||res.status));
-  }
 }
 
 // ── Long-form clipper (Agent 6) ──
