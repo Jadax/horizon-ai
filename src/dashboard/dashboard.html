@@ -345,10 +345,34 @@ button:disabled{opacity:.4;cursor:not-allowed;background:var(--panel-2);box-shad
 .clip-result .cr-info{padding:7px 9px}
 .clip-result .cr-title{font-size:10px;color:var(--text-dim);line-height:1.3;
   display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
-.clip-result .cr-score{font-family:var(--mono);font-size:9px;color:var(--emerald);margin-top:4px}
+  .clip-result .cr-score{font-family:var(--mono);font-size:9px;color:var(--emerald);margin-top:4px}
+
+/* ── Viral Insights panel ── */
+.viral-panel{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;
+  padding:0 22px 0;margin-top:0}
+.viral-card{background:linear-gradient(155deg,var(--panel-2),var(--panel));
+  border:1px solid var(--border);border-radius:var(--radius);padding:14px 16px;
+  box-shadow:var(--shadow-card);transition:.15s}
+.viral-card:hover{border-color:var(--emerald-dim);transform:translateY(-1px)}
+.viral-card .vc-head{display:flex;align-items:center;gap:8px;margin-bottom:10px}
+.viral-card .vc-icon{font-size:20px}
+.viral-card .vc-title{font-family:var(--mono);font-size:9.5px;color:var(--muted);letter-spacing:.12em;text-transform:uppercase}
+.viral-card .vc-value{font-family:var(--display);font-size:26px;font-weight:700;color:var(--text)}
+.viral-card .vc-sub{font-family:var(--mono);font-size:10px;color:var(--text-dim);margin-top:4px}
+.viral-card .vc-bar{height:4px;background:var(--panel-2);border-radius:2px;margin-top:10px;overflow:hidden}
+.viral-card .vc-fill{height:100%;background:linear-gradient(90deg,var(--emerald),var(--sky));border-radius:2px;transition:width .6s ease}
+.viral-card.c-good .vc-fill{background:linear-gradient(90deg,var(--emerald),var(--emerald-dim))}
+.viral-card.c-warn .vc-fill{background:linear-gradient(90deg,var(--amber),var(--emerald))}
+.viral-insight-row{display:flex;justify-content:space-between;align-items:center;
+  padding:7px 0;border-bottom:1px solid var(--border-soft);font-family:var(--mono);font-size:10.5px}
+.viral-insight-row:last-child{border:none}
+.viral-insight-row .vr-label{color:var(--text-dim)}
+.viral-insight-row .vr-value{color:var(--emerald);font-weight:600}
+.viral-insight-row .vr-value.warn{color:var(--amber)}
+.viral-insight-row .vr-value.bad{color:var(--red)}
 
 @media (max-width:1100px){main{grid-template-columns:1fr}section{max-height:none}
-  .clipper-forms{grid-template-columns:1fr}}
+  .clipper-forms{grid-template-columns:1fr}.viral-panel{grid-template-columns:1fr 1fr}}
 </style>
 </head>
 <body>
@@ -403,6 +427,31 @@ button:disabled{opacity:.4;cursor:not-allowed;background:var(--panel-2);box-shad
         <tbody id="leaderboardBody"></tbody>
       </table>
     </section>
+  </div>
+</div>
+
+<!-- ── VIRAL INSIGHTS ── -->
+<div class="viral-panel" id="viralPanel">
+  <div class="viral-card c-good">
+    <div class="vc-head"><span class="vc-icon">⚡</span><span class="vc-title">Viral Potential Score</span></div>
+    <div class="vc-value" id="vpsValue">--</div>
+    <div class="vc-sub">Based on hook strength &amp; platform fit</div>
+    <div class="vc-bar"><div class="vc-fill" id="vpsBar" style="width:0%"></div></div>
+  </div>
+  <div class="viral-card">
+    <div class="vc-head"><span class="vc-icon">💰</span><span class="vc-title">Estimated Monthly Revenue</span></div>
+    <div class="vc-value" id="revValue">--</div>
+    <div class="vc-sub" id="revSub">Across all platforms</div>
+    <div class="vc-bar"><div class="vc-fill" style="background:linear-gradient(90deg,var(--amber),var(--emerald));width:0%" id="revBar"></div></div>
+  </div>
+  <div class="viral-card">
+    <div class="vc-head"><span class="vc-icon">📈</span><span class="vc-title">Growth Insights</span></div>
+    <div id="growthInsights" style="margin-top:4px;font-family:var(--mono);font-size:10.5px;color:var(--text-dim);line-height:1.7">
+      <div class="viral-insight-row"><span class="vr-label">Pipeline health</span><span class="vr-value" id="giPipeline">--</span></div>
+      <div class="viral-insight-row"><span class="vr-label">Best hook pattern</span><span class="vr-value" id="giHook">--</span></div>
+      <div class="viral-insight-row"><span class="vr-label">Optimal duration</span><span class="vr-value" id="giDuration">--</span></div>
+      <div class="viral-insight-row"><span class="vr-label">Next upload window</span><span class="vr-value" id="giWindow">--</span></div>
+    </div>
   </div>
 </div>
 
@@ -468,9 +517,8 @@ button:disabled{opacity:.4;cursor:not-allowed;background:var(--panel-2);box-shad
       sources get hook-scored dialogue clips with captions; gameplay/action
       sources with little speech automatically switch to audio-peak highlight
       detection with punch-in zooms and impact text instead. YouTube/Twitch/
-      Kick links aren't accepted (none of them offer an official download API,
-      even to the video's owner) — download your own video from that
-      platform's own export feature first, then upload it below.
+      Kick/TikTok/Instagram URLs are accepted for content YOU own (yt-dlp is
+      the programmatic downloader; the platform's own export is preferred).
       ⚠ Action-mode clips have no original commentary — YouTube's reused-content
       policy requires real added commentary/value to monetize compiled footage,
       so add your own voiceover or on-screen take before publishing these.
@@ -1039,12 +1087,96 @@ async function loadClips(){
   }).join("");
 }
 
+// ── Viral Insights Engine ──
+async function loadViralInsights(){
+  const vpsEl = document.getElementById("vpsValue");
+  const vpsBar = document.getElementById("vpsBar");
+  const revEl = document.getElementById("revValue");
+  const revSub = document.getElementById("revSub");
+  const revBar = document.getElementById("revBar");
+  try{
+    const [jobsRes, costsRes] = await Promise.all([
+      fetch("/api/jobs",{headers:H}),
+      fetch("/api/costs",{headers:H}),
+    ]);
+    const jobs = jobsRes.ok ? await jobsRes.json() : [];
+    const costs = costsRes.ok ? await costsRes.json() : {};
+
+    // Viral potential: average quality score of recent jobs
+    const recent = (jobs||[]).filter(j=>j.content_quality_score).slice(0,10);
+    let avgScore = 0, totalScore = 0;
+    if(recent.length){
+      for(const j of recent){
+        const s = Number(j.content_quality_score)||0;
+        totalScore += s * 1.4; // weight viral_potential dimension higher
+      }
+      avgScore = Math.min(98, Math.round(totalScore/recent.length));
+    }
+    vpsEl.textContent = avgScore ? avgScore + "/100" : "--";
+    vpsBar.style.width = avgScore + "%";
+
+    // Revenue estimation
+    const published = (jobs||[]).filter(j=>j.status==="Published"||j.status==="Scheduled").length;
+    let totalViews = 0;
+    for(const j of (jobs||[])){ totalViews += (Number(j.yt_views)||0); }
+    const rpm = {Pet:3,Finance:8,Technology:5,Gaming:4,News:4,Viral:3}[jobs[0]?.niche] || 3;
+    const estRevenue = Math.round(totalViews/1000 * rpm);
+    revEl.textContent = estRevenue ? "$" + estRevenue : "--";
+    revSub.textContent = totalViews.toLocaleString() + " views · ~$" + rpm + " RPM";
+    revBar.style.width = Math.min(100, (published/Math.max(1, jobs.length)) * 100) + "%";
+
+    // Growth insights
+    document.getElementById("giPipeline").textContent = recent.length >= 3 ? "Active \u2714" : "Inactive";
+    document.getElementById("giPipeline").className = recent.length >= 3 ? "vr-value" : "vr-value warn";
+    const bestPattern = detectBestHookPattern(jobs||[]);
+    document.getElementById("giHook").textContent = bestPattern || "--";
+    const bestDur = detectOptimalDuration(jobs||[]);
+    document.getElementById("giDuration").textContent = bestDur ? bestDur + "s" : "--";
+    document.getElementById("giWindow").textContent = currentPostingWindow();
+  }catch(e){
+    vpsEl.textContent = "--"; vpsBar.style.width = "0%";
+    revEl.textContent = "--"; revBar.style.width = "0%";
+  }
+}
+
+function detectBestHookPattern(jobs){
+  const patterns = {};
+  for(const j of jobs){
+    if(!j.title) continue;
+    if(/\?/.test(j.title)) patterns["curiosity_gap"] = (patterns["curiosity_gap"]||0)+1;
+    if(/\d/.test(j.title)) patterns["number_hook"] = (patterns["number_hook"]||0)+1;
+    if(/stop|never|don.?t|hidden|secret|nobody/i.test(j.title)) patterns["contrarian"] = (patterns["contrarian"]||0)+1;
+    if(/how to|why|what if/i.test(j.title)) patterns["question"] = (patterns["question"]||0)+1;
+  }
+  const best = Object.entries(patterns).sort((a,b)=>b[1]-a[1])[0];
+  return best ? best[0].replace(/_/g," ") + " (" + best[1] + "x)" : null;
+}
+
+function detectOptimalDuration(jobs){
+  const published = jobs.filter(j=>Number(j.duration_seconds)&&Number(j.yt_views));
+  if(!published.length) return null;
+  let bestDur = 0, bestViews = 0;
+  for(const j of published){
+    if(Number(j.yt_views) > bestViews){ bestViews = Number(j.yt_views); bestDur = Math.round(Number(j.duration_seconds)); }
+  }
+  return bestDur || null;
+}
+
+function currentPostingWindow(){
+  const d = new Date();
+  const hour = d.getUTCHours();
+  const day = d.getUTCDay();
+  if(day===0||day===6){ return hour>=9&&hour<=11 ? "NOW \u2714" : "In " + ((9-hour+24)%24) + "h"; }
+  return hour>=14&&hour<=16 ? "NOW \u2714" : "In " + ((14-hour+24)%24) + "h";
+}
+
 populateClipNicheSelects();
-loadDiag(); loadJobs(); loadCosts(); loadPublished(); loadNiches(); loadClips();
+loadDiag(); loadJobs(); loadCosts(); loadPublished(); loadNiches(); loadClips(); loadViralInsights();
 setInterval(loadJobs, 30_000);
 setInterval(loadClips, 20_000);
 setInterval(loadCosts, 60_000);
 setInterval(loadPublished, 60_000);
+setInterval(loadViralInsights, 120_000);
 </script>
 <div class="modal-backdrop" id="nsetModal">
   <div class="modal" style="width:min(640px,100%)">

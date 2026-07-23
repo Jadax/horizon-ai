@@ -49,13 +49,17 @@ function buildAssSubtitles(captions, overlays = [], style = {}) {
     'PlayResY: 1920',
     '',
     '[V4+ Styles]',
-    // Default: short-form standard look — big bold themed color, heavy
-    // black outline, bottom-center. Hook: comic-style yellow headline with
-    // a thicker outline, top-center, used for per-beat overlay text like
-    // "ONLY 10 YEARS LEFT!".
+    // Default: big bold themed color, heavy black outline, bottom-center.
+    // Hook: comic-style yellow, thick outline, top-center.
+    // Emoji: huge center-burst for payoff moments.
+    // NumberPunch: massive yellow center for data reveals.
+    // POV: smaller cream text at top for POV-style captions.
     'Format: Name, Fontname, Fontsize, PrimaryColour, OutlineColour, BackColour, Bold, BorderStyle, Outline, Shadow, Alignment, MarginV, Spacing',
     `Style: Default,Arial,${fontsize},${primary},&H00000000,&H80000000,1,1,5,2,2,220,1`,
     'Style: Hook,Arial,104,&H0000FFFF,&H00000000,&H80000000,1,1,7,3,8,240,1',
+    'Style: Emoji,Arial,120,&H00FFFFFF,&H00000000,&H80000000,1,1,3,2,5,240,1',
+    'Style: NumberPunch,Arial,140,&H0000FFFF,&H00000000,&H80000000,1,1,5,2,5,180,1',
+    'Style: POV,Arial,56,&H00D6F4FF,&H00000000,&H80000000,1,1,4,2,8,120,1',
     '',
     '[Events]',
     'Format: Layer, Start, End, Style, Text',

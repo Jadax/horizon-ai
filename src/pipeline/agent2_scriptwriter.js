@@ -9,6 +9,7 @@ import { logEvent } from "../supabase.js";
 import { getTitlePatternInsight } from "../lib/trendScoring.js";
 import { gradeContent } from "../lib/contentQuality.js";
 import { llmJson } from "../lib/llm.js";
+import { HOOK_TEMPLATES, RETENTION_ARCS, EMOTIONAL_CURVES, NICHE_VIRAL_PATTERNS, PLATFORM_RULES } from "../lib/viralScience.js";
 
 const TITLE_PATTERNS = ["curiosity_gap", "number_stakes", "contrarian_reframe", "direct_consequence", "insider_callout"];
 
@@ -133,6 +134,8 @@ export async function writeScript(niche, topic, loreContext, jobId) {
   const loopMode = maxSeconds <= 70;
   const titlePatternHint = await getTitlePatternInsight(niche.niche_name).catch(() => null);
 
+  const viralPatterns = NICHE_VIRAL_PATTERNS[niche.niche_name] || NICHE_VIRAL_PATTERNS.Pet || {};
+  const hookTemplates = HOOK_TEMPLATES[niche.niche_name?.toLowerCase()] || HOOK_TEMPLATES.universal;
   const context = [
     `NICHE: ${niche.niche_name}`,
     `LANGUAGE: ${language}`,
@@ -141,6 +144,12 @@ export async function writeScript(niche, topic, loreContext, jobId) {
     `LOOP_MODE: ${loopMode}`,
     `TARGET_WORDS_MIN: ${wordsMin}`,
     `TARGET_WORDS_MAX: ${wordsMax}`,
+    // Viral science: hook templates and retention rules
+    `VIRAL_HOOK_STRATEGY (${viralPatterns.hookStrategy || "curiosity + emotion"}):`,
+    ...hookTemplates.slice(0, 5).map((t, i) => `  ${i + 1}. [${t.pattern}] ${t.template} — Example: "${t.example}"`),
+    `PATTERN INTERRUPTS: Every 5-7 seconds, something MUST change — new fact, pace shift, emotional turn, or visual reveal. Never let 3 sentences pass without a fresh stimulus.`,
+    `EMOTIONAL_CURVE: Start with surprise/curiosity → build tension → deliver revelation → end with satisfaction or empowerment. Every script must have a feeling arc, not just information.`,
+    `TOP FORMATS in this niche: ${(viralPatterns.topFormats || []).join(", ")}`,
     niche.editing_style_preset?.explainerMode
       ? [
           "EXPLAINER_MODE: this is an 'explained for dummies' video. The topic candidate is only a pointer — identify the underlying evergreen subject behind it and explain THAT from scratch. If the candidate is about a new movie of the Odyssey, the video is about the Odyssey legend itself (its story, why it survived 2800 years), not the movie. If it's a question, answer the question properly.",
