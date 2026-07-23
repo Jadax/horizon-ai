@@ -33,13 +33,18 @@ export async function logEvent(agent, message, meta = {}) {
   console.log(`[${agent}] ${message}`);
 }
 
-/** Update the pipeline_logs row for the current job. */
+/** Update the pipeline_logs row for the current job.
+ * Returns the update result so callers can detect failures. */
 export async function updateJob(jobId, patch) {
-  const { error } = await supabase
+  const { data, error } = await supabase
     .from("pipeline_logs")
     .update(patch)
-    .eq("id", jobId);
-  if (error) console.error("[supabase] updateJob failed:", error.message);
+    .eq("id", jobId)
+    .select();
+  if (error) {
+    console.error("[supabase] updateJob failed:", error.message);
+    return { error, data: null };
+  }
   bus.emit("job", { jobId, ...patch });
-  return { error };
+  return { error: null, data };
 }

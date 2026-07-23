@@ -1,15 +1,12 @@
 import axios from 'axios';
 import { config } from '../config.js';
-import { execFile } from 'node:child_process';
-import { promisify } from 'node:util';
-import { writeFile, unlink } from 'node:fs/promises';
+import { readFile, writeFile, unlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import ffmpeg from 'ffmpeg-static';
-import { supabase } from '../supabase.js';
+import { execFileAsync, buildSrt, srtTime, uploadRenderArtifact } from './utils.js';
 
-const execFileAsync = promisify(execFile);
 const RENDER_API_URL = config.renderApiUrl || 'http://localhost:3000';
 const ENGINE = config.renderEngine || 'render-api';
 
@@ -70,29 +67,6 @@ function buildAssSubtitles(captions, overlays = [], style = {}) {
     ...overlays.map((o) => `Dialogue: 1,${toAssTimestamp(o.start)},${toAssTimestamp(o.end)},Hook,${clean(o.text)}`),
   ];
   return header + '\n' + lines.join('\n') + '\n';
-}
-
-function toSrtTimestamp(seconds) {
-  const ms = Math.max(0, Math.round(seconds * 1000));
-  const hours = Math.floor(ms / 3600000);
-  const minutes = Math.floor((ms % 3600000) / 60000);
-  const secs = Math.floor((ms % 60000) / 1000);
-  return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(secs).padStart(2, '0')},${String(ms % 1000).padStart(3, '0')}`;
-}
-
-function buildSrt(captions) {
-  return captions.map((caption, index) => [
-    index + 1,
-    `${toSrtTimestamp(caption.start)} --> ${toSrtTimestamp(caption.end)}`,
-    String(caption.text || '').replace(/\n/g, ' '),
-    '',
-  ].join('\n')).join('\n');
-}
-
-async function uploadRenderArtifact(storagePath, body, contentType) {
-  const { error } = await supabase.storage.from('renders').upload(storagePath, body, { contentType, upsert: true });
-  if (error) throw new Error(`Render upload failed: ${error.message}`);
-  return supabase.storage.from('renders').getPublicUrl(storagePath).data.publicUrl;
 }
 
 export async function renderVideo(payload, jobId) {

@@ -20,7 +20,6 @@
  */
 import { supabase } from "../supabase.js";
 import { llmJson } from "./llm.js";
-import { config } from "../config.js";
 
 // ─── MULTI-SOURCE MUSIC SEARCH ────────────────────────────────────────
 

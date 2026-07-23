@@ -15,7 +15,6 @@
  * insert rows into music_library yourself — the pipeline doesn't care where
  * a track came from, only its energy_level/mood_tags/track_url.
  */
-import { config } from "../config.js";
 import { supabase } from "../supabase.js";
 
 const ENERGY_QUERIES = {

@@ -1,21 +1,10 @@
-import { execFile } from "node:child_process";
-import { promisify } from "node:util";
 import { readFile, writeFile, unlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 import ffmpeg from "ffmpeg-static";
 import { supabase } from "../supabase.js";
-
-const execFileAsync = promisify(execFile);
-
-function srtTime(seconds) {
-  const ms = Math.max(0, Math.round(seconds * 1000));
-  const h = Math.floor(ms / 3600000);
-  const m = Math.floor((ms % 3600000) / 60000);
-  const s = Math.floor((ms % 60000) / 1000);
-  return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")},${String(ms % 1000).padStart(3, "0")}`;
-}
+import { execFileAsync, srtTime, buildSrt, uploadRenderArtifact } from "./utils.js";
 
 function captionCues(words, maxWords = 3) {
   const cues = [];
@@ -27,18 +16,12 @@ function captionCues(words, maxWords = 3) {
   return cues;
 }
 
-function buildSrt(cues) {
-  return cues.map((cue, index) => `${index + 1}\n${srtTime(cue.start)} --> ${srtTime(cue.end)}\n${cue.text}\n`).join("\n");
-}
-
 function escapeDrawtext(value) {
   return String(value || "").replace(/\\/g, "\\\\").replace(/:/g, "\\:").replace(/'/g, "’").replace(/%/g, "\\%");
 }
 
 async function uploadArtifact(storagePath, body, contentType) {
-  const { error } = await supabase.storage.from("renders").upload(storagePath, body, { contentType, upsert: true });
-  if (error) throw new Error(`Clip artifact upload failed: ${error.message}`);
-  return supabase.storage.from("renders").getPublicUrl(storagePath).data.publicUrl;
+  return uploadRenderArtifact(storagePath, body, contentType);
 }
 
 export async function renderSourceClip({ sourceBuffer, clip, words = [], clipJobId, index }) {

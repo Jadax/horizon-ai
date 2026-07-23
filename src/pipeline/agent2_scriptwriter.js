@@ -9,21 +9,12 @@ import { logEvent } from "../supabase.js";
 import { getTitlePatternInsight } from "../lib/trendScoring.js";
 import { gradeContent } from "../lib/contentQuality.js";
 import { llmJson } from "../lib/llm.js";
-import { HOOK_TEMPLATES, RETENTION_ARCS, EMOTIONAL_CURVES, NICHE_VIRAL_PATTERNS, PLATFORM_RULES } from "../lib/viralScience.js";
+import { HOOK_TEMPLATES, NICHE_VIRAL_PATTERNS } from "../lib/viralScience.js";
+import { BANNED_WORDS } from "../lib/utils.js";
 
 const TITLE_PATTERNS = ["curiosity_gap", "number_stakes", "contrarian_reframe", "direct_consequence", "insider_callout"];
 
 const openai = new OpenAI({ apiKey: config.openaiKey });
-
-const BANNED_WORDS = [
-  "delve", "delving", "testament", "moreover", "furthermore", "tapestry",
-  "boasts", "navigate the", "the landscape of", "gaming landscape", "realm",
-  "elevate", "unleash", "unlock the", "game-changer", "in today's world",
-  "in the world of", "when it comes to", "it's worth noting",
-  "it's important to note", "dive into", "dive deep", "underscore",
-  "underscores", "bustling", "myriad", "plethora", "cutting-edge",
-  "unprecedented",
-];
 
 function sanitizeText(text) {
   if (!text) return { text, flagged: [] };

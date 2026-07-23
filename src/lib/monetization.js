@@ -8,17 +8,9 @@
  */
 import { config } from "../config.js";
 import { supabase, logEvent } from "../supabase.js";
+import { BANNED_WORDS } from "./utils.js";
 
-// Single source of truth for banned words
-export const BANNED_WORDS = [
-  "delve", "delving", "testament", "moreover", "furthermore", "tapestry",
-  "boasts", "navigate the", "the landscape of", "gaming landscape", "realm",
-  "elevate", "unleash", "unlock the", "game-changer", "in today's world",
-  "in the world of", "when it comes to", "it's worth noting",
-  "it's important to note", "dive into", "dive deep", "underscore",
-  "underscores", "bustling", "vibrant", "myriad", "plethora", "robust",
-  "seamless", "cutting-edge", "unprecedented",
-];
+export { BANNED_WORDS };
 
 /**
  * Match affiliate products based on keywords

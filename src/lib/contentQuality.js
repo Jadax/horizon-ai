@@ -1,7 +1,6 @@
 import { config } from "../config.js";
-import { BANNED_WORDS } from "./monetization.js";
+import { BANNED_WORDS } from "./utils.js";
 import { llmJson } from "./llm.js";
-import { PATTERN_INTERRUPT_RULES } from "./viralScience.js";
 
 const CRITIC_SYSTEM = `You are the world's best short-form video editor doing final review
 before publish. Your judgment determines whether this video gets seen by millions.

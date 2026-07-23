@@ -11,7 +11,6 @@
  * 7. Competitive saturation
  */
 
-import { config } from "../config.js";
 import { supabase, logEvent } from "../supabase.js";
 import { llmJson } from "./llm.js";
 

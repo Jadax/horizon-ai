@@ -25,7 +25,6 @@
  * not creative writing) to keep this cheap — see run.js for how its output
  * feeds into Agent 2/3/4's actual generation.
  */
-import { config } from "../config.js";
 import { logEvent } from "../supabase.js";
 import { llmJson } from "../lib/llm.js";
 

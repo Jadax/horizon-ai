@@ -29,7 +29,6 @@ import { notifyAwaitingApproval } from "../lib/telegram.js";
 import { buildPublishPackage, createPublishTargets } from "../lib/platformAdapter.js";
 import {
   buildLeoCompilation,
-  warmPetGrade,
   petHashtags,
   analyzeReferenceChannel,
 } from "../lib/leoComposer.js";
