@@ -87,13 +87,14 @@ async function describeCompilation(videos, persona, referenceBrief) {
     messages: [
       {
         role: "system",
-        content: `You write copy for a wholesome cat channel. PERSONA: ${persona}.
+        content: `You write copy for a top pet social channel. PERSONA: ${persona}.
+VIBE: Warm, cozy, feel-good. Think "aww" energy — not dramatic, not clickbaity.
 Given the source clips and an optional reference strategy from top pet accounts, return JSON:
 {
-  "narration": "1-2 short warm sentences a doting cat parent would say about this compilation (max 25 words, natural rhythm, no emoji, no hashtags, no 'here we see' — just say it like you're talking to the cat)",
-  "hook": "2-5 word ALL-CAPS POV overlay for the first seconds (curious, affectionate, or funny — e.g. CAUGHT IN 4K, HIS ROYAL HIGHNESS, POV: DRAMA QUEEN, WAIT FOR IT, THE JUDGEMENT IS REAL)",
-  "title": "cozy clickable title under 55 chars, include one cat or heart emoji",
-  "description": "1 warm sentence then newline then hashtags"
+  "narration": "1-2 soft, warm sentences a doting cat parent would say — casual, affectionate, like you're watching your cat do something adorable (max 22 words, natural rhythm, no emoji, no hashtags)",
+  "hook": "2-4 word warm overlay for the first seconds (cute, cozy, affectionate — e.g. HIS ROYAL HIGHNESS, COZY VIBES, MORNING MOOD, THE STRETCH, PURE BLISS)",
+  "title": "warm, cozy title under 55 chars, one cat or heart emoji",
+  "description": "1 soft sentence then newline then #cat #catsofyoutube #kitten #catlover #shorts"
 }
 ${referenceBrief?.strategy ? `TOP PET STRATEGY HINT: ${JSON.stringify(referenceBrief.strategy)}` : ""}`,
       },
@@ -399,26 +400,33 @@ async function analyzeVideoDeeply(file) {
         messages: [
           {
             role: "system",
-            content: `You analyze cat video frames to find the BEST short-form clip moments (15-55 seconds each). These frames are sampled sequentially from a ${duration.toFixed(0)}s video.
+            content: `You analyze cat video frames to find the BEST short-form clip moments. These frames are sampled sequentially from a ${duration.toFixed(0)}s video.
 
-For EACH distinct "cute moment" or "viral-worthy segment" you spot, return a clip object. Think like a pet TikTok editor:
-- Face close-ups, zoomed-in reactions = HIGH value
-- Playful chasing, pouncing, hunting = HIGH value
-- Sleeping, stretching, yawning = MEDIUM (cozy vibes)
-- Walking away, back turned, static = LOW
-- Eating, grooming = MEDIUM if the expression is funny
-- Looking at camera with wide eyes = VERY HIGH
+Think like a top pet TikTok/Reels editor — the goal is SMOOTH, COZY, FEEL-GOOD content. Not chaotic, not frantic. The vibe is: warm lighting, cute face close-ups, slow blinks, gentle playing, cozy stretches, soft meows. Think "aww" not "lol".
+
+For EACH distinct smooth, cute moment you spot, return a clip object:
+- Face close-ups with soft expressions = VERY HIGH (slow blinks, head tilts, loaf position)
+- Gentle playing, batting at toys, soft pounces = HIGH
+- Cozy napping, stretching, yawning, kneading = HIGH (the "aww" factor)
+- Looking at camera with relaxed eyes = VERY HIGH
+- Walking calmly, exploring, sniffing = MEDIUM (good B-roll between clips)
+- Eating, grooming slowly = MEDIUM (cozy, ASMR-like)
+- Frantic running, zoomies, aggressive play = LOW (too chaotic for cozy vibes)
+- Back turned, walking away, static = LOW
+
+CRITICAL: Each clip should be SMOOTH and CONTINUOUS — no jump cuts within a clip. Prefer longer, uninterrupted moments (8-20 seconds) over short fragments. The best pet content lets moments breathe.
 
 Return JSON: { "clips": [
-  { "start": <seconds from video start>, "end": <seconds>, "score": <1-10>, "description": "<what happens>", "mood": "<one word: cozy/funny/dramatic/cute/chaotic>", "hook_idea": "<2-4 word ALL-CAPS overlay>" }
+  { "start": <seconds from video start>, "end": <seconds>, "score": <1-10>, "description": "<what happens in this smooth moment>", "mood": "<one word: cozy/cute/gentle/warm/serene/playful>", "hook_idea": "<2-4 word ALL-CAPS overlay, warm tone: e.g. HIS ROYAL HIGHNESS, POV: COZY VIBES, THE STRETCH, MORNING MOOD>" }
 ]}
 
 Rules:
 - Start/end are ABSOLUTE seconds from video start (the ${batchTimeOffset.toFixed(1)}-${(batchTimeOffset + batchDuration).toFixed(1)}s range this batch covers)
-- Each clip should be 4-12 seconds (sweet spot for shorts)
+- Each clip should be 8-20 seconds (smooth, uninterrupted moments — let them breathe)
 - Overlapping clips are OK — we'll pick the best non-overlapping set
 - Score ≥6 only — don't waste slots on boring segments
-- Include at least 2-3 clips if they exist, max 8 per batch`,
+- Include at least 2-3 clips if they exist, max 6 per batch
+- Think: "Would this make someone say 'aww' while scrolling?"`,
           },
           {
             role: "user",
@@ -552,26 +560,29 @@ async function pickNextVideo(inboxFiles) {
 }
 
 /**
- * Pick the best unused clip from a video's analysis. Considers:
- * - Score (cute/viral factor)
- * - Duration (shorts sweet spot: 15-55s)
- * - Mood variety (prefer different moods than recent posts)
- * - No overlap with recently used clips from the same video
+ * Pick the best unused clip from a video's analysis. Top pet accounts
+ * use smooth, uninterrupted moments — not rapid-fire cuts. Prefer
+ * longer clips (8-20s) with high cozy/cute scores.
  */
 function pickBestClip(analysis, usedIndices = []) {
   const unused = analysis.filter((_, i) => !usedIndices.includes(i));
   if (!unused.length) return null;
 
-  // Prefer clips in the 5-12 second range (ideal for shorts compilation)
-  const ideal = unused.filter((c) => {
+  // Prefer smooth, longer clips — the sweet spot for cozy pet content
+  const smooth = unused.filter((c) => {
     const dur = c.end - c.start;
-    return dur >= 4 && dur <= 12;
+    return dur >= 8 && dur <= 22;
   });
-  const pool = ideal.length ? ideal : unused;
+  const pool = smooth.length ? smooth : unused;
 
-  // Sort by score descending, break ties by preferring longer clips
-  pool.sort((a, b) => b.score - a.score || (b.end - b.start) - (a.end - a.start));
-  return pool[0];
+  // Score: weight cozy/cute/gentle/warm moods higher than chaotic/dramatic
+  const moodBonus = { cozy: 1.5, cute: 1.5, gentle: 1.2, warm: 1.2, serene: 1.0, playful: 0.8, funny: 0.5, dramatic: 0.3, chaotic: 0 };
+  const scored = pool.map((c) => ({
+    ...c,
+    _rank: (c.score || 5) + (moodBonus[c.mood] || 0),
+  }));
+  scored.sort((a, b) => b._rank - a._rank || (b.end - b.start) - (a.end - a.start));
+  return scored[0];
 }
 
 /**
@@ -664,7 +675,7 @@ async function processClipFromVideo(file, clip, libraryEntry, nicheRow) {
       .catch(() => null)
       .finally(() => unlink(frameFile).catch(() => {}));
 
-    // Generate copy tailored to this specific clip
+    // Generate copy — warm, casual, feel-good (top pet account vibes)
     const copy = await llmJson({
       tier: "fast",
       temperature: 0.8,
@@ -672,16 +683,18 @@ async function processClipFromVideo(file, clip, libraryEntry, nicheRow) {
       messages: [
         {
           role: "system",
-          content: `You write copy for a wholesome cat channel. PERSONA: ${persona}.
-You are making a short from a specific ${clipDuration.toFixed(0)}-second moment in a longer video.
-The moment: ${clip.description || "Leo being cute"} | Mood: ${clip.mood || "cozy"} | Clip score: ${clip.score}/10
+          content: `You write copy for a top pet social channel. PERSONA: ${persona}.
+VIBE: Warm, casual, cozy, feel-good. Like a doting cat parent talking to their cat.
+NOT: chaotic, dramatic, clickbaity, or over-produced. Think "aww" energy.
+
+This is a ${clipDuration.toFixed(0)}-second moment: ${clip.description || "Leo being cute"} | Mood: ${clip.mood || "cozy"}
 
 Return JSON:
-{"narration":"1-2 short warm sentences a doting cat parent would actually say about THIS specific moment (natural rhythm, no emoji, no hashtags, max 25 words)",
-"hook":"${clip.hook_idea || "POV: LEO"} — overwrite with your own 2-4 word ALL-CAPS overlay if you have a better idea",
-"title":"cozy clickable title under 55 chars, exactly one cat or paw emoji",
-"description":"1 warm sentence + newline + #cat #catsofyoutube #kitten #catlover #shorts",
-"tags":["8-12 discovery tags like cat, cute cat, funny cat, kitten, cat video"]}`,
+{"narration":"1-2 short warm sentences a doting cat parent would naturally say about THIS moment — soft, affectionate, like you're right there with the cat (no emoji, no hashtags, max 22 words, casual rhythm)",
+"hook":"${clip.hook_idea || "POV: LEO"} — warm, cute overlay (think 'his royal highness' or 'cozy vibes' energy, NOT aggressive caps)",
+"title":"warm, cozy title under 55 chars, one cat emoji",
+"description":"1 soft sentence + newline + #cat #catsofyoutube #kitten #catlover #shorts",
+"tags":["8-12 tags: cat, cute cat, cozy cat, kitten, cat video, meow, catlover, catsofyoutube"]}`,
         },
         {
           role: "user",
@@ -712,21 +725,24 @@ Return JSON:
 
     const outDuration = Math.min(Math.max(voDuration + 1.5, 10), clipDuration);
 
-    // Render the single clip
+    // Render the single clip with warm color grading (top pet account look)
     const payload = {
       duration: outDuration,
       backgroundClips: [{ url: file, type: "video", start: clipStart, duration: outDuration }],
       audioUrl: voiceoverUrl,
       musicUrl: musicTrack?.track_url || null,
       keepSourceAudio: hasAudio,
+      // Warm color grading: slightly boosted saturation, warm tint, soft contrast
+      // Matches the cozy aesthetic of top pet accounts
+      colorFilter: "eq=contrast=1.06:brightness=0.03:saturation=1.10,unsharp=5:5:0.5,hue=h=-3:s=1.05",
       captions: words.filter((w) => w.start < outDuration).map((w, i) => {
         const chunk = words.slice(Math.floor(i / 3) * 3, Math.floor(i / 3) * 3 + 3);
         return i % 3 === 0
           ? { text: chunk.map((c) => c.word).join(" "), start: chunk[0].start, end: chunk[chunk.length - 1].end }
           : null;
       }).filter(Boolean),
-      overlays: [{ text: copy.hook, start: 0.2, end: 2.8 }],
-      captionStyle: nicheRow?.editing_style_preset?.caption || { color: "cream" },
+      overlays: [{ text: copy.hook, start: 0.3, end: 2.5 }],
+      captionStyle: { color: "cream", fontsize: 68 },
     };
 
     const renderResult = await renderVideo(payload, jobId);

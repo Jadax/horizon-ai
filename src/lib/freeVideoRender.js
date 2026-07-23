@@ -277,10 +277,20 @@ async function renderWithFFmpeg(payload, jobId) {
     if ((payload.captions && payload.captions.length) || (payload.overlays && payload.overlays.length)) {
       assFile = path.join(tmpDir, `horizon-captions-${randomUUID()}.ass`);
       await writeFile(assFile, buildAssSubtitles(payload.captions || [], payload.overlays || [], payload.captionStyle || {}));
-      const assPath = assFile.replace(/\\/g, '/').replace(/:/g, '\\:').replace(/'/g, '’');
-      filterComplex += `;[vcat]ass='${assPath}'[vout]`;
+      const assPath = assFile.replace(/\\/g, '/').replace(/:/g, '\\:').replace(/'/g, '\u2019');
+      // Warm color grading (payload.colorFilter) is applied before subtitles
+      // so the grade affects the video but not the text rendering.
+      const gradeLabel = payload.colorFilter ? 'vgraded' : 'vcat';
+      if (payload.colorFilter) {
+        filterComplex += `;[vcat]${payload.colorFilter}[vgraded]`;
+      }
+      filterComplex += `;[${gradeLabel}]ass='${assPath}'[vout]`;
     } else {
-      filterComplex += ';[vcat]null[vout]';
+      if (payload.colorFilter) {
+        filterComplex += `;[vcat]${payload.colorFilter}[vout]`;
+      } else {
+        filterComplex += ';[vcat]null[vout]';
+      }
     }
     // Final audio is loudness-normalized to -14 LUFS (what YouTube/TikTok
     // normalize to anyway) so uploads land at platform loudness instead of

@@ -197,13 +197,13 @@ export async function buildLeoCompilation(inboxVideos, options = {}) {
   const perClipCaps = [];
   let timeline = 0;
   for (const clip of backgroundClips) {
-    const mood = clip.score >= 8 ? "POV: royalty demands attention" :
-      clip.score >= 7 ? "this is too cute" :
-      clip.score >= 6 ? "living his best life" : "cozy king";
+    const mood = clip.score >= 8 ? "his royal highness" :
+      clip.score >= 7 ? "cozy vibes only" :
+      clip.score >= 6 ? "living his best life" : "pure bliss";
     perClipOverlays.push({
       text: mood,
-      start: timeline,
-      end: timeline + 1.8,
+      start: timeline + 0.3,
+      end: timeline + 2.2,
     });
     const len = clip.duration;
     perClipCaps.push({
