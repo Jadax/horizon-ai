@@ -145,6 +145,11 @@ h1 span{color:var(--emerald)}
 .nset label{font-family:var(--mono);font-size:9.5px;color:var(--muted);letter-spacing:.08em;text-transform:uppercase}
 .nset select,.nset input,.nset textarea{background:var(--panel-2);border:1px solid var(--border);color:var(--text);
   border-radius:8px;padding:8px 10px;font-family:var(--mono);font-size:11.5px}
+.ch-section{margin-top:14px}
+.ch-section-label{font-family:var(--mono);font-size:9.5px;color:var(--muted);letter-spacing:.08em;text-transform:uppercase;display:block;margin-bottom:6px}
+.ch-grid{display:flex;flex-wrap:wrap;gap:6px 14px}
+.ch-check{font-family:var(--mono);font-size:11px;color:var(--text-dim);display:flex;align-items:center;gap:5px;cursor:pointer}
+.ch-check input[type="checkbox"]{accent-color:var(--emerald);width:14px;height:14px}
 .nset select:focus,.nset input:focus,.nset textarea:focus{outline:none;border-color:var(--emerald-dim)}
 /* legacy row styles kept for other panels */
 .channel-panel{margin-bottom:22px}
@@ -896,6 +901,8 @@ async function scanTrending(niche){
 
 // ── Niche Control ──
 let knownChannels = ["primary"];
+let knownIgChannels = ["__ig_primary"];
+let knownTtChannels = ["__tt_primary"];
 let nicheStats = {};
 const TIER1 = ["Leo", "Explained"];
 async function loadNiches(){
@@ -904,7 +911,7 @@ async function loadNiches(){
     fetch("/api/niches",{headers:H}),
     fetch("/api/niches/stats",{headers:H}),
   ]);
-  if(chRes.ok){ knownChannels = (await chRes.json()).channels; }
+  if(chRes.ok){ const d = await chRes.json(); knownChannels = d.channels; knownIgChannels = d.instagramChannels; knownTtChannels = d.tiktokChannels; }
   if(stRes.ok){ nicheStats = await stRes.json(); }
   if(!nRes.ok) return;
   const niches = await nRes.json();
@@ -915,10 +922,14 @@ async function loadNiches(){
     const p = n.editing_style_preset || {};
     const last = st.lastRun ? new Date(st.lastRun).toLocaleDateString(undefined,{month:"short",day:"numeric"}) : "never";
     const cad = {1:"daily",2:"every 2d",3:"every 3d",7:"weekly"}[Number(p.cadenceDays)||1] || (p.cadenceDays+"d");
+    const yt = (p.targetChannels||[]).join(", ") || n.target_channel || "primary";
+    const ig = (p.targetInstagramChannels||[]).length ? "IG:" + p.targetInstagramChannels.join(",") : "";
+    const tt = (p.targetTiktokChannels||[]).length ? "TT:" + p.targetTiktokChannels.join(",") : "";
+    const chan = [yt, ig, tt].filter(Boolean).join(" · ");
     return `<div class="niche-card ${hero?"hero":""}" onclick="openNicheSettings('${n.niche_name}')">
       <div class="nc-head">
         <span class="nc-name"><span class="nc-dot ${n.active?"on":""}"></span>${n.niche_name}</span>
-        <span class="nc-meta">${n.target_channel||"primary"} · ${cad} · gate ${p.qualityThreshold||"std"} · ⚙
+        <span class="nc-meta">${chan} · ${cad} · gate ${p.qualityThreshold||"std"} · ⚙
         <button class="nc-run" onclick="event.stopPropagation();runNiche('${n.niche_name}')" title="Run ${n.niche_name} now">▶</button></span>
       </div>
       <div class="nc-stats">
@@ -947,13 +958,15 @@ function openNicheSettings(name){
   if(!n) return;
   const p = n.editing_style_preset || {};
   const opt = (v,label,cur)=>`<option value="${v}" ${String(cur)===String(v)?"selected":""}>${label}</option>`;
+  const ytChecked = (k) => (p.targetChannels||[]).includes(k) || (n.target_channel||"primary")===k;
+  const igChecked = (k) => (p.targetInstagramChannels||[]).includes(k);
+  const ttChecked = (k) => (p.targetTiktokChannels||[]).includes(k);
+  const chBox = (k,label,checked,prefix) => `<label class="ch-check"><input type="checkbox" name="${prefix}" value="${k}" ${checked?"checked":""}> ${label}</label>`;
   document.getElementById("nsetTitle").textContent = name + " settings";
   document.getElementById("nsetBody").innerHTML = `
     <div class="nset-grid">
       <div class="nset"><label>Active</label>
         <select id="ns_active">${opt(true,"On — runs on schedule",n.active)}${opt(false,"Off — paused",n.active)}</select></div>
-      <div class="nset"><label>YouTube channel</label>
-        <select id="ns_channel">${knownChannels.map(c=>opt(c,c,n.target_channel||"primary")).join("")}</select></div>
       <div class="nset"><label>Upload cadence</label>
         <select id="ns_cadence">${[[1,"Daily"],[2,"Every 2 days"],[3,"Every 3 days"],[7,"Weekly"]].map(([d,l])=>opt(d,l,Number(p.cadenceDays)||1)).join("")}</select></div>
       <div class="nset"><label>Upload time (UTC)</label>
@@ -967,6 +980,18 @@ function openNicheSettings(name){
       <div class="nset"><label>Language</label>
         <select id="ns_lang">${opt("en","English",n.language)}${opt("hi","Hindi",n.language)}</select></div>
     </div>
+    <div class="ch-section">
+      <label class="ch-section-label">YouTube channels</label>
+      <div class="ch-grid">${knownChannels.map(c=>chBox(c.key,c.label,ytChecked(c.key),"yt")).join("")}</div>
+    </div>
+    <div class="ch-section">
+      <label class="ch-section-label">Instagram channels</label>
+      <div class="ch-grid">${knownIgChannels.map(c=>chBox(c.key,c.label,igChecked(c.key),"ig")).join("")}</div>
+    </div>
+    <div class="ch-section">
+      <label class="ch-section-label">TikTok channels</label>
+      <div class="ch-grid">${knownTtChannels.map(c=>chBox(c.key,c.label,ttChecked(c.key),"tt")).join("")}</div>
+    </div>
     ${name==="Leo"?`<div class="nset" style="margin-top:12px"><label>Leo's persona (voice of every narration)</label>
       <textarea id="ns_persona" rows="2" style="resize:vertical">${p.persona||""}</textarea></div>`:""}
     <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:16px">
@@ -978,15 +1003,18 @@ function openNicheSettings(name){
 function closeNicheSettings(){ document.getElementById("nsetModal").classList.remove("open"); }
 async function saveNicheSettings(name){
   const g = id => document.getElementById(id);
+  const checkedVals = (prefix) => [...document.querySelectorAll(`input[name="${prefix}"]:checked`)].map(cb=>cb.value);
   const body = {
     active: g("ns_active").value === "true",
-    target_channel: g("ns_channel").value,
     language: g("ns_lang").value,
     cadence_days: Number(g("ns_cadence").value),
     upload_hour_utc: g("ns_hour").value === "" ? null : Number(g("ns_hour").value),
     quality_threshold: g("ns_quality").value === "" ? null : Number(g("ns_quality").value),
     music_energy: g("ns_music").value === "" ? null : g("ns_music").value,
     caption_color: g("ns_capcolor").value,
+    target_channels: checkedVals("yt"),
+    target_instagram_channels: checkedVals("ig"),
+    target_tiktok_channels: checkedVals("tt"),
   };
   if(g("ns_persona")) body.persona = g("ns_persona").value;
   const res = await fetch("/api/niches/"+encodeURIComponent(name),{method:"PATCH",headers:H,body:JSON.stringify(body)});

@@ -24,7 +24,12 @@ nichesRouter.get("/channels", (_req, res) => {
   for (const [key, val] of Object.entries(config.instagramChannels || {})) {
     igChannels.push({ key, label: `Instagram — ${val.handle || val.label || key}` });
   }
-  res.json({ channels, instagramChannels: igChannels });
+  // Add TikTok channels configured for niches (package-mode cross-post)
+  const ttChannels = [{ key: "__tt_primary", label: "TikTok — Primary" }];
+  for (const [key, val] of Object.entries(config.tiktokChannels || {})) {
+    ttChannels.push({ key, label: `TikTok — ${val.handle || val.label || key}` });
+  }
+  res.json({ channels, instagramChannels: igChannels, tiktokChannels: ttChannels });
 });
 
 nichesRouter.get("/niches", async (_req, res) => {
@@ -42,6 +47,7 @@ nichesRouter.get("/niches", async (_req, res) => {
 // musicEnergy → music pick; caption.color → renderer caption theme;
 // persona → Leo copy generation. targetChannels → list of YouTube channel
 // keys to publish the same video to (multi-channel fan-out).
+// targetInstagramChannels / targetTiktokChannels → per-niche IG/TT routing.
 const PRESET_KEYS = {
   cadence_days: { key: "cadenceDays", clean: (v) => (Number(v) >= 1 && Number(v) <= 30 ? Math.round(Number(v)) : undefined) },
   quality_threshold: { key: "qualityThreshold", clean: (v) => (v === null || v === "" ? null : Number(v) >= 50 && Number(v) <= 95 ? Math.round(Number(v)) : undefined) },
@@ -50,6 +56,8 @@ const PRESET_KEYS = {
   caption_color: { key: "caption", clean: (v, preset) => (["white", "cream", "yellow", "mint", "sky", "pink"].includes(v) ? { ...(preset.caption || {}), color: v } : undefined) },
   persona: { key: "persona", clean: (v) => (typeof v === "string" ? v.slice(0, 300) : undefined) },
   target_channels: { key: "targetChannels", clean: (v) => (Array.isArray(v) ? v.filter((c) => typeof c === "string" && c.length < 80).slice(0, 10) : undefined) },
+  target_instagram_channels: { key: "targetInstagramChannels", clean: (v) => (Array.isArray(v) ? v.filter((c) => typeof c === "string" && c.length < 80).slice(0, 10) : undefined) },
+  target_tiktok_channels: { key: "targetTiktokChannels", clean: (v) => (Array.isArray(v) ? v.filter((c) => typeof c === "string" && c.length < 80).slice(0, 10) : undefined) },
 };
 
 nichesRouter.patch("/niches/:name", async (req, res) => {

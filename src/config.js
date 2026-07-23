@@ -103,6 +103,15 @@ export const config = {
       return {};
     }
   })(),
+
+  // TikTok cross-post channels: {"leothecat":{"handle":"@LeoTheCat","open_id":"..."}}  // Package-mode (no direct TikTok API yet); used for labeled publish targets.
+  tiktokChannels: (() => {
+    try {
+      return process.env.TIKTOK_CHANNELS ? JSON.parse(process.env.TIKTOK_CHANNELS) : {};
+    } catch {
+      return {};
+    }
+  })(),
   
   // ─── Server ──────────────────────────────────────────────────────────
   port: parseInt(process.env.PORT || "8080", 10),
