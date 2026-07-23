@@ -438,7 +438,7 @@ Rules:
       const parsed = JSON.parse(res.content);
       if (Array.isArray(parsed.clips)) allSegments.push(...parsed.clips);
     } catch (err) {
-      console.warn(`[leo] analysis batch failed: ${err.message}`);
+      await logEvent("Leo", `analysis batch failed: ${err.message}`, { level: "warn" });
     }
   }
 
@@ -549,13 +549,13 @@ async function pickNextVideo(inboxFiles) {
   }
 
   if (!candidates.length) {
-    console.log("[leo] no processable videos found in inbox or library");
+    await logEvent("Leo", "no processable videos found in inbox or library");
     return null;
   }
 
   candidates.sort((a, b) => b.priority - a.priority);
   const pick = candidates[0];
-  console.log(`[leo] picked "${path.basename(pick.file)}" — ${pick.reason} (priority ${pick.priority})`);
+  await logEvent("Leo", `picked "${path.basename(pick.file)}" — ${pick.reason} (priority ${pick.priority})`);
   return pick;
 }
 
@@ -848,7 +848,7 @@ export async function syncLeoInbox() {
   const inbox = config.leoInboxDir;
   const entries = await readdir(inbox).catch(() => null);
   if (!entries) {
-    console.error(`Leo inbox not found: ${inbox} — create it and drop cat videos in.`);
+    await logEvent("Leo", `inbox not found: ${inbox} — create it and drop cat videos in.`, { level: "error" });
     return;
   }
   const inboxFiles = [];
@@ -858,10 +858,10 @@ export async function syncLeoInbox() {
     if ((await stat(full)).isFile()) inboxFiles.push(full);
   }
   if (!inboxFiles.length) {
-    console.log("Leo inbox is empty — nothing to do.");
+    await logEvent("Leo", "inbox is empty — nothing to do.");
     return;
   }
-  console.log(`Leo: ${inboxFiles.length} video(s) in inbox`);
+  await logEvent("Leo", `${inboxFiles.length} video(s) in inbox`);
 
   const { data: nicheRow } = await supabase
     .from("niche_configurations")
@@ -872,7 +872,7 @@ export async function syncLeoInbox() {
   // Pick the next video to process
   const pick = await pickNextVideo(inboxFiles);
   if (!pick) {
-    console.log("[leo] no videos with remaining clips — add new footage to leo_inbox/");
+    await logEvent("Leo", "no videos with remaining clips — add new footage to leo_inbox/");
     return;
   }
 
@@ -881,13 +881,13 @@ export async function syncLeoInbox() {
 
   // If this video hasn't been analyzed yet, do deep analysis now
   if (!entry || !entry.clips_analysis?.length) {
-    console.log(`[leo] analyzing "${path.basename(file)}" for clippable moments...`);
+    await logEvent("Leo", `analyzing "${path.basename(file)}" for clippable moments...`);
     const analysis = await analyzeVideoDeeply(file);
     if (!analysis.length) {
-      console.log(`[leo] no clippable moments found in "${path.basename(file)}" — skipping`);
+      await logEvent("Leo", `no clippable moments found in "${path.basename(file)}" — skipping`);
       return;
     }
-    console.log(`[leo] found ${analysis.length} clippable moment(s) in "${path.basename(file)}"`);
+    await logEvent("Leo", `found ${analysis.length} clippable moment(s) in "${path.basename(file)}"`);
 
     if (!entry) {
       entry = await getOrCreateLibraryEntry(file);
@@ -905,17 +905,17 @@ export async function syncLeoInbox() {
   // Pick the best unused clip
   const clip = pickBestClip(entry.clips_analysis || [], entry.used_clip_indices || []);
   if (!clip) {
-    console.log(`[leo] "${path.basename(file)}" has no remaining unused clips — exhausted`);
+    await logEvent("Leo", `"${path.basename(file)}" has no remaining unused clips — exhausted`);
     return;
   }
 
-  console.log(`[leo] rendering clip: ${clip.description || "unnamed"} (${clip.start.toFixed(1)}-${clip.end.toFixed(1)}s, score ${clip.score}/10)`);
+  await logEvent("Leo", `rendering clip: ${clip.description || "unnamed"} (${clip.start.toFixed(1)}-${clip.end.toFixed(1)}s, score ${clip.score}/10)`);
 
   // Process this single clip
   try {
     await processClipFromVideo(file, clip, entry, nicheRow);
   } catch (err) {
-    console.error(`[leo] clip processing failed: ${err.message}`);
+    await logEvent("Leo", `clip processing failed: ${err.message}`, { level: "error" });
     // Left in inbox for retry — don't move the file
   }
 }

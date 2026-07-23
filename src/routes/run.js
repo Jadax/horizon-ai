@@ -4,7 +4,7 @@
  * "Run Full Loop" button and per-niche buttons.
  */
 import express from "express";
-import { supabase } from "../supabase.js";
+import { supabase, logEvent } from "../supabase.js";
 import { runFullPipeline, runPipelineForNiche } from "../pipeline/run.js";
 import { syncLeoInbox } from "../pipeline/leo.js";
 
@@ -61,7 +61,8 @@ runRouter.post("/run-niche", async (req, res) => {
   }
   // Leo has its own pipeline — dispatch to it instead of the regular one
   if (nicheName === "Leo") {
-    syncLeoInbox().catch((e) => console.error(e));
+    logEvent("Leo", "Leo run started — scanning inbox for next clip");
+    syncLeoInbox().catch((e) => logEvent("Leo", `Leo run crashed: ${e.message}`, { level: "error" }));
   } else {
     runPipelineForNiche(configured).catch((e) => console.error(e));
   }
@@ -77,7 +78,8 @@ runRouter.post("/run/:niche", async (req, res) => {
     .single();
   if (!niche) return res.status(404).json({ error: "Unknown niche" });
   if (req.params.niche === "Leo") {
-    syncLeoInbox().catch((e) => console.error(e));
+    logEvent("Leo", "Leo run started — scanning inbox for next clip");
+    syncLeoInbox().catch((e) => logEvent("Leo", `Leo run crashed: ${e.message}`, { level: "error" }));
   } else {
     runPipelineForNiche(niche).catch((e) => console.error(e));
   }
