@@ -80,7 +80,7 @@ export const config = {
   
   // ─── Supabase (Free tier) ───────────────────────────────────────────
   supabase: {
-    url: process.env.SUPABASE_URL,
+    url: (process.env.SUPABASE_URL || "").replace(/\/rest\/v1\/?$/, ""),
     serviceRoleKey: process.env.SUPABASE_SERVICE_ROLE_KEY,
   },
   
