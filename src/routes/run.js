@@ -6,6 +6,7 @@
 import express from "express";
 import { supabase } from "../supabase.js";
 import { runFullPipeline, runPipelineForNiche } from "../pipeline/run.js";
+import { syncLeoInbox } from "../pipeline/leo.js";
 
 export const runRouter = express.Router();
 
@@ -58,7 +59,12 @@ runRouter.post("/run-niche", async (req, res) => {
   } catch (validationError) {
     return res.status(400).json({ error: validationError.message });
   }
-  runPipelineForNiche(configured).catch((e) => console.error(e));
+  // Leo has its own pipeline — dispatch to it instead of the regular one
+  if (nicheName === "Leo") {
+    syncLeoInbox().catch((e) => console.error(e));
+  } else {
+    runPipelineForNiche(configured).catch((e) => console.error(e));
+  }
   res.json({ ok: true, message: `Pipeline started for ${niche.niche_name}` });
 });
 
@@ -70,6 +76,10 @@ runRouter.post("/run/:niche", async (req, res) => {
     .eq("niche_name", req.params.niche)
     .single();
   if (!niche) return res.status(404).json({ error: "Unknown niche" });
-  runPipelineForNiche(niche).catch((e) => console.error(e));
+  if (req.params.niche === "Leo") {
+    syncLeoInbox().catch((e) => console.error(e));
+  } else {
+    runPipelineForNiche(niche).catch((e) => console.error(e));
+  }
   res.json({ ok: true, message: `Pipeline started for ${niche.niche_name}` });
 });
