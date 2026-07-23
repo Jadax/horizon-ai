@@ -597,7 +597,7 @@ async function getOrCreateLibraryEntry(file) {
   if (existing) return existing;
 
   const { duration } = await probeVideo(file);
-  const { data: entry, error } = await supabase
+  const { error: insertErr } = await supabase
     .from("leo_video_library")
     .insert({
       source_file: file,
@@ -607,10 +607,15 @@ async function getOrCreateLibraryEntry(file) {
       used_clip_indices: [],
       shorts_made: 0,
       total_clips: 0,
-    })
-    .select()
+    });
+  if (insertErr) throw new Error(`leo_video_library insert failed: ${insertErr.message} (code: ${insertErr.code}, hint: ${insertErr.hint || "none"})`);
+
+  const { data: entry, error: fetchErr } = await supabase
+    .from("leo_video_library")
+    .select("*")
+    .eq("source_file", file)
     .single();
-  if (error) throw new Error(`leo_video_library insert failed: ${error.message}`);
+  if (fetchErr) throw new Error(`leo_video_library fetch after insert failed: ${fetchErr.message}`);
   return entry;
 }
 
