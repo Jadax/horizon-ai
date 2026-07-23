@@ -49,7 +49,7 @@ export const config = {
   renderApiKey: process.env.RENDER_API_KEY,
 
   // ─── Free Stock Footage ─────────────────────────────────────────────
-  pexelsKey: process.env.PEXELS_API_KEY,
+  pexelsKey: process.env.PEXELS_API_KEY?.trim() || null,
   pixabayKey: process.env.PIXABAY_API_KEY,
   visualQualityGate: (process.env.VISUAL_QUALITY_GATE || "true").toLowerCase() === "true",
   bypassQaForSource: (process.env.BYPASS_QA_FOR_SOURCE || "true").toLowerCase() === "true",

@@ -666,8 +666,8 @@ async function loadDiag(){
   const res = await fetch("/api/diagnostics",{headers:H});
   const checks = await res.json();
   document.getElementById("diag").innerHTML = checks.map(c =>
-    `<div class="chip"><div class="dot ${c.ok?"ok":"bad"}"></div>${c.name}
-     <span style="margin-left:auto;color:${c.ok?"var(--emerald)":"var(--red)"}">${c.ok?"Connected":"Down"}</span></div>`
+    `<div class="chip" title="${(c.detail||'').replace(/"/g,'&quot;')}"><div class="dot ${c.ok?"ok":"bad"}"></div><span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${c.name}</span>
+     <span style="margin-left:auto;color:${c.ok?"var(--emerald)":"var(--red)"};font-size:10px;flex-shrink:0">${c.ok?"Connected":"Down"}</span></div>`
   ).join("");
 }
 

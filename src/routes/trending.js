@@ -57,22 +57,27 @@ trendingRouter.get("/trending", async (req, res) => {
 });
 
 trendingRouter.get("/diagnostics", async (_req, res) => {
+  const pexelsKey = (config.pexelsKey || "").trim();
+  const pexelsCheck = !pexelsKey
+    ? Promise.resolve({ name: "Pexels", ok: false, detail: "PEXELS_API_KEY not set in .env" })
+    : fetch("https://api.pexels.com/videos/search?query=test&per_page=1", {
+        headers: { Authorization: pexelsKey },
+      })
+        .then((r) => ({ name: "Pexels", ok: r.ok, detail: r.ok ? `HTTP ${r.status}` : `HTTP ${r.status} — ${r.status === 401 ? "invalid API key" : r.status === 429 ? "rate limited (200/hr limit)" : "request failed"}` }))
+        .catch((e) => ({ name: "Pexels", ok: false, detail: `Network error: ${e.message}` }));
+
   const checks = await Promise.allSettled([
     fetch("https://api.openai.com/v1/models", {
       headers: { Authorization: `Bearer ${config.openaiKey}` },
-    }).then((r) => ({ name: "OpenAI", ok: r.ok })),
-    checkTTSEngine().then((ok) => ({ name: `TTS engine (${config.ttsEngine})`, ok })),
-    checkRenderEngine().then((ok) => ({ name: `Render engine (${config.renderEngine})`, ok })),
+    }).then((r) => ({ name: "OpenAI", ok: r.ok, detail: r.ok ? `HTTP ${r.status}` : `HTTP ${r.status}` })),
+    checkTTSEngine().then((ok) => ({ name: `TTS engine (${config.ttsEngine})`, ok, detail: ok ? "operational" : "not reachable" })),
+    checkRenderEngine().then((ok) => ({ name: `Render engine (${config.renderEngine})`, ok, detail: ok ? "operational" : "not reachable" })),
     supabase
       .from("niche_configurations")
       .select("id", { count: "exact", head: true })
-      .then(({ error }) => ({ name: "Supabase", ok: !error })),
-    config.pexelsKey
-      ? fetch("https://api.pexels.com/videos/search?query=test&per_page=1", {
-          headers: { Authorization: config.pexelsKey },
-        }).then((r) => ({ name: "Pexels", ok: r.ok }))
-      : Promise.resolve({ name: "Pexels", ok: false }),
-    Promise.resolve({ name: "Google Cloud", ok: Boolean(config.google.refreshToken) }),
+      .then(({ error }) => ({ name: "Supabase", ok: !error, detail: error ? error.message : "connected" })),
+    pexelsCheck,
+    Promise.resolve({ name: "Google Cloud", ok: Boolean(config.google.refreshToken), detail: config.google.refreshToken ? "refresh token configured" : "GOOGLE_REFRESH_TOKEN not set" }),
   ]);
-  res.json(checks.map((c) => (c.status === "fulfilled" ? c.value : { name: "unknown", ok: false })));
+  res.json(checks.map((c) => (c.status === "fulfilled" ? c.value : { name: "unknown", ok: false, detail: c.reason?.message || "check failed" })));
 });
