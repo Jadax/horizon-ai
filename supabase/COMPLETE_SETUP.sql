@@ -234,3 +234,35 @@ ALTER TABLE learning_outcomes ENABLE ROW LEVEL SECURITY;
 ALTER TABLE bayesian_posteriors ENABLE ROW LEVEL SECURITY;
 ALTER TABLE learning_runs ENABLE ROW LEVEL SECURITY;
 ALTER TABLE monetization ENABLE ROW LEVEL SECURITY;
+
+-- ── Leo video library ──
+-- Tracks every source video Leo has analyzed, all clippable moments found
+-- in it, and which ones have already been used. The pipeline picks the
+-- best unused clip, renders it, marks it used, and enforces a minimum
+-- gap (COOLDOWN_DAYS) before posting from the same source video again.
+CREATE TABLE IF NOT EXISTS leo_video_library (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  source_file text UNIQUE NOT NULL,
+  source_filename text NOT NULL,
+  duration_seconds numeric NOT NULL,
+  file_size_bytes bigint,
+  -- Full analysis: array of clippable moments found by vision AI
+  -- Each entry: { start, end, duration, score, description, mood, hook_idea }
+  clips_analysis jsonb DEFAULT '[]'::jsonb,
+  -- Which clip indices (0-based into clips_analysis) have been used
+  used_clip_indices integer[] DEFAULT '{}',
+  -- When this video was last posted from (to enforce cooldown)
+  last_posted_at timestamptz,
+  -- Number of shorts created from this video so far
+  shorts_made integer DEFAULT 0,
+  -- Total clippable moments found
+  total_clips integer DEFAULT 0,
+  -- Overall quality score of the video (averaged from clip scores)
+  overall_score numeric,
+  -- Analysis metadata (Gemini model used, frame count sampled, etc.)
+  analysis_meta jsonb DEFAULT '{}'::jsonb,
+  created_at timestamptz DEFAULT now(),
+  updated_at timestamptz DEFAULT now()
+);
+
+ALTER TABLE leo_video_library ENABLE ROW LEVEL SECURITY;
