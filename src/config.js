@@ -1,4 +1,9 @@
 import "dotenv/config";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const PROJECT_ROOT = path.resolve(__dirname, "..");
 
 function parseJsonEnv(name, fallback) {
   try {
@@ -140,7 +145,7 @@ export const config = {
   ytDlpPath: process.env.YT_DLP_PATH || "yt-dlp",
 
   // ─── Leo (local cat-video niche) ────────────────────────────────────
-  leoInboxDir: process.env.LEO_INBOX_DIR || "leo_inbox",
+  leoInboxDir: path.resolve(PROJECT_ROOT, process.env.LEO_INBOX_DIR || "leo_inbox"),
   // ElevenLabs cloned voice for Leo narrations (the personal-voice slot).
   // Both unset → OpenAI "coral". Requires the voice owner's consent.
   leoVoiceId: process.env.LEO_VOICE_ID || null,
