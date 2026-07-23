@@ -1,6 +1,7 @@
 import { config } from "../config.js";
 import { supabase, logEvent } from "../supabase.js";
 import { synthesizeSpeech } from "../lib/freeTTS.js";
+import { verifyContentIdSafety } from "../lib/musicBrain.js";
 import OpenAI, { toFile } from "openai";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
@@ -241,10 +242,13 @@ export async function pickMusic(energyLevel, jobId, brief = {}) {
         });
         return null;
     }
+
+    // Score: mood match + genre match + BPM range + instrumental + Content-ID safety
     const wantedMoods = (brief.moods || []).map((v) => String(v).toLowerCase());
     const wantedGenres = (brief.genres || []).map((v) => String(v).toLowerCase());
     const [bpmLow, bpmHigh] = Array.isArray(brief.bpm) ? brief.bpm.map(Number) : [0, Infinity];
-    const scoreTrack = (track) => {
+
+    const scored = data.map((track) => {
         const moods = Array.isArray(track.mood_tags) ? track.mood_tags.map((v) => String(v).toLowerCase()) : [];
         const genre = String(track.genre || "").toLowerCase();
         let score = 0;
@@ -252,15 +256,35 @@ export async function pickMusic(energyLevel, jobId, brief = {}) {
         score += wantedGenres.some((wanted) => genre.includes(wanted)) ? 3 : 0;
         score += Number.isFinite(Number(track.bpm)) && Number(track.bpm) >= bpmLow && Number(track.bpm) <= bpmHigh ? 2 : 0;
         score += track.instrumental === true ? 1 : 0;
-        return score + Math.random() * 0.25;
-    };
-    const track = data
-        .map((candidate) => ({ candidate, score: scoreTrack(candidate) }))
-        .sort((a, b) => b.score - a.score)[0].candidate;
+
+        // Content ID safety bonus: safe tracks get +5, unknown license gets +0
+        const safety = verifyContentIdSafety({ license: track.license, source: track.source, title: track.title });
+        score += safety.safe ? 5 : 0;
+
+        return { track, score: score + Math.random() * 0.25, safe: safety.safe, attribution: safety.attribution };
+    });
+
+    scored.sort((a, b) => b.score - a.score);
+    const winner = scored[0];
+
+    // Warn if the best match has Content ID risk
+    if (!winner.safe) {
+        await logEvent("Agent 3",
+            `Music warning: "${winner.track.title || "untitled"}" has unverified license — may trigger Content ID`,
+            { jobId, level: "warn" }
+        );
+    }
+
     await logEvent(
         "Agent 3",
-        `Music: "${track.title || "untitled"}" (${energyLevel})`,
+        `Music: "${winner.track.title || "untitled"}" (${energyLevel}${winner.safe ? ", Content-ID safe" : ""})`,
         { jobId }
     );
-    return track;
+
+    // Attach attribution for auto-injection into the video description
+    const result = { ...winner.track };
+    if (winner.attribution) {
+        result.attribution_text = winner.attribution;
+    }
+    return result;
 }

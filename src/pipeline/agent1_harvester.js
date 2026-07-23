@@ -13,6 +13,9 @@ import { fetchHackerNewsTop } from "../sources/hackerNews.js";
 import { fetchWikipediaTrending } from "../sources/wikipediaTrending.js";
 import { fetchBlueskyHot } from "../sources/bluesky.js";
 import { fetchTopReddit, searchWiki } from "../sources/reddit.js";
+import { fetchTwitchTrending } from "../sources/twitch.js";
+import { fetchKickTrending } from "../sources/kick.js";
+import { fetchDailymotionTrending } from "../sources/dailymotion.js";
 import { rankCandidates, recalibrateWeights } from "../lib/trendScoring.js";
 import { withRetry } from "../lib/openaiRetry.js";
 import { llmJson } from "../lib/llm.js";
@@ -115,7 +118,7 @@ export async function harvestAllCandidates(niche, jobId = null) {
     const enabled = new Set(
         niche.editing_style_preset?.trendSources
         || niche.run_trend_sources
-        || ["google", "reddit", "youtube", "gdelt", "rss", "wikipedia", "hackernews", "wikipedia_trending", "bluesky"]
+        || ["google", "reddit", "youtube", "gdelt", "rss", "wikipedia", "hackernews", "wikipedia_trending", "bluesky", "twitch", "kick", "dailymotion"]
     );
     const tag = (items, source) => items.map((i) => ({ ...i, source }));
 
@@ -183,6 +186,33 @@ export async function harvestAllCandidates(niche, jobId = null) {
         if (ytTrending.length) await log(`YouTube Trending: ${ytTrending.length} candidates`);
     } catch (err) {
         await log(`YouTube Trending fetch failed: ${err.message}`, "warn");
+    }
+
+    // Gaming/Viral niches: Twitch clips + streams
+    if (enabled.has("twitch") && ["Gaming/Lore", "Viral"].includes(niche.niche_name)) try {
+        const twitch = await fetchTwitchTrending();
+        candidates.push(...tag(twitch, "Twitch"));
+        await log(`Twitch: ${twitch.length} candidates`);
+    } catch (err) {
+        await log(`Twitch fetch failed: ${err.message}`, "warn");
+    }
+
+    // Gaming/Viral niches: Kick streams + clips
+    if (enabled.has("kick") && ["Gaming/Lore", "Viral"].includes(niche.niche_name)) try {
+        const kick = await fetchKickTrending();
+        candidates.push(...tag(kick, "Kick"));
+        await log(`Kick: ${kick.length} candidates`);
+    } catch (err) {
+        await log(`Kick fetch failed: ${err.message}`, "warn");
+    }
+
+    // Viral/Entertainment niches: Dailymotion trending
+    if (enabled.has("dailymotion") && ["Viral", "News", "Technology"].includes(niche.niche_name)) try {
+        const dm = await fetchDailymotionTrending();
+        candidates.push(...tag(dm, "Dailymotion"));
+        await log(`Dailymotion: ${dm.length} candidates`);
+    } catch (err) {
+        await log(`Dailymotion fetch failed: ${err.message}`, "warn");
     }
 
     for (const tagName of enabled.has("mastodon") || !niche.editing_style_preset?.trendSources ? niche.mastodon_tags || [] : []) {

@@ -1,6 +1,6 @@
 {
   "name": "horizon-ai-full",
-  "version": "3.0.34",
+  "version": "3.0.35",
   "description": "Complete viral video factory with integrated TTS & render + yt-dlp for owner content",
   "author": "Tushant Sharma",
   "license": "UNLICENSED",
@@ -12,6 +12,7 @@
     "pipeline:once": "node src/pipeline/run.js",
     "auth:youtube": "node src/lib/youtubeAuth.js",
     "music:sync": "node src/lib/musicSync.js",
+    "music:brain": "node src/lib/musicBrain.js",
     "leo:sync": "node src/pipeline/leo.js",
     "postinstall": "node -e \"try { require('yt-dlp-wrap').default.downloadYtDlp() } catch(e) {}\""
   },
