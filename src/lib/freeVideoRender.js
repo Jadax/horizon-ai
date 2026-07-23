@@ -38,7 +38,7 @@ const CAPTION_COLORS = {
 
 function buildAssSubtitles(captions, overlays = [], style = {}) {
   const primary = CAPTION_COLORS[style.color] || CAPTION_COLORS.white;
-  const fontsize = Number(style.fontsize) || 80;
+  const fontsize = Number(style.fontsize) || 100;
   const header = [
     '[Script Info]',
     'ScriptType: v4.00+',
@@ -52,7 +52,7 @@ function buildAssSubtitles(captions, overlays = [], style = {}) {
     // NumberPunch: massive yellow center for data reveals.
     // POV: smaller cream text at top for POV-style captions.
     'Format: Name, Fontname, Fontsize, PrimaryColour, OutlineColour, BackColour, Bold, BorderStyle, Outline, Shadow, Alignment, MarginV, Spacing',
-    `Style: Default,Arial,${fontsize},${primary},&H00000000,&H80000000,1,1,5,2,2,220,1`,
+    `Style: Default,Arial,${fontsize},${primary},&H00000000,&H80000000,1,1,5,2,2,280,1`,
     'Style: Hook,Arial,104,&H0000FFFF,&H00000000,&H80000000,1,1,7,3,8,240,1',
     'Style: Emoji,Arial,120,&H00FFFFFF,&H00000000,&H80000000,1,1,3,2,5,240,1',
     'Style: NumberPunch,Arial,140,&H0000FFFF,&H00000000,&H80000000,1,1,5,2,5,180,1',

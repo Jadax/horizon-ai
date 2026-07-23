@@ -29,13 +29,27 @@ tech/gaming/culture closely and can smell disconnected clickbait instantly —
 a title that overpromises and underdelivers gets the video reported, not
 watched, and kills channel trust).
 
+## ALGORITHM DATA (YouTube Shorts 2025-2026)
+- 200B+ daily Shorts views, 2B+ monthly users
+- 77% of YouTube views in 2025 came from videos under 1 minute
+- The algorithm uses a TWO-STAGE test: (1) Viewed vs. Swiped Away (target: 70-80%+), (2) Average Percentage Viewed (target: 80%+)
+- 50-60% of drop-offs happen in the FIRST 3 SECONDS — your hook IS your thumbnail
+- Shorts 15-30s consistently achieve 80%+ APV; over 45s see dramatic drop-offs
+- Loop endings (last sentence connects to first) unlock 100%+ retention — massive algorithmic boost
+- "I haven't had a Short pass 1,000,000 views with less than 70% average view duration"
+
 ## RETENTION ENGINEERING (THIS IS YOUR PRIMARY GOAL)
 Viewer retention is the #1 factor for the YouTube algorithm. Every line must serve to keep someone watching.
 
-- **PATTERN INTERRUPT (First 2.5 seconds):** The hook MUST be a pattern interrupt — something that shatters the viewer's expectation and grabs their attention. This is not just "a good first line" — it must be shocking, contradictory, or deeply surprising. Open with a claim that seems impossible, a question that demands an answer, or a statement that challenges common belief.
+- **THE 2-SECOND HOOK (CRITICAL):** The FIRST sentence must be a pattern interrupt — something that shatters expectation and stops the scroll within 2 seconds. This is not optional. The first words out of your mouth determine whether 50-60% of viewers swipe away permanently. Open with:
+  - A claim that seems impossible ("Nobody survives the Lands Between...")
+  - A question that demands an answer ("Why does your brain lie to you every morning?")
+  - A statement that challenges common belief ("Investing in real estate is the worst way to build wealth")
+  - Show the payoff first ("This $10 notebook tripled my productivity — here's how")
+  NEVER open with: "In today's world...", "Have you ever wondered...", "Let me tell you about...", generic setups, or slow build-ups.
 - **SECOND HOOK (5-6 seconds):** After the initial interrupt, land a second concrete beat — a specific number, a name, a consequence, a twist. Viewers decide twice in the first few seconds; give them two reasons to stay.
-- **NARRATIVE ARC:** The script must have a clear emotional journey: tension → build-up → payoff. Don't just present facts; create stakes and raise them throughout.
-- **THE LOOP (for short-form, LOOP_MODE=true):** the script must end mid-sentence such that the final words flow grammatically straight back into the first word of the hook. Example: hook = "Nobody survives the Lands Between…" / ending = "…and that is why" → replay reads "…and that is why Nobody survives the Lands Between". Never insert a subscribe/follow line here — it would break the loop's grammar and the loop itself is the retention mechanic for this format.
+- **NARRATIVE ARC:** The script must have a clear emotional journey: tension → build-up → payoff. Don't just present facts; create stakes and raise them throughout. Every 5-7 seconds, something MUST change — new fact, pace shift, emotional turn, or visual reveal.
+- **THE LOOP (for short-form, LOOP_MODE=true):** the script MUST end mid-sentence such that the final words flow grammatically straight back into the first word of the hook. This is the single most powerful retention mechanic available — it unlocks 100%+ replay rates which the algorithm weights heavily. Example: hook = "Nobody survives the Lands Between…" / ending = "…and that is why" → replay reads "…and that is why Nobody survives the Lands Between". Never insert a subscribe/follow line here — it would break the loop's grammar. The loop IS the retention mechanic.
 - **ORIGINAL PERSPECTIVE:** at least one line must go beyond restating what happened and offer an actual take — why it matters, what it reveals, a specific implication, a judgment call. Not a generic editorial aside like "and that's crazy" — a concrete, specific point of view a viewer could disagree with.
 - **SUBSCRIBE CTA (if LOOP_MODE=false):** Fold a single natural subscribe/follow nudge into the final line or the sentence just before it — phrased as part of the narration a real person would say, never a bolted-on "smash that subscribe button." Skip it entirely if the topic's tone makes any self-reference feel forced.
 - **TONE:** write like a sharp, casual friend explaining something interesting out loud, not like a press release or a textbook. Contractions are good ("it's", "you're", "that's"). Read every sentence out loud in your head before finalizing it — if it sounds stiff, formal, or like something a narrator would read off a teleprompter, rewrite it looser.
@@ -144,8 +158,26 @@ export async function writeScript(niche, topic, loreContext, jobId) {
     niche.editing_style_preset?.explainerMode
       ? [
           "EXPLAINER_MODE: this is an 'explained for dummies' video. The topic candidate is only a pointer — identify the underlying evergreen subject behind it and explain THAT from scratch. If the candidate is about a new movie of the Odyssey, the video is about the Odyssey legend itself (its story, why it survived 2800 years), not the movie. If it's a question, answer the question properly.",
-          "Structure: open with the question or misconception a smart viewer actually has → give the minimum context to care → walk through the actual story/mechanism with 2-3 genuinely surprising concrete details (names, numbers, origins) → end on the payoff insight that reframes how they see it.",
+          "4-BEAT MICRO-EXPLAINER FORMULA (data-backed, 25-35s optimal):",
+          "  Beat 1 [0-3s] HOOK: Problem or bold claim. 'Stop doing X — do this instead.' Show the RESULT/PAYOFF first to create visual curiosity.",
+          "  Beat 2 [3-20s] BODY: Show the solution with fast cuts and on-screen text. 3 quick steps with text labels. Pattern interrupts every 5-7s.",
+          "  Beat 3 [20-26s] PAYOFF: Before/after or metric. Side-by-side comparisons work well. Make the transformation tangible.",
+          "  Beat 4 [26-30s] CTA: Single clear action: save, comment, follow. Fold it naturally into narration.",
+          "CRITICAL: Start with the PAYOFF/RESULT, not the setup. 'This $10 notebook tripled my productivity' beats 'Let me tell you about productivity'. Visual curiosity > explanation.",
           "Assume the viewer is intelligent but knows NOTHING about this subject. Define anything a newcomer wouldn't know, in passing, without being condescending. Never reference current news, memes, or drama — the video must be just as watchable in five years.",
+        ].join(" ")
+      : null,
+    niche.niche_name === "Pet" || niche.editing_style_preset?.petMode
+      ? [
+          "PET_SOCIAL_MODE: this is pet content. The data is clear — 'cute' alone doesn't go viral. The top-performing pet Shorts are STORY-DRIVEN, SURPRISING, or create TENSION.",
+          "PET CONTENT FORMULAS (from 50M+ view pet accounts):",
+          "  1. 'What happens next' tension — set up a situation, let curiosity carry the viewer through",
+          "  2. Unexpected reaction — the pattern interrupt that stops scrolling (cat scared of cucumber, dog confused by mirror)",
+          "  3. Before/after transformation — grooming, rescue glow-up, training progress",
+          "  4. 'Ranking' or comparison format — ' Ranking my cat's reactions' creates structure + rewatchability",
+          "  5. POV storytelling — 'POV: you live with a dramatic cat' — instant relatability",
+          "AVOID: generic 'cute cat video' with no story arc. Every pet clip needs a narrative beat: setup → tension → payoff. The cat looking at camera is cute; the cat looking at camera AFTER knocking something off the table is CONTENT.",
+          "Hook examples for pet: 'He chose violence today', 'This one trick broke my cat', 'Ranking his worst moments'",
         ].join(" ")
       : null,
     niche.editing_style_preset?.visualMode === "illustrated"

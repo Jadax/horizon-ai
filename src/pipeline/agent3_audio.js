@@ -59,6 +59,28 @@ async function concatAudioBuffers(buffers) {
     }
 }
 
+async function removeSilence(audioBuffer) {
+    const tmpDir = tmpdir();
+    const inFile = path.join(tmpDir, `horizon-silin-${randomUUID()}.mp3`);
+    const outFile = path.join(tmpDir, `horizon-silout-${randomUUID()}.mp3`);
+    try {
+        await writeFile(inFile, audioBuffer);
+        // silenceremove: trim leading silence (0.1s), remove internal silence
+        // gaps >0.5s by compressing them to 0.3s, keep speech intact.
+        await execFileAsync(ffmpeg, [
+            "-y", "-i", inFile,
+            "-af", "silenceremove=start_periods=1:start_duration=0.1:start_threshold=-50dB:stop_periods=-1:stop_duration=0.5:stop_threshold=-50dB:window=0.02",
+            "-c:a", "libmp3lame", "-q:a", "2", outFile
+        ], { timeout: 60000 });
+        return await readFile(outFile);
+    } catch {
+        return audioBuffer;
+    } finally {
+        await unlink(inFile).catch(() => {});
+        await unlink(outFile).catch(() => {});
+    }
+}
+
 export async function synthesizeVoiceover(script, voiceId, jobId, expectedMaxSeconds = 58, options = {}) {
     await logEvent("Agent 3", `Synthesizing voiceover using free TTS (${config.ttsEngine || 'chatterbox'})...`, { jobId });
 
@@ -82,6 +104,7 @@ export async function synthesizeVoiceover(script, voiceId, jobId, expectedMaxSec
                     parts.push(await synthesizeSpeech(chunk, voiceId, { speed: 1.0, lang: 'en', engine: options.engine }));
                 }
                 audioBuffer = await concatAudioBuffers(parts);
+                audioBuffer = await removeSilence(audioBuffer);
             }
             try {
                 words = await alignGeneratedSpeech(audioBuffer, script, jobId);

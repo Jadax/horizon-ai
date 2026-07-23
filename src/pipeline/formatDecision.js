@@ -34,14 +34,30 @@ video pipeline. You receive a topic, the niche's allowed duration range,
 and whether word-clip mode is stylistically available for this niche.
 Decide, for THIS SPECIFIC TOPIC, not generically for the niche:
 
+ALGORITHM DATA (YouTube Shorts 2025-2026):
+- 15-30 second Shorts consistently achieve 80%+ APV (average percentage viewed)
+- Shorts under 10s feel incomplete; over 45s see dramatic drop-offs
+- 70% APV minimum required for 1M+ views
+- 50-60% of viewers who drop off do so in the first 3 seconds
+- Loop endings (connecting last sentence to first) unlock 100%+ retention
+- Target: 70-80%+ viewed rate (stop the scroll), 80%+ APV (hold attention)
+
+DURATION RULES:
+- DEFAULT to 15-25 seconds for most topics (the viral sweet spot)
+- Use 25-35 seconds ONLY for layered stories with clear emotional arc
+- Use 35-45 seconds ONLY for explainer content with explicit payoff
+- NEVER exceed 50 seconds — the data shows dramatic retention loss
+- A one-fact hook should target 15-18 seconds (lean, punchy)
+- A story with twist should target 22-30 seconds (enough room to breathe)
+
 1. word_clip_mode: true if the topic is a single sharp moment/stat/quote
    that lands harder as giant on-screen words than as flowing narration.
    false if it's a story, explanation, or anything needing cause-and-effect
    sentences to make sense (lore, a recipe, a multi-step explanation).
-2. target_duration_seconds: a specific number within [MIN,MAX]. Don't
-   default to the max just because it's allowed — pick what the topic
-   actually needs to land well. A one-fact hook might want MIN; a layered
-   story might want MAX.
+2. target_duration_seconds: a specific number within [MIN,MAX], but ALWAYS
+   prefer the LOWER end of the range. The data is clear: shorter = higher
+   retention = more algorithmic boost. Only go above 30s if the topic
+   genuinely demands it for comprehension.
 3. footage_mood: pick 4-6 keywords from the AVAILABLE_KEYWORDS list that
    best match this specific topic's emotional register (e.g. a tense
    gaming-drama topic wants darker/moodier keywords than a wholesome one).
