@@ -680,26 +680,42 @@ async function processClipFromVideo(file, clip, libraryEntry, nicheRow) {
       .catch(() => null)
       .finally(() => unlink(frameFile).catch(() => {}));
 
-    // Generate copy — warm, casual, feel-good (top pet account vibes)
+    // Generate copy — personality-driven, funny, top pet account vibes
     const copy = await llmJson({
       tier: "fast",
-      temperature: 0.8,
+      temperature: 0.9,
       label: "leoClipCopy",
       messages: [
         {
           role: "system",
-          content: `You write copy for a top pet social channel. PERSONA: ${persona}.
-VIBE: Warm, casual, cozy, feel-good. Like a doting cat parent talking to their cat.
-NOT: chaotic, dramatic, clickbaity, or over-produced. Think "aww" energy.
+          content: `You write viral copy for the TOP pet social channel on the internet. PERSONA: ${persona}.
+STYLE: Think top 1% pet accounts — the ones with millions of followers. NOT soft and sleepy. ENERGY: warm but FUNNY. The kind of narration that makes someone laugh AND say "aww" in the same breath.
+
+RULES:
+- Write like you're talking TO the cat, not about the cat
+- Use the cat's real personality quirks — royal treatment, dramatic moods, tiny luxuries
+- Be specific and playful: "that one brain cell working overtime" beats "being cute"
+- First line MUST be a pattern interrupt — something that stops the scroll ("He woke up and chose violence today" / "This cat has a better life than you" / "POV: you live with a diva")
+- End on a note that loops back to the hook (for replay value)
+- Max 30 words for narration. Punchy. Every word earns its spot.
+
+HOOK RULES (the on-screen text that appears in the first 2 seconds):
+- 3-6 words MAX. Bold. Unexpected.
+- Think: "his majesty has awoken" / "zero brain cells detected" / "living his best life"
+- NOT generic: no "cute cat video" or "adorable moment"
+- Must make someone pause mid-scroll
+
+MUSIC MOOD: cozy lo-fi, warm acoustic, soft jazz — something that feels like a Sunday morning.
 
 This is a ${clipDuration.toFixed(0)}-second moment: ${clip.description || "Leo being cute"} | Mood: ${clip.mood || "cozy"}
 
 Return JSON:
-{"narration":"1-2 short warm sentences a doting cat parent would naturally say about THIS moment — soft, affectionate, like you're right there with the cat (no emoji, no hashtags, max 22 words, casual rhythm)",
-"hook":"${clip.hook_idea || "POV: LEO"} — warm, cute overlay (think 'his royal highness' or 'cozy vibes' energy, NOT aggressive caps)",
-"title":"warm, cozy title under 55 chars, one cat emoji",
-"description":"1 soft sentence + newline + #cat #catsofyoutube #kitten #catlover #shorts",
-"tags":["8-12 tags: cat, cute cat, cozy cat, kitten, cat video, meow, catlover, catsofyoutube"]}`,
+{"narration":"funny, warm, personality-driven narration (max 30 words, talk TO the cat, pattern interrupt opening, loop-ready ending)",
+"hook":"3-6 word bold on-screen text for the first 2 seconds — unexpected, scroll-stopping",
+"secondHook":"optional 3-5 word follow-up text at 3-4 seconds if the moment supports a double-hook",
+"title":"attention-grabbing title under 55 chars, one cat emoji, makes you curious",
+"description":"1 fun sentence that makes you want to click + newline + #cat #catsofyoutube #kitten #catlover #shorts #funnycat #catmemes",
+"tags":["10-15 tags mixing: cat, cute cat, funny cat, kitten, cat video, meow, catlover, catsofyoutube, funnycat, catmemes, cozymood, pethumor, catlife, royalcat"]}`,
         },
         {
           role: "user",
@@ -714,18 +730,18 @@ Return JSON:
 
     await logEvent("Leo", `"${base}" clip → "${copy.narration.slice(0, 60)}..." | hook: ${copy.hook}`, { jobId });
 
-    // Voiceover
-    const voiceId = config.leoVoiceId || "Leda";
+    // Voiceover — Kore is the warmest Gemini voice, perfect for cozy cat content
+    const voiceId = config.leoVoiceId || "Kore";
     const engine = config.leoVoiceId && config.elevenlabsKey ? "elevenlabs" : undefined;
     const { voiceoverUrl, words, duration: voDuration } = await synthesizeVoiceover(
       copy.narration, voiceId, jobId, clipDuration, engine ? { engine } : undefined
     );
 
-    // Music
+    // Music — warm, cozy, not too sleepy
     const musicTrack = await pickMusic(
-      nicheRow?.editing_style_preset?.musicEnergy || "Chill",
+      "Low",
       jobId,
-      { moods: ["warm", "cozy", "lounge", "soft"] }
+      { moods: ["warm", "acoustic", "cozy", "lofi", "soft", "gentle"] }
     );
 
     const outDuration = Math.min(Math.max(voDuration + 1.5, 10), clipDuration);
@@ -737,17 +753,23 @@ Return JSON:
       audioUrl: voiceoverUrl,
       musicUrl: musicTrack?.track_url || null,
       keepSourceAudio: hasAudio,
-      // Warm color grading: slightly boosted saturation, warm tint, soft contrast
-      // Matches the cozy aesthetic of top pet accounts
-      colorFilter: "eq=contrast=1.06:brightness=0.03:saturation=1.10,unsharp=5:5:0.5,hue=h=-3:s=1.05",
+      // Warm color grading + vignette + soft glow: cozy top pet account aesthetic
+      colorFilter: "eq=contrast=1.08:brightness=0.04:saturation=1.12,unsharp=5:5:0.8,hue=h=-3:s=1.05,vignette=PI/4.5:40",
       captions: words.filter((w) => w.start < outDuration).map((w, i) => {
         const chunk = words.slice(Math.floor(i / 3) * 3, Math.floor(i / 3) * 3 + 3);
         return i % 3 === 0
           ? { text: chunk.map((c) => c.word).join(" "), start: chunk[0].start, end: chunk[chunk.length - 1].end }
           : null;
       }).filter(Boolean),
-      overlays: [{ text: copy.hook, start: 0.3, end: 2.5 }],
-      captionStyle: { color: "cream", fontsize: 68 },
+      overlays: [
+        // Primary hook — big, animated entrance, stays 3 seconds
+        { text: copy.hook, start: 0.2, end: 3.2, style: "Hook" },
+        // Second hook at 3-4s if provided
+        ...(copy.secondHook ? [{ text: copy.secondHook, start: 3.3, end: 5.0, style: "Hook" }] : []),
+      ],
+      // Animated sparkle overlays — floating hearts/stars via ASS override tags
+      sparkleOverlays: true,
+      captionStyle: { color: "cream", fontsize: 96 },
     };
 
     const renderResult = await renderVideo(payload, jobId);

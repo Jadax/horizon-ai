@@ -36,7 +36,7 @@ const CAPTION_COLORS = {
   pink: '&H00C8B4FF',
 };
 
-function buildAssSubtitles(captions, overlays = [], style = {}) {
+function buildAssSubtitles(captions, overlays = [], style = {}, sparkleOverlays = false) {
   const primary = CAPTION_COLORS[style.color] || CAPTION_COLORS.white;
   const fontsize = Number(style.fontsize) || 100;
   const header = [
@@ -46,17 +46,15 @@ function buildAssSubtitles(captions, overlays = [], style = {}) {
     'PlayResY: 1920',
     '',
     '[V4+ Styles]',
-    // Default: big bold themed color, heavy black outline, bottom-center.
-    // Hook: comic-style yellow, thick outline, top-center.
-    // Emoji: huge center-burst for payoff moments.
-    // NumberPunch: massive yellow center for data reveals.
-    // POV: smaller cream text at top for POV-style captions.
     'Format: Name, Fontname, Fontsize, PrimaryColour, OutlineColour, BackColour, Bold, BorderStyle, Outline, Shadow, Alignment, MarginV, Spacing',
     `Style: Default,Arial,${fontsize},${primary},&H00000000,&H80000000,1,1,5,2,2,280,1`,
-    'Style: Hook,Arial,104,&H0000FFFF,&H00000000,&H80000000,1,1,7,3,8,240,1',
+    // Hook: bigger (110), warm golden yellow, fade-in animation, top-center
+    'Style: Hook,Arial,110,&H0000CCFF,&H00000000,&H80000000,1,1,6,3,8,280,2',
     'Style: Emoji,Arial,120,&H00FFFFFF,&H00000000,&H80000000,1,1,3,2,5,240,1',
     'Style: NumberPunch,Arial,140,&H0000FFFF,&H00000000,&H80000000,1,1,5,2,5,180,1',
     'Style: POV,Arial,56,&H00D6F4FF,&H00000000,&H80000000,1,1,4,2,8,120,1',
+    // Sparkle: tiny white stars, transparent background, floating
+    'Style: Sparkle,Arial,28,&H00FFFFFF,&H00000000,&H00000000,0,1,1,0,5,0,0',
     '',
     '[Events]',
     'Format: Layer, Start, End, Style, Text',
@@ -64,8 +62,36 @@ function buildAssSubtitles(captions, overlays = [], style = {}) {
   const clean = (t) => String(t || '').replace(/[{}]/g, '').replace(/\n/g, ' ');
   const lines = [
     ...captions.map((cap) => `Dialogue: 0,${toAssTimestamp(cap.start)},${toAssTimestamp(cap.end)},Default,${clean(cap.text)}`),
-    ...overlays.map((o) => `Dialogue: 1,${toAssTimestamp(o.start)},${toAssTimestamp(o.end)},Hook,${clean(o.text)}`),
+    ...overlays.map((o) => {
+      const s = o.style || 'Hook';
+      // Add fade-in (0.3s) + fade-out (0.2s) to hook overlays
+      const fade = s === 'Hook' ? '\\fad(300,200)' : '';
+      return `Dialogue: 1,${toAssTimestamp(o.start)},${toAssTimestamp(o.end)},${s},${fade}${clean(o.text)}`;
+    }),
   ];
+
+  // Animated sparkle overlays — floating hearts/stars at random positions
+  if (sparkleOverlays) {
+    const sparkles = ['✦', '♥', '✧', '♡', '⋆'];
+    const positions = [
+      { x: 120, y: 400 }, { x: 950, y: 350 }, { x: 200, y: 1200 },
+      { x: 880, y: 1100 }, { x: 540, y: 200 }, { x: 150, y: 800 },
+      { x: 900, y: 700 }, { x: 500, y: 1500 },
+    ];
+    // Generate sparkle events spread across the video duration
+    const videoDuration = captions.length ? captions[captions.length - 1].end : 10;
+    for (let i = 0; i < 12; i++) {
+      const pos = positions[i % positions.length];
+      const ch = sparkles[i % sparkles.length];
+      const start = (i * videoDuration) / 12;
+      const end = Math.min(start + 1.5, videoDuration);
+      // ASS fade: \fad(fadeInMs,fadeOutMs) + \move(x1,y1,x2,y2) for floating
+      const y2 = pos.y - 60 - Math.random() * 40;
+      const x2 = pos.x + (Math.random() - 0.5) * 30;
+      lines.push(`Dialogue: 2,${toAssTimestamp(start)},${toAssTimestamp(end)},Sparkle,\\fad(400,600)\\move(${pos.x},${pos.y},${Math.round(x2)},${Math.round(y2)})\\fr${Math.round(Math.random()*30-15)} ${ch}`);
+    }
+  }
+
   return header + '\n' + lines.join('\n') + '\n';
 }
 
@@ -276,7 +302,7 @@ async function renderWithFFmpeg(payload, jobId) {
     // rendered frame with apostrophes/colons/commas in the text.
     if ((payload.captions && payload.captions.length) || (payload.overlays && payload.overlays.length)) {
       assFile = path.join(tmpDir, `horizon-captions-${randomUUID()}.ass`);
-      await writeFile(assFile, buildAssSubtitles(payload.captions || [], payload.overlays || [], payload.captionStyle || {}));
+      await writeFile(assFile, buildAssSubtitles(payload.captions || [], payload.overlays || [], payload.captionStyle || {}, payload.sparkleOverlays));
       const assPath = assFile.replace(/\\/g, '/').replace(/:/g, '\\:').replace(/'/g, '\u2019');
       // Warm color grading (payload.colorFilter) is applied before subtitles
       // so the grade affects the video but not the text rendering.
