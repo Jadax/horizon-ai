@@ -586,6 +586,37 @@ function pickBestClip(analysis, usedIndices = []) {
 }
 
 /**
+ * Parse relative timing descriptions from LLM into absolute start/end times.
+ * Handles: "at 3 seconds", "halfway", "near the end", "at the start", etc.
+ */
+function parseRelativeTiming(description, totalDuration) {
+  const d = String(description || "").toLowerCase();
+  // Try to extract a number: "at 3 seconds", "at 3s", "around 5 seconds"
+  const numMatch = d.match(/(\d+(?:\.\d+)?)\s*s(?:ec(?:ond)?s?)?/);
+  if (numMatch) {
+    const t = Math.min(parseFloat(numMatch[1]), totalDuration - 0.5);
+    return { start: Math.max(0, t - 0.3), end: Math.min(t + 0.8, totalDuration) };
+  }
+  // Fractional: "halfway", "at the middle", "mid"
+  if (/half|mid|middle/.test(d)) {
+    const mid = totalDuration / 2;
+    return { start: mid - 0.3, end: mid + 0.8 };
+  }
+  // "near the end", "at the end", "final"
+  if (/end|final|last/.test(d)) {
+    const t = totalDuration - 1.5;
+    return { start: Math.max(0, t), end: totalDuration };
+  }
+  // "at the start", "beginning", "opening", "first"
+  if (/start|begin|open|first|start/.test(d)) {
+    return { start: 0.5, end: 1.8 };
+  }
+  // Default: place it at 40% through
+  const t = totalDuration * 0.4;
+  return { start: t, end: t + 1.0 };
+}
+
+/**
  * Get or create a library entry for a video file.
  */
 async function getOrCreateLibraryEntry(file) {
@@ -671,16 +702,16 @@ async function processClipFromVideo(file, clip, libraryEntry, nicheRow) {
         const b64 = (await readFile(frameFile)).toString("base64");
         const res = await llmVision({
           label: "leoClipFrame",
-          prompt: "Describe what this cat is doing in one concrete, specific sentence (posture, action, setting, expression). No preamble.",
+          prompt: "Describe what this cat is doing in one concrete, specific sentence (posture, action, setting, expression). Also note any sounds the cat might be making (meow, purr, hiss, chirp). No preamble.",
           images: [{ mimeType: "image/jpeg", base64: b64 }],
-          maxTokens: 120,
+          maxTokens: 150,
         });
         return res?.trim() || null;
       })
       .catch(() => null)
       .finally(() => unlink(frameFile).catch(() => {}));
 
-    // Generate copy — personality-driven, funny, top pet account vibes
+    // Generate copy — top pet account energy (That Little Puff, Hammy & Olivia, DontStopMeowing)
     const copy = await llmJson({
       tier: "fast",
       temperature: 0.9,
@@ -688,34 +719,49 @@ async function processClipFromVideo(file, clip, libraryEntry, nicheRow) {
       messages: [
         {
           role: "system",
-          content: `You write viral copy for the TOP pet social channel on the internet. PERSONA: ${persona}.
-STYLE: Think top 1% pet accounts — the ones with millions of followers. NOT soft and sleepy. ENERGY: warm but FUNNY. The kind of narration that makes someone laugh AND say "aww" in the same breath.
+          content: `You write viral copy for the #1 pet social channel on the internet (38M+ subscribers). PERSONA: ${persona}.
+参考: That Little Puff, Hammy & Olivia, DontStopMeowing, Tucker Budzyn, AaronsAnimals.
+
+STYLE: Bright, playful, energetic. NOT soft, NOT sleepy, NOT cozy. FUNNY first, cute second. The kind of narration that makes someone laugh out loud AND screenshot to send to a friend.
 
 RULES:
-- Write like you're talking TO the cat, not about the cat
-- Use the cat's real personality quirks — royal treatment, dramatic moods, tiny luxuries
-- Be specific and playful: "that one brain cell working overtime" beats "being cute"
-- First line MUST be a pattern interrupt — something that stops the scroll ("He woke up and chose violence today" / "This cat has a better life than you" / "POV: you live with a diva")
-- End on a note that loops back to the hook (for replay value)
-- Max 30 words for narration. Punchy. Every word earns its spot.
+- Write like you're narrating a tiny drama about this specific cat's ridiculous life
+- Be SPECIFIC and absurd: "this man has three brain cells and they're all on break" beats "being cute"
+- First line MUST be a pattern interrupt — something that stops the scroll cold
+- Use the cat's name (Leo) in every video — builds character brand
+- End with a loop-ready line that connects back to the hook
 
-HOOK RULES (the on-screen text that appears in the first 2 seconds):
-- 3-6 words MAX. Bold. Unexpected.
-- Think: "his majesty has awoken" / "zero brain cells detected" / "living his best life"
-- NOT generic: no "cute cat video" or "adorable moment"
-- Must make someone pause mid-scroll
+HOOK (on-screen text, first 2 seconds):
+- 3-6 words MAX. Bold. Unexpected. Personality-driven.
+- Examples: "leo chose violence today" / "this man has ONE brain cell" / "leo's daily crime report"
+- Must create a "wait what?" reaction mid-scroll
 
-MUSIC MOOD: cozy lo-fi, warm acoustic, soft jazz — something that feels like a Sunday morning.
+SFX TEXT (scatter 2-3 throughout the video):
+- Cat sound effects as ON-SCREEN TEXT at the exact moment they'd happen
+- "Meow!" when cat opens mouth / looks at camera
+- "Purr~" when cat is relaxed / being pet
+- "Mrow?" when cat looks confused
+- "Nom nom" when cat is eating / licking
+- These are BRIGHT COLORED pop-in text, not subtitles
 
-This is a ${clipDuration.toFixed(0)}-second moment: ${clip.description || "Leo being cute"} | Mood: ${clip.mood || "cozy"}
+EMOJI PUNCTUATION (scatter 2-3 throughout):
+- 😎 when Leo looks cool/smug
+- 😍 when Leo does something adorable
+- 🤨 when Leo looks confused/suspicious
+- 💀 when something is hilariously bad
+- These POP IN at key moments as visual punctuation
+
+DURATION: This is a ${clipDuration.toFixed(0)}-second moment.
+SCENE: ${clip.description || "Leo being Leo"} | Mood: ${clip.mood || "playful"}
 
 Return JSON:
-{"narration":"funny, warm, personality-driven narration (max 30 words, talk TO the cat, pattern interrupt opening, loop-ready ending)",
-"hook":"3-6 word bold on-screen text for the first 2 seconds — unexpected, scroll-stopping",
-"secondHook":"optional 3-5 word follow-up text at 3-4 seconds if the moment supports a double-hook",
-"title":"attention-grabbing title under 55 chars, one cat emoji, makes you curious",
-"description":"1 fun sentence that makes you want to click + newline + #cat #catsofyoutube #kitten #catlover #shorts #funnycat #catmemes",
-"tags":["10-15 tags mixing: cat, cute cat, funny cat, kitten, cat video, meow, catlover, catsofyoutube, funnycat, catmemes, cozymood, pethumor, catlife, royalcat"]}`,
+{"narration":"funny, personality-driven narration (max 30 words, talk TO Leo, pattern interrupt opening, loop-ready ending, mention Leo by name)",
+"hook":"3-6 word bold on-screen text for the first 2 seconds — scroll-stopping, personality-driven",
+"sfx":[{"text":"Meow/Mrow/Purr/Nom etc","timing":"what moment in the clip this should appear","color":"one of: pink, cyan, yellow, green"},"2-3 cat sound effects as on-screen text"],
+"emoji":[{"emoji":"😎/😍/🤨/💀","timing":"what moment this should appear"},"2-3 emoji pop-ins"],
+"title":"attention-grabbing title under 55 chars, one cat emoji, makes you click",
+"description":"1 funny sentence that makes you want to click + newline + #cat #catsofyoutube #kitten #catlover #shorts #funnycat #catmemes #leo",
+"tags":["12-15 tags: cat, cute cat, funny cat, kitten, cat video, meow, catlover, catsofyoutube, funnycat, catmemes, pethumor, catlife, royalcat, leo the cat, funny animals"]}`,
         },
         {
           role: "user",
@@ -728,33 +774,46 @@ Return JSON:
       ],
     }).then((r) => JSON.parse(r.content));
 
-    await logEvent("Leo", `"${base}" clip → "${copy.narration.slice(0, 60)}..." | hook: ${copy.hook}`, { jobId });
+    await logEvent("Leo", `"${base}" clip → "${copy.narration.slice(0, 60)}..." | hook: ${copy.hook} | sfx: ${(copy.sfx||[]).length} | emoji: ${(copy.emoji||[]).length}`, { jobId });
 
-    // Voiceover — Kore is the warmest Gemini voice, perfect for cozy cat content
-    const voiceId = config.leoVoiceId || "Kore";
+    // Voiceover — Puck is energetic and playful, perfect for fun cat content
+    const voiceId = config.leoVoiceId || "Puck";
     const engine = config.leoVoiceId && config.elevenlabsKey ? "elevenlabs" : undefined;
     const { voiceoverUrl, words, duration: voDuration } = await synthesizeVoiceover(
       copy.narration, voiceId, jobId, clipDuration, engine ? { engine } : undefined
     );
 
-    // Music — warm, cozy, not too sleepy
+    // Music — upbeat and playful, NOT sleepy
     const musicTrack = await pickMusic(
-      "Low",
+      "Medium",
       jobId,
-      { moods: ["warm", "acoustic", "cozy", "lofi", "soft", "gentle"] }
+      { moods: ["upbeat", "playful", "fun", "happy", "bouncy", "quirky"] }
     );
 
     const outDuration = Math.min(Math.max(voDuration + 1.5, 10), clipDuration);
 
-    // Render the single clip with warm color grading (top pet account look)
+    // Build SFX text overlays from LLM output
+    const sfxOverlays = (copy.sfx || []).map((s) => {
+      // Parse timing relative to clip duration
+      const t = parseRelativeTiming(s.timing, outDuration);
+      return { text: s.text, start: t.start, end: t.end, style: `SFX_${s.color || 'pink'}` };
+    });
+
+    // Build emoji overlays from LLM output
+    const emojiOverlays = (copy.emoji || []).map((e) => {
+      const t = parseRelativeTiming(e.timing, outDuration);
+      return { text: e.emoji, start: t.start, end: t.end, style: "EmojiPop" };
+    });
+
+    // Render — bright, saturated, high-energy top pet account look
     const payload = {
       duration: outDuration,
       backgroundClips: [{ url: file, type: "video", start: clipStart, duration: outDuration }],
       audioUrl: voiceoverUrl,
       musicUrl: musicTrack?.track_url || null,
       keepSourceAudio: hasAudio,
-      // Warm color grading + vignette + soft glow: cozy top pet account aesthetic
-      colorFilter: "eq=contrast=1.08:brightness=0.04:saturation=1.12,unsharp=5:5:0.8,hue=h=-3:s=1.05,vignette=PI/4.5:40",
+      // Bright, saturated, high-contrast — top pet account aesthetic
+      colorFilter: "eq=contrast=1.12:brightness=0.05:saturation=1.25,unsharp=5:5:0.6",
       captions: words.filter((w) => w.start < outDuration).map((w, i) => {
         const chunk = words.slice(Math.floor(i / 3) * 3, Math.floor(i / 3) * 3 + 3);
         return i % 3 === 0
@@ -762,14 +821,15 @@ Return JSON:
           : null;
       }).filter(Boolean),
       overlays: [
-        // Primary hook — big, animated entrance, stays 3 seconds
-        { text: copy.hook, start: 0.2, end: 3.2, style: "Hook" },
-        // Second hook at 3-4s if provided
-        ...(copy.secondHook ? [{ text: copy.secondHook, start: 3.3, end: 5.0, style: "Hook" }] : []),
+        // Primary hook — big, animated, scroll-stopping
+        { text: copy.hook, start: 0.15, end: 2.8, style: "Hook" },
+        // SFX text pop-ins
+        ...sfxOverlays,
+        // Emoji pop-ins
+        ...emojiOverlays,
       ],
-      // Animated sparkle overlays — floating hearts/stars via ASS override tags
-      sparkleOverlays: true,
-      captionStyle: { color: "cream", fontsize: 96 },
+      sparkleOverlays: false,
+      captionStyle: { color: "white", fontsize: 96 },
     };
 
     const renderResult = await renderVideo(payload, jobId);
