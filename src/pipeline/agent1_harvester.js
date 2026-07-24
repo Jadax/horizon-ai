@@ -305,11 +305,11 @@ export async function resolveLoreContext(niche, title, jobId) {
 
 async function searchPexels(keyword, perPage = 15) {
     if (!config.pexelsKey) return [];
-    const url = `https://api.pexels.com/videos/search?query=${encodeURIComponent(
+    const url = `https://api.pexels.com/v1/videos/search?query=${encodeURIComponent(
         keyword
-    )}&orientation=portrait&size=medium&per_page=${perPage}`;
+    )}&per_page=${perPage}`;
     const res = await fetch(url, { headers: { Authorization: config.pexelsKey } });
-    if (!res.ok) return [];
+    if (!res.ok) { logEvent("Agent 1", `Pexels API error ${res.status} for "${keyword}"`, { level: "warn" }); return []; }
     const json = await res.json();
     return (json.videos || []).map((v) => {
         const file =

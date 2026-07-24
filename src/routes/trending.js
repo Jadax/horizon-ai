@@ -60,7 +60,7 @@ trendingRouter.get("/diagnostics", async (_req, res) => {
   const pexelsKey = (config.pexelsKey || "").trim();
   const pexelsCheck = !pexelsKey
     ? Promise.resolve({ name: "Pexels", ok: false, detail: "PEXELS_API_KEY not set in .env" })
-    : fetch("https://api.pexels.com/videos/search?query=test&per_page=1", {
+    : fetch("https://api.pexels.com/v1/videos/search?query=test&per_page=1", {
         headers: { Authorization: pexelsKey },
       })
         .then((r) => ({ name: "Pexels", ok: r.ok, detail: r.ok ? `HTTP ${r.status}` : `HTTP ${r.status} — ${r.status === 401 ? "invalid API key" : r.status === 429 ? "rate limited (200/hr limit)" : "request failed"}` }))
@@ -78,6 +78,11 @@ trendingRouter.get("/diagnostics", async (_req, res) => {
       .then(({ error }) => ({ name: "Supabase", ok: !error, detail: error ? error.message : "connected" })),
     pexelsCheck,
     Promise.resolve({ name: "Google Cloud", ok: Boolean(config.google.refreshToken), detail: config.google.refreshToken ? "refresh token configured" : "GOOGLE_REFRESH_TOKEN not set" }),
+    Promise.resolve({
+      name: "Instagram Graph API",
+      ok: Boolean(config.instagram.accessToken && config.instagram.businessId),
+      detail: config.instagram.accessToken ? `business ID: ${config.instagram.businessId || "NOT SET"}` : "INSTAGRAM_ACCESS_TOKEN not set — package-mode only",
+    }),
   ]);
   res.json(checks.map((c) => (c.status === "fulfilled" ? c.value : { name: "unknown", ok: false, detail: c.reason?.message || "check failed" })));
 });

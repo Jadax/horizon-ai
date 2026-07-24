@@ -378,6 +378,26 @@ button:disabled{opacity:.4;cursor:not-allowed;background:var(--panel-2);box-shad
 .viral-insight-row .vr-value.warn{color:var(--amber)}
 .viral-insight-row .vr-value.bad{color:var(--red)}
 
+/* ── Publish Packages ── */
+.pkg-tabs{display:flex;gap:6px;margin-bottom:10px}
+.pkg-tab{font-family:var(--mono);font-size:10px;padding:5px 10px;border-radius:14px;border:1px solid var(--border);background:var(--panel-2);color:var(--muted);cursor:pointer;transition:.15s}
+.pkg-tab:hover{color:var(--text-dim);border-color:var(--border-soft)}
+.pkg-tab.active{color:var(--emerald);border-color:var(--emerald-dim);background:var(--emerald-soft)}
+.pkg-tab .pkg-status{display:inline-block;width:6px;height:6px;border-radius:50%;margin-left:4px;vertical-align:middle}
+.pkg-tab .pkg-status.ok{background:var(--emerald)}
+.pkg-tab .pkg-status.pending{background:var(--amber)}
+.pkg-tab .pkg-status.error{background:var(--red)}
+.pkg-body{border:1px solid var(--border);border-radius:var(--radius-sm);padding:12px;background:var(--panel)}
+.pkg-label{font-family:var(--mono);font-size:9px;color:var(--muted);letter-spacing:.1em;text-transform:uppercase;margin-bottom:4px}
+.pkg-value{font-family:var(--mono);font-size:11px;color:var(--text-dim);word-break:break-word;line-height:1.5}
+.pkg-value.url{color:var(--sky);text-decoration:underline;cursor:pointer}
+.pkg-row{margin-bottom:10px}
+.pkg-actions{display:flex;gap:6px;margin-top:10px}
+.pkg-actions button{font-size:10px;padding:5px 10px}
+.pkg-copy{position:relative}
+.pkg-copy::after{content:"Copied!";position:absolute;top:-20px;right:0;font-family:var(--mono);font-size:9px;color:var(--emerald);opacity:0;transition:.2s}
+.pkg-copy.copied::after{opacity:1}
+
 /* ── Channel Manager ── */
 .ch-mgr{margin-bottom:12px}
 .ch-mgr-section{margin-bottom:14px}
@@ -530,6 +550,10 @@ table.ch-matrix tr:hover td{background:var(--panel-2)}
         <button onclick="renderProduction()" id="prodBtn">🎬 Render Production (no watermark)</button>
         <button onclick="approveJob()" class="primary" id="approveBtn">Approve → Schedule upload</button>
       </div>
+    </div>
+    <div id="publishPackages" style="display:none;margin-top:14px;border-top:1px solid var(--border-soft);padding-top:14px">
+      <div class="sec-title" style="margin-top:0"><span class="sec-heading">Publish Packages</span><button onclick="loadPublishPackages()" style="padding:3px 10px">↻</button></div>
+      <div id="publishPackagesBody"></div>
     </div>
   </section>
 
@@ -788,6 +812,7 @@ function selectJob(id){
   document.getElementById("fScript").value = currentJob.script||"";
   document.getElementById("fDesc").value = currentJob.description||"";
   applyLockState();
+  loadPublishPackages();
 }
 
 function applyLockState(){
@@ -798,6 +823,90 @@ function applyLockState(){
   document.getElementById("saveBtn").disabled = locked;
   document.getElementById("lockNote").style.display = locked ? "block" : "none";
   document.getElementById("scriptNote").style.display = !locked && scriptLocked ? "block" : "none";
+}
+
+// ── Publish Packages ──
+let activePkgTab = null;
+async function loadPublishPackages(){
+  const wrap = document.getElementById("publishPackages");
+  const body = document.getElementById("publishPackagesBody");
+  if(!currentJob){ wrap.style.display="none"; return; }
+  wrap.style.display="block";
+  try{
+    const res = await fetch("/api/jobs/"+currentJob.id+"/publish-packages",{headers:H});
+    if(!res.ok){ body.innerHTML='<div class="pkg-value">No publish packages</div>'; return; }
+    const targets = await res.json();
+    if(!targets.length){ body.innerHTML='<div class="pkg-value" style="color:var(--muted)">No publish packages yet — render first, then approve.</div>'; return; }
+    if(!activePkgTab || !targets.find(t=>t.platform===activePkgTab)) activePkgTab = targets[0].platform;
+    body.innerHTML = `
+      <div class="pkg-tabs">${targets.map(t=>{
+        const statusClass = t.status==="published"?"ok":t.status==="package_ready"?"pending":"error";
+        return `<div class="pkg-tab ${t.platform===activePkgTab?'active':''}" onclick="switchPkgTab('${t.platform}')">${t.platform} <span class="pkg-status ${statusClass}"></span></div>`;
+      }).join("")}</div>
+      <div id="pkgDetail">${renderPkgDetail(targets.find(t=>t.platform===activePkgTab))}</div>`;
+  }catch(e){ body.innerHTML='<div class="pkg-value">Failed to load packages</div>'; }
+}
+
+function switchPkgTab(platform){
+  activePkgTab = platform;
+  loadPublishPackages();
+}
+
+function renderPkgDetail(target){
+  if(!target) return '';
+  const pkg = target.package || {};
+  const variant = pkg.variant || {};
+  const meta = pkg.metadata || {};
+  const video = pkg.video || {};
+  let html = '';
+
+  // Status
+  const statusLabel = target.status==="published" ? '<span style="color:var(--emerald)">✓ Published</span>'
+    : target.status==="scheduled" ? '<span style="color:var(--sky)">⏱ Scheduled</span>'
+    : target.status==="package_ready" ? '<span style="color:var(--amber)">📦 Ready to post</span>'
+    : `<span style="color:var(--muted)">${target.status}</span>`;
+  html += `<div class="pkg-row"><div class="pkg-label">Status</div><div class="pkg-value">${statusLabel}</div></div>`;
+
+  // Video download
+  if(video.url){
+    html += `<div class="pkg-row"><div class="pkg-label">Video</div><div class="pkg-value"><a href="${video.url}" target="_blank" class="pkg-value url">${video.url.slice(0,60)}…</a> <button onclick="window.open('${video.url}','_blank')" style="font-size:9px;padding:2px 6px;margin-left:4px">Download</button></div></div>`;
+  }
+
+  // Caption / hashtags
+  if(variant.caption){
+    html += `<div class="pkg-row"><div class="pkg-label">Caption</div><div class="pkg-value pkg-copy" onclick="navigator.clipboard.writeText(this.textContent);this.classList.add('copied');setTimeout(()=>this.classList.remove('copied'),1500)" style="cursor:pointer" title="Click to copy">${escapeHtml(variant.caption)}</div></div>`;
+  }
+  if(variant.hashtags?.length){
+    html += `<div class="pkg-row"><div class="pkg-label">Hashtags</div><div class="pkg-value pkg-copy" onclick="navigator.clipboard.writeText(this.textContent);this.classList.add('copied');setTimeout(()=>this.classList.remove('copied'),1500)" style="cursor:pointer" title="Click to copy">${variant.hashtags.join(" ")}</div></div>`;
+  }
+
+  // Cover variants (IG)
+  if(variant.cover_variants?.length){
+    html += `<div class="pkg-row"><div class="pkg-label">Cover images</div><div style="display:flex;gap:6px">${variant.cover_variants.map((c,i)=>`<img src="${c.url||c}" style="width:80px;border-radius:6px;border:1px solid var(--border)" alt="cover ${i+1}"/>`).join("")}</div></div>`;
+  }
+
+  // External URL (if published)
+  if(target.external_url){
+    html += `<div class="pkg-row"><div class="pkg-label">Published URL</div><div class="pkg-value"><a href="${target.external_url}" target="_blank" class="pkg-value url">${target.external_url}</a></div></div>`;
+  }
+
+  // Actions
+  if(target.status==="package_ready"){
+    html += `<div class="pkg-actions">
+      <button onclick="markPublishedPrompt('${target.id}','${target.platform}')" class="primary" style="font-size:10px">Mark as Published</button>
+    </div>`;
+  }
+
+  return html;
+}
+
+async function markPublishedPrompt(targetId, platform){
+  const url = prompt(`Enter the ${platform} URL where this was published:`);
+  if(!url) return;
+  const res = await fetch("/api/publish-targets/"+targetId+"/mark-published",{method:"POST",headers:H,
+    body:JSON.stringify({external_url:url})});
+  if(res.ok){ loadPublishPackages(); }
+  else { alert("Failed: "+((await res.json()).error||res.status)); }
 }
 
 async function saveOverrides(){

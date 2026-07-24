@@ -113,6 +113,14 @@ export const config = {
     }
   })(),
 
+  // Instagram Graph API (Reels posting) — requires Facebook App +
+  // IG Business/Creator account + long-lived Page Access Token.
+  // See: https://developers.facebook.com/docs/instagram-api/guides/content-publishing
+  instagram: {
+    accessToken: process.env.INSTAGRAM_ACCESS_TOKEN || null,
+    businessId: process.env.INSTAGRAM_BUSINESS_ID || null,
+  },
+
   // TikTok cross-post channels: {"leothecat":{"handle":"@LeoTheCat","open_id":"..."}}  // Package-mode (no direct TikTok API yet); used for labeled publish targets.
   tiktokChannels: (() => {
     try {

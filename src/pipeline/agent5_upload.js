@@ -160,14 +160,43 @@ export async function uploadScheduled({ videoUrl, title, description, tags, jobI
     // YouTube upload failed - don't mark as scheduled
   }
 
-  // ── Instagram Reels - STUB (requires full API implementation) ──────
-  // if (config.publishTo.includes('instagram') && config.instagram?.accessToken) { ... }
+  // ── Instagram Reels (Graph API — requires INSTAGRAM_ACCESS_TOKEN + INSTAGRAM_BUSINESS_ID) ──
+  if (config.instagram.accessToken && config.instagram.businessId) {
+    try {
+      await logEvent("Agent 5", "Uploading to Instagram Reels...", { jobId });
+      const igVariant = publishPackage?.platform_variants?.instagram || {};
+      const caption = igVariant.caption || `${title}\n\n${(description || "").slice(0, 300)}`;
+      const igResult = await uploadToInstagram({
+        videoUrl,
+        caption: caption.slice(0, 2200),
+        businessId: config.instagram.businessId,
+        accessToken: config.instagram.accessToken,
+      });
+      publishedTo.push({ platform: "instagram", mediaId: igResult.id, status: "published" });
+      await supabase.from("publish_targets").upsert({
+        pipeline_log_id: jobId,
+        platform: "instagram",
+        mode: "direct",
+        status: "published",
+        package: {
+          video: publishPackage?.video,
+          subtitles: publishPackage?.subtitles,
+          metadata: publishPackage?.metadata,
+          variant: igVariant,
+          monetization: publishPackage?.monetization,
+        },
+        external_id: igResult.id,
+        external_url: igResult.permalink || null,
+        published_at: new Date().toISOString(),
+      }, { onConflict: "pipeline_log_id,platform" });
+      await logEvent("Agent 5", `✓ Instagram Reel published: ${igResult.id}`, { jobId });
+    } catch (err) {
+      await logEvent("Agent 5", `Instagram upload failed: ${err.message}`, { jobId, level: "error" });
+    }
+  }
 
-  // ── Facebook Reels - STUB (requires full API implementation) ──────
-  // if (config.publishTo.includes('facebook') && config.facebook?.accessToken) { ... }
-
-  // ── TikTok - STUB (requires full API implementation) ──────────────
-  // if (config.publishTo.includes('tiktok') && config.tiktok?.accessToken) { ... }
+  // ── TikTok - STUB (requires Content Posting API app approval) ──────
+  // if (config.tiktok?.accessToken) { ... }
 
   // Update job - status reflects REAL uploads only
   const status = uploadSuccess ? "Scheduled" : "Rendered";
@@ -186,4 +215,55 @@ export async function uploadScheduled({ videoUrl, title, description, tags, jobI
 
   await logEvent("Agent 5", `✓ YouTube ${uploadSuccess ? 'scheduled' : 'upload failed'}`, { jobId });
   return { region, publishAt, publishedTo, videoId, success: uploadSuccess };
+}
+
+/**
+ * Upload a video as an Instagram Reel via the Graph API.
+ * Flow: POST /{business-id}/media (create container) → poll status → POST /{business-id}/media_publish
+ * Requires: INSTAGRAM_ACCESS_TOKEN (long-lived) + INSTAGRAM_BUSINESS_ID (IG Business/Creator account).
+ * The video URL must be publicly accessible (Supabase storage URLs qualify).
+ */
+async function uploadToInstagram({ videoUrl, caption, businessId, accessToken }) {
+  const baseUrl = `https://graph.facebook.com/v21.0/${businessId}`;
+
+  // Step 1: Create a REELS media container
+  const containerRes = await fetch(`${baseUrl}/media`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      media_type: "REELS",
+      video_url: videoUrl,
+      caption: caption.slice(0, 2200),
+      share_to_feed: true,
+      access_token: accessToken,
+    }),
+  });
+  const containerData = await containerRes.json();
+  if (containerData.error) throw new Error(`IG container creation failed: ${containerData.error.message}`);
+  const containerId = containerData.id;
+
+  // Step 2: Poll until container is ready (max 5 min, 10s intervals)
+  for (let i = 0; i < 30; i++) {
+    await new Promise((r) => setTimeout(r, 10000));
+    const statusRes = await fetch(`${baseUrl}/${containerId}?fields=status_code,status&access_token=${accessToken}`);
+    const statusData = await statusRes.json();
+    if (statusData.error) throw new Error(`IG status check failed: ${statusData.error.message}`);
+    if (statusData.status_code === "FINISHED") break;
+    if (statusData.status_code === "ERROR") throw new Error(`IG container processing failed: ${JSON.stringify(statusData)}`);
+    if (i === 29) throw new Error("IG container processing timed out (5 min)");
+  }
+
+  // Step 3: Publish
+  const publishRes = await fetch(`${baseUrl}/media_publish`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      creation_id: containerId,
+      access_token: accessToken,
+    }),
+  });
+  const publishData = await publishRes.json();
+  if (publishData.error) throw new Error(`IG publish failed: ${publishData.error.message}`);
+
+  return { id: publishData.id, permalink: null };
 }

@@ -86,9 +86,7 @@ async function approveJobHandler(req, res) {
   }
   try {
     assertPublishableQuality(job);
-    if (!job.publish_package?.platform_variants?.youtube) {
-      return res.status(409).json({ error: "YouTube was not selected for this run. Use its package target instead." });
-    }
+
     // Multi-channel: fetch niche's targetChannels from the niche config so
     // the same video publishes to all selected YouTube channels.
     const { data: nicheRow } = await supabase
@@ -100,26 +98,53 @@ async function approveJobHandler(req, res) {
     const channels = Array.isArray(preset.targetChannels) && preset.targetChannels.length
       ? preset.targetChannels
       : [job.target_channel || nicheRow?.target_channel || "primary"];
+
+    // YouTube fan-out: upload to all selected channels
+    const hasYtPackage = job.publish_package?.platform_variants?.youtube;
     const results = [];
-    for (const channel of channels) {
-      const result = await uploadScheduled({
-        videoUrl: job.rendered_video_url,
-        title: job.title,
-        description: job.description,
-        tags: job.tags,
-        jobId: job.id,
-        targetChannel: channel,
-        niche: job.niche,
-        publishPackage: job.publish_package,
-      });
-      results.push({ channel, result });
+    if (hasYtPackage) {
+      for (const channel of channels) {
+        const result = await uploadScheduled({
+          videoUrl: job.rendered_video_url,
+          title: job.title,
+          description: job.description,
+          tags: job.tags,
+          jobId: job.id,
+          targetChannel: channel,
+          niche: job.niche,
+          publishPackage: job.publish_package,
+        });
+        results.push({ channel, platform: "youtube", result });
+      }
     }
+
+    // Instagram: upload once if token is configured and IG package exists
+    const hasIgPackage = job.publish_package?.platform_variants?.instagram;
+    if (hasIgPackage && !results.some(r => r.platform === "instagram")) {
+      // uploadScheduled already handles IG internally when token is set
+      // — call it once (YouTube channel="primary" is a no-op if no YT package)
+      if (!hasYtPackage) {
+        const result = await uploadScheduled({
+          videoUrl: job.rendered_video_url,
+          title: job.title,
+          description: job.description,
+          tags: job.tags,
+          jobId: job.id,
+          targetChannel: "primary",
+          niche: job.niche,
+          publishPackage: job.publish_package,
+        });
+        results.push({ channel: "instagram", platform: "instagram", result });
+      }
+      // If YT was already called above, IG was already handled by uploadScheduled
+    }
+
     const primary = results[0];
     await updateJob(job.id, {
       youtube_video_id: primary?.result?.videoId || null,
       target_region: primary?.result?.region,
       publish_schedule: primary?.result?.publishAt?.toISOString(),
-      published_to: results.map((r) => ({ channel: r.channel, videoId: r.result.videoId, url: r.result.url })),
+      published_to: results.map((r) => ({ channel: r.channel, platform: r.platform, videoId: r.result?.videoId, mediaId: r.result?.publishedTo?.find(p => p.platform === "instagram")?.mediaId })),
       status: primary?.result?.success ? "Scheduled" : "Rendered",
     });
     res.json({ ok: true, channels: results.length, primary: primary?.result });

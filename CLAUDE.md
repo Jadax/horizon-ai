@@ -70,6 +70,6 @@ Run buttons per niche, trending explorer, live SSE stream, preview+approve queue
 - Windows 11 dev box; real Python at `python` (3.14) with gTTS; local ffmpeg 6.1.1 (gyan) vs Railway ffmpeg-static 7.0.2 — the drawtext chain bug only manifested on 7.0.2; always use the ass= path.
 - `.env` local with real keys (gitignored; dotenv: LAST duplicate wins). Railway env overrides code defaults — stale Railway vars (TTS_ENGINE, CONTENT_QUALITY_THRESHOLD) can shadow new code defaults.
 - Railway: single service, nixpacks installs python3+gTTS, /health check.
-- Known open: YouTube Trending needs OAuth re-consent w/ youtube.readonly (`npm run auth:youtube`); PEXELS_API_KEY empty (Pixabay-only); TikTok/IG direct posting blocked on their app approvals; Jamendo sync untested (needs free JAMENDO_CLIENT_ID); Telegram untested (needs bot token).
+- Known open: YouTube Trending needs OAuth re-consent w/ youtube.readonly (`npm run auth:youtube`); Instagram Reels posting requires INSTAGRAM_ACCESS_TOKEN + INSTAGRAM_BUSINESS_ID (Facebook App → IG Business account → long-lived token); TikTok Content Posting API blocked on app approval (client built, ready when approved); Jamendo sync untested (needs free JAMENDO_CLIENT_ID); Telegram untested (needs bot token).
 - Reddit unauthenticated: .rss only (.json 403s), ~10 req/min budget — cache+pacing in sources/reddit.js.
 - Gemini free models for THIS key: gemini-flash-latest (throttles), gemini-flash-lite-latest (reliable), gemini-2.5-flash-preview-tts. gpt-image-1 needs no org verification but account must have credit.
