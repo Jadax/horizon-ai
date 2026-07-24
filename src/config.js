@@ -72,6 +72,10 @@ export const config = {
   // still reads this with a || 7.0 fallback, so it degraded silently, not a crash).
   qualityScoreThreshold: parseFloat(process.env.QUALITY_SCORE_THRESHOLD) || 7.0,
 
+  // ─── Twitch (free application registration) ──────────────────────────
+  twitchClientId: process.env.TWITCH_CLIENT_ID,
+  twitchClientSecret: process.env.TWITCH_CLIENT_SECRET,
+
   // Long-form clipper (Agent 6): personal access token for YOUR OWN Vimeo
   // account — restored, was dropped in the free-stack rewrite, silently
   // disabling the "Or your own Vimeo video" dashboard form (routes/clips.js
@@ -118,6 +122,9 @@ export const config = {
     }
   })(),
   
+  // Social RSS feed auth headers: {"bearer_token": {"Authorization": "Bearer xxx"}}
+  socialFeedHeaders: parseJsonEnv("SOCIAL_FEED_HEADERS", {}),
+
   // ─── Server ──────────────────────────────────────────────────────────
   port: parseInt(process.env.PORT || "8080", 10),
   dashboardPassword: process.env.DASHBOARD_PASSWORD || "change-me",

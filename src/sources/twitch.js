@@ -8,14 +8,15 @@
  */
 import { config } from "../config.js";
 import { logEvent } from "../supabase.js";
+import { UA } from "./rss.js";
 
 let cachedToken = null;
 let tokenExpiry = 0;
 
 async function getAccessToken() {
   if (cachedToken && Date.now() < tokenExpiry) return cachedToken;
-  const clientId = process.env.TWITCH_CLIENT_ID;
-  const clientSecret = process.env.TWITCH_CLIENT_SECRET;
+  const clientId = process.env.TWITCH_CLIENT_ID || config.twitchClientId;
+  const clientSecret = process.env.TWITCH_CLIENT_SECRET || config.twitchClientSecret;
   if (!clientId || !clientSecret) return null;
 
   try {
@@ -35,11 +36,11 @@ async function getAccessToken() {
 
 async function twitchApi(path) {
   const token = await getAccessToken();
-  const clientId = process.env.TWITCH_CLIENT_ID;
+  const clientId = process.env.TWITCH_CLIENT_ID || config.twitchClientId;
   if (!token || !clientId) return null;
 
   const res = await fetch(`https://api.twitch.tv/helix/${path}`, {
-    headers: { "Client-ID": clientId, Authorization: `Bearer ${token}` },
+    headers: { "Client-ID": clientId, Authorization: `Bearer ${token}`, "User-Agent": UA },
   });
   if (!res.ok) return null;
   return await res.json();

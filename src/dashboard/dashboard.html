@@ -378,6 +378,40 @@ button:disabled{opacity:.4;cursor:not-allowed;background:var(--panel-2);box-shad
 .viral-insight-row .vr-value.warn{color:var(--amber)}
 .viral-insight-row .vr-value.bad{color:var(--red)}
 
+/* ── Channel Manager ── */
+.ch-mgr{margin-bottom:12px}
+.ch-mgr-section{margin-bottom:14px}
+.ch-mgr-header{display:flex;align-items:center;gap:8px;margin-bottom:8px}
+.ch-mgr-icon{font-size:16px}
+.ch-mgr-title{font-family:var(--mono);font-size:10px;color:var(--muted);letter-spacing:.12em;text-transform:uppercase}
+.ch-mgr-count{font-family:var(--mono);font-size:9px;color:var(--emerald);background:var(--emerald-soft);padding:2px 7px;border-radius:10px}
+.ch-mgr-card{border:1px solid var(--border);border-radius:var(--radius-sm);padding:10px 12px;margin-bottom:6px;background:var(--panel);transition:.15s}
+.ch-mgr-card:hover{border-color:var(--border-soft)}
+.ch-mgr-card .ch-name{font-family:var(--display);font-weight:700;font-size:12px;color:var(--text);display:flex;align-items:center;gap:6px}
+.ch-mgr-card .ch-status{width:7px;height:7px;border-radius:50%;background:var(--emerald);box-shadow:0 0 6px var(--emerald)}
+.ch-mgr-card .ch-status.warn{background:var(--amber);box-shadow:0 0 6px var(--amber)}
+.ch-mgr-card .ch-niches{display:flex;flex-wrap:wrap;gap:4px;margin-top:6px}
+.ch-mgr-card .ch-niche-tag{font-family:var(--mono);font-size:9px;padding:2px 7px;border-radius:10px;border:1px solid var(--border);color:var(--text-dim);background:var(--panel-2)}
+.ch-mgr-card .ch-niche-tag.active{border-color:var(--emerald-dim);color:var(--emerald);background:var(--emerald-soft)}
+.ch-mgr-card .ch-meta{font-family:var(--mono);font-size:9px;color:var(--muted);margin-top:4px}
+.ch-mgr-empty{font-family:var(--mono);font-size:10px;color:var(--muted);padding:8px;text-align:center}
+.ch-mgr-add{display:flex;gap:6px;margin-top:8px}
+.ch-mgr-add input{flex:1;background:var(--panel-2);border:1px solid var(--border);color:var(--text);font-family:var(--mono);font-size:10px;padding:6px 8px;border-radius:6px}
+.ch-mgr-add input:focus{outline:none;border-color:var(--emerald-dim)}
+.ch-mgr-add button{font-size:10px;padding:5px 10px;border-radius:6px}
+/* ── Niche-to-Channel Matrix ── */
+.matrix-wrap{overflow-x:auto;margin-top:6px}
+table.ch-matrix{width:100%;border-collapse:collapse;font-family:var(--mono);font-size:10px}
+table.ch-matrix th{text-align:center;color:var(--muted);font-size:9px;letter-spacing:.08em;padding:4px 6px;border-bottom:1px solid var(--border-soft);white-space:nowrap}
+table.ch-matrix th:first-child{text-align:left}
+table.ch-matrix td{padding:4px 6px;border-bottom:1px solid var(--border);text-align:center}
+table.ch-matrix td:first-child{text-align:left;color:var(--text-dim);white-space:nowrap}
+table.ch-matrix tr:hover td{background:var(--panel-2)}
+.ch-matrix-dot{width:8px;height:8px;border-radius:50%;display:inline-block;cursor:pointer;transition:.15s}
+.ch-matrix-dot.on{background:var(--emerald);box-shadow:0 0 6px var(--emerald)}
+.ch-matrix-dot.off{background:var(--panel-3);border:1px solid var(--border)}
+.ch-matrix-dot.off:hover{border-color:var(--emerald-dim);background:var(--emerald-soft)}
+
 @media (max-width:1100px){main{grid-template-columns:1fr}section{max-height:none}
   .clipper-forms{grid-template-columns:1fr}.viral-panel{grid-template-columns:1fr 1fr}}
 </style>
@@ -503,9 +537,9 @@ button:disabled{opacity:.4;cursor:not-allowed;background:var(--panel-2);box-shad
   <section>
     <div class="sec-title">Console diagnostics <button onclick="loadDiag()" style="padding:3px 10px">↻</button></div>
     <div class="diag" id="diag"></div>
-    <div class="sec-title">Cadence &amp; Channels <button onclick="loadCadence()" style="padding:3px 10px">↻</button></div>
-    <div id="cadencePanel" style="margin-bottom:18px">
-      <div class="donut-empty" style="padding:12px">Loading scheduling data…</div>
+    <div class="sec-title">Channel Manager <button onclick="loadChannelManager()" style="padding:3px 10px">↻</button></div>
+    <div id="channelManagerPanel" style="margin-bottom:18px">
+      <div class="donut-empty" style="padding:12px">Loading channels…</div>
     </div>
     <div class="sec-title">Niche control <button onclick="loadNiches()" style="padding:3px 10px">↻</button></div>
     <div id="channelPanel" class="channel-panel"></div>
@@ -1207,9 +1241,9 @@ function currentPostingWindow(){
   return hour>=14&&hour<=16 ? "NOW \u2714" : "In " + ((14-hour+24)%24) + "h";
 }
 
-// ── Cadence & Channel Routing ──
-async function loadCadence(){
-  const panel = document.getElementById("cadencePanel");
+// ── Channel Manager ──
+async function loadChannelManager(){
+  const panel = document.getElementById("channelManagerPanel");
   try{
     const [nichesRes, channelsRes] = await Promise.all([
       fetch("/api/niches",{headers:H}),
@@ -1217,118 +1251,131 @@ async function loadCadence(){
     ]);
     if(!nichesRes.ok) return;
     const niches = await nichesRes.json();
-    const channelsData = channelsRes.ok ? await channelsRes.json() : { channels: [], instagramChannels: [] };
+    const channelsData = channelsRes.ok ? await channelsRes.json() : { channels: [], instagramChannels: [], tiktokChannels: [] };
     const ytChannels = channelsData.channels || [];
     const igChannels = channelsData.instagramChannels || [];
+    const ttChannels = channelsData.tiktokChannels || [];
 
-    panel.innerHTML = niches.map(n => {
-      const preset = n.editing_style_preset || {};
-      const cadence = preset.cadenceDays || 0;
-      const uploadHour = preset.uploadHourUtc || 14;
-      const primaryChannel = n.target_channel || "primary";
-      const selectedChannels = Array.isArray(preset.targetChannels) && preset.targetChannels.length
-        ? preset.targetChannels
-        : [primaryChannel];
-      const active = n.active !== false;
-      const quality = preset.qualityThreshold || 78;
-      const cb = (ch) => {
-        const checked = selectedChannels.includes(ch.key) || (ch.key === primaryChannel && !Array.isArray(preset.targetChannels));
-        return `<label style="display:flex;align-items:center;gap:4px;padding:3px 8px;border:1px solid var(--border);border-radius:6px;cursor:pointer;font-size:10px;font-family:var(--mono);${checked?'border-color:var(--emerald-dim);background:var(--emerald-soft);color:var(--emerald)':'color:var(--text-dim)'}">
-          <input type="checkbox" ${checked?'checked':''} onchange="toggleChannel('${n.niche_name}','${ch.key}',this.checked)" style="margin:0;cursor:pointer;accent-color:var(--emerald)"> ${escapeHtml(ch.label)}
-        </label>`;
-      };
-      return `
-      <div class="niche-card" style="cursor:default;padding:10px 12px">
-        <div class="nc-head">
-          <span class="nc-name"><span class="nc-dot ${active?'on':''}"></span>${n.niche_name}</span>
-          <span style="font-family:var(--mono);font-size:9px;color:var(--muted)">${selectedChannels.length > 1 ? `📡 ${selectedChannels.length} channels` : ''}</span>
-        </div>
-        <div class="nset-grid">
-          <div class="nset">
-            <label>Cadence (days)</label>
-            <select onchange="updatePreset('${n.niche_name}','cadence_days',this.value)">
-              <option value="0" ${cadence===0?'selected':''}>Every run</option>
-              <option value="1" ${cadence===1?'selected':''}>Daily</option>
-              <option value="2" ${cadence===2?'selected':''}>Every 2 days</option>
-              <option value="3" ${cadence===3?'selected':''}>Every 3 days</option>
-              <option value="7" ${cadence===7?'selected':''}>Weekly</option>
-              <option value="14" ${cadence===14?'selected':''}>Every 2 weeks</option>
-            </select>
-          </div>
-          <div class="nset">
-            <label>Upload hour (UTC)</label>
-            <select onchange="updatePreset('${n.niche_name}','upload_hour_utc',this.value)">
-              ${[0,2,4,6,8,10,12,14,16,18,20,22].map(h=>`<option value="${h}" ${uploadHour===h?'selected':''}>${String(h).padStart(2,'0')}:00</option>`).join("")}
-            </select>
-          </div>
-          <div class="nset">
-            <label>Quality gate</label>
-            <select onchange="updatePreset('${n.niche_name}','quality_threshold',this.value)">
-              ${[78,80,82,85,88,90].map(q=>`<option value="${q}" ${quality===q?'selected':''}>≥ ${q}</option>`).join("")}
-            </select>
-          </div>
-          <div class="nset" style="grid-column:1/-1">
-            <label>Publish to (check all that apply)</label>
-            <div style="display:flex;flex-wrap:wrap;gap:5px;margin-top:3px">
-              ${ytChannels.map(cb).join("")}
-              ${igChannels.map(cb).join("")}
-            </div>
-          </div>
-        </div>
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-top:6px">
-          <span style="font-family:var(--mono);font-size:9px;color:var(--muted)">
-            ${active?'⚡ Active':'⏸ Paused'} · ${cadence===0?'Every pipeline run':`Every ${cadence}d`} · Upload ${String(uploadHour).padStart(2,'0')}:00 UTC · ${selectedChannels.length} channel${selectedChannels.length===1?'':'s'}
-          </span>
-          <button onclick="toggleNicheActive('${n.niche_name}',${!active})" style="font-size:9px;padding:3px 8px">
-            ${active?'Pause':'Activate'}
-          </button>
-        </div>
+    // Build niche→channel mapping
+    const nicheYtMap = {};
+    const nicheIgMap = {};
+    const nicheTtMap = {};
+    for(const n of niches){
+      const p = n.editing_style_preset || {};
+      const ytChs = Array.isArray(p.targetChannels) ? p.targetChannels : (n.target_channel ? [n.target_channel] : ["primary"]);
+      const igChs = Array.isArray(p.targetInstagramChannels) ? p.targetInstagramChannels : [];
+      const ttChs = Array.isArray(p.targetTiktokChannels) ? p.targetTiktokChannels : [];
+      for(const k of ytChs) nicheYtMap[k] = [...(nicheYtMap[k]||[]), n.niche_name];
+      for(const k of igChs) nicheIgMap[k] = [...(nicheIgMap[k]||[]), n.niche_name];
+      for(const k of ttChs) nicheTtMap[k] = [...(nicheTtMap[k]||[]), n.niche_name];
+    }
+
+    const renderChannelCard = (ch, nichesAssigned, platform) => {
+      const status = nichesAssigned.length > 0 ? "ok" : "warn";
+      const statusText = nichesAssigned.length > 0 ? "Active" : "No niches assigned";
+      return `<div class="ch-mgr-card">
+        <div class="ch-name"><span class="ch-status ${status}"></span>${escapeHtml(ch.label)}</div>
+        <div class="ch-meta">${platform} · ${statusText}</div>
+        ${nichesAssigned.length ? `<div class="ch-niches">${nichesAssigned.map(n=>`<span class="ch-niche-tag active">${escapeHtml(n)}</span>`).join("")}</div>` : `<div class="ch-niches"><span class="ch-niche-tag">No niches — click a niche card below to assign</span></div>`}
       </div>`;
-    }).join("");
-  }catch(e){ panel.innerHTML = '<div class="donut-empty">Could not load cadence data</div>'; }
+    };
+
+    let html = "";
+
+    // YouTube channels
+    html += `<div class="ch-mgr-section">
+      <div class="ch-mgr-header"><span class="ch-mgr-icon">📺</span><span class="ch-mgr-title">YouTube Channels</span><span class="ch-mgr-count">${ytChannels.length}</span></div>`;
+    if(ytChannels.length){
+      html += ytChannels.map(ch => renderChannelCard(ch, nicheYtMap[ch.key]||[], "YouTube")).join("");
+    } else {
+      html += `<div class="ch-mgr-empty">No YouTube channels linked. Run <code>npm run auth:youtube</code> to link one.</div>`;
+    }
+    html += `</div>`;
+
+    // Instagram channels
+    html += `<div class="ch-mgr-section">
+      <div class="ch-mgr-header"><span class="ch-mgr-icon">📸</span><span class="ch-mgr-title">Instagram Channels</span><span class="ch-mgr-count">${igChannels.length}</span></div>`;
+    if(igChannels.length){
+      html += igChannels.map(ch => renderChannelCard(ch, nicheIgMap[ch.key]||[], "Instagram")).join("");
+    } else {
+      html += `<div class="ch-mgr-empty">No Instagram channels configured. Set <code>INSTAGRAM_CHANNELS</code> env.</div>`;
+    }
+    html += `</div>`;
+
+    // TikTok channels
+    html += `<div class="ch-mgr-section">
+      <div class="ch-mgr-header"><span class="ch-mgr-icon">🎵</span><span class="ch-mgr-title">TikTok Channels</span><span class="ch-mgr-count">${ttChannels.length}</span></div>`;
+    if(ttChannels.length){
+      html += ttChannels.map(ch => renderChannelCard(ch, nicheTtMap[ch.key]||[], "TikTok")).join("");
+    } else {
+      html += `<div class="ch-mgr-empty">No TikTok channels configured. Set <code>TIKTOK_CHANNELS</code> env.</div>`;
+    }
+    html += `</div>`;
+
+    // Niche → Channel matrix
+    html += `<div class="ch-mgr-section">
+      <div class="ch-mgr-header"><span class="ch-mgr-icon">🔗</span><span class="ch-mgr-title">Niche → Channel Matrix</span></div>
+      <div class="matrix-wrap"><table class="ch-matrix">
+        <thead><tr><th>Niche</th>${ytChannels.map(c=>`<th title="${escapeHtml(c.label)}">YT</th>`).join("")}${igChannels.map(c=>`<th title="${escapeHtml(c.label)}">IG</th>`).join("")}${ttChannels.map(c=>`<th title="${escapeHtml(c.label)}">TT</th>`).join("")}</tr></thead>
+        <tbody>${niches.map(n => {
+          const p = n.editing_style_preset || {};
+          const ytSel = new Set(Array.isArray(p.targetChannels) ? p.targetChannels : (n.target_channel ? [n.target_channel] : ["primary"]));
+          const igSel = new Set(Array.isArray(p.targetInstagramChannels) ? p.targetInstagramChannels : []);
+          const ttSel = new Set(Array.isArray(p.targetTiktokChannels) ? p.targetTiktokChannels : []);
+          const dots = [
+            ...ytChannels.map(c => `<td><span class="ch-matrix-dot ${ytSel.has(c.key)?'on':'off'}" onclick="toggleMatrixDot('${n.niche_name}','yt','${c.key}',${!ytSel.has(c.key)})" title="${escapeHtml(n.niche_name)} → ${escapeHtml(c.label)}"></span></td>`),
+            ...igChannels.map(c => `<td><span class="ch-matrix-dot ${igSel.has(c.key)?'on':'off'}" onclick="toggleMatrixDot('${n.niche_name}','ig','${c.key}',${!igSel.has(c.key)})" title="${escapeHtml(n.niche_name)} → ${escapeHtml(c.label)}"></span></td>`),
+            ...ttChannels.map(c => `<td><span class="ch-matrix-dot ${ttSel.has(c.key)?'on':'off'}" onclick="toggleMatrixDot('${n.niche_name}','tt','${c.key}',${!ttSel.has(c.key)})" title="${escapeHtml(n.niche_name)} → ${escapeHtml(c.label)}"></span></td>`),
+          ];
+          return `<tr><td>${escapeHtml(n.niche_name)} ${n.active?'':'<span style="color:var(--amber)">(paused)</span>'}</td>${dots.join("")}</tr>`;
+        }).join("")}</tbody>
+      </table></div>
+    </div>`;
+
+    panel.innerHTML = html;
+  }catch(e){ panel.innerHTML = '<div class="donut-empty">Could not load channel data</div>'; }
 }
 
-async function updatePreset(niche, bodyKey, value){
-  try{
-    const res = await fetch(`/api/niches/${encodeURIComponent(niche)}`,{method:"PATCH",headers:H,
-      body:JSON.stringify({[bodyKey]: value})});
-    if(!res.ok) console.error("updatePreset failed:", await res.text());
-    loadCadence();
-  }catch(e){ console.error("updatePreset failed", e); }
-}
-
-async function toggleChannel(niche, channelKey, enabled){
+async function toggleMatrixDot(niche, platform, channelKey, enabled){
   try{
     const nichesRes = await fetch("/api/niches",{headers:H});
     const niches = await nichesRes.json();
-    const niche = niches.find(n => n.niche_name === niche);
-    if(!niche) return;
-    const preset = niche.editing_style_preset || {};
-    let channels = Array.isArray(preset.targetChannels) ? [...preset.targetChannels] : (niche.target_channel ? [niche.target_channel] : ["primary"]);
-    if(enabled && !channels.includes(channelKey)) channels.push(channelKey);
-    if(!enabled) channels = channels.filter(c => c !== channelKey);
-    if(channels.length === 0) channels = ["primary"];
-    await fetch(`/api/niches/${encodeURIComponent(niche.niche_name)}`,{method:"PATCH",headers:H,
-      body:JSON.stringify({target_channels: channels, target_channel: channels[0]})});
-    loadCadence();
-  }catch(e){ console.error("toggleChannel failed", e); }
-}
-
-async function toggleNicheActive(niche, active){
-  try{
-    await fetch(`/api/niches/${encodeURIComponent(niche)}`,{method:"PATCH",headers:H,
-      body:JSON.stringify({active})});
-    loadCadence();
-  }catch(e){}
+    const n = niches.find(x => x.niche_name === niche);
+    if(!n) return;
+    const p = n.editing_style_preset || {};
+    if(platform === "yt"){
+      let channels = Array.isArray(p.targetChannels) ? [...p.targetChannels] : (n.target_channel ? [n.target_channel] : ["primary"]);
+      if(enabled && !channels.includes(channelKey)) channels.push(channelKey);
+      if(!enabled) channels = channels.filter(c => c !== channelKey);
+      if(!channels.length) channels = ["primary"];
+      await fetch(`/api/niches/${encodeURIComponent(niche)}`,{method:"PATCH",headers:H,
+        body:JSON.stringify({target_channels: channels, target_channel: channels[0]})});
+    } else if(platform === "ig"){
+      let channels = Array.isArray(p.targetInstagramChannels) ? [...p.targetInstagramChannels] : [];
+      if(enabled && !channels.includes(channelKey)) channels.push(channelKey);
+      if(!enabled) channels = channels.filter(c => c !== channelKey);
+      await fetch(`/api/niches/${encodeURIComponent(niche)}`,{method:"PATCH",headers:H,
+        body:JSON.stringify({target_instagram_channels: channels})});
+    } else if(platform === "tt"){
+      let channels = Array.isArray(p.targetTiktokChannels) ? [...p.targetTiktokChannels] : [];
+      if(enabled && !channels.includes(channelKey)) channels.push(channelKey);
+      if(!enabled) channels = channels.filter(c => c !== channelKey);
+      await fetch(`/api/niches/${encodeURIComponent(niche)}`,{method:"PATCH",headers:H,
+        body:JSON.stringify({target_tiktok_channels: channels})});
+    }
+    loadChannelManager();
+    loadNiches();
+  }catch(e){ console.error("toggleMatrixDot failed", e); }
 }
 
 populateClipNicheSelects();
-loadDiag(); loadJobs(); loadCosts(); loadPublished(); loadNiches(); loadClips(); loadCadence(); loadViralInsights();
+loadDiag(); loadJobs(); loadCosts(); loadPublished(); loadNiches(); loadClips(); loadChannelManager(); loadViralInsights();
 setInterval(loadJobs, 30_000);
 setInterval(loadClips, 20_000);
 setInterval(loadCosts, 60_000);
 setInterval(loadPublished, 60_000);
 setInterval(loadViralInsights, 120_000);
+setInterval(loadChannelManager, 60_000);
 </script>
 <div class="modal-backdrop" id="nsetModal">
   <div class="modal" style="width:min(640px,100%)">

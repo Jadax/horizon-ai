@@ -2,9 +2,8 @@ import { config } from "../config.js";
 import OpenAI from "openai";
 import { randomUUID } from "node:crypto";
 import { supabase, logEvent } from "../supabase.js";
-import { scoreVideoForVirality, quickVideoFilter } from "../lib/viralScoring.js";
 import { fetchRSSFeed } from "../sources/rss.js";
-import { fetchSocialRSSFeeds, normaliseSocialFeeds } from "../sources/socialRss.js";
+import { fetchSocialRSSFeeds } from "../sources/socialRss.js";
 import { fetchGoogleTrends, fetchGoogleNews } from "../sources/googleTrends.js";
 import { fetchGDELT } from "../sources/gdelt.js";
 import { fetchYouTubeTrending } from "../sources/youtubeTrending.js";
@@ -22,108 +21,16 @@ import { llmJson } from "../lib/llm.js";
 
 const openai = new OpenAI({ apiKey: config.openaiKey });
 
-async function harvestSocialVideos(niche, jobId, limit = 15) {
-    const videos = [];
-    
-    for (const source of niche.target_sources || []) {
-        if (!source.startsWith('r/')) continue;
-        try {
-            const posts = await fetchTopReddit(source, 15, 'hot');
-            for (const post of posts) {
-                if (post.url && !post.url.includes('reddit.com') && 
-                    (post.url.includes('youtube.com') || post.url.includes('tiktok.com') || 
-                     post.url.includes('instagram.com') || post.url.includes('twitter.com') ||
-                     post.url.includes('vimeo.com') || post.url.includes('dailymotion.com'))) {
-                    videos.push({
-                        title: post.title,
-                        url: post.url,
-                        source: `Reddit (${source})`,
-                        pubDate: post.pubDate,
-                        score: post.score || 0,
-                        num_comments: post.num_comments || 0,
-                        selftext: post.selftext,
-                    });
-                }
-            }
-            await logEvent("Agent 1", `Reddit ${source}: ${videos.length} video candidates found`, { jobId });
-        } catch (err) {
-            await logEvent("Agent 1", `Reddit ${source} failed: ${err.message}`, { jobId, level: "warn" });
-        }
-    }
-
-    try {
-        const ytTrending = await fetchYouTubeTrending(niche.trend_region || "US", 10);
-        for (const item of ytTrending) {
-            videos.push({
-                title: item.title,
-                url: `https://youtube.com/watch?v=${item.id}`,
-                source: "YouTube Trending",
-                pubDate: item.pubDate,
-            });
-        }
-    } catch (err) {
-        await logEvent("Agent 1", `YouTube Trending fetch failed: ${err.message}`, { jobId, level: "warn" });
-    }
-
-    // Official source APIs/RSS provide topic intelligence only. Third-party
-    // social video is never downloaded or repurposed as footage.
-    const videoMetadata = videos;
-
-    const scoredVideos = [];
-    for (const video of videoMetadata) {
-        try {
-            const filterResult = quickVideoFilter(video, 5, 180);
-            if (!filterResult.passed) {
-                await logEvent("Agent 1", `Filtered out: ${filterResult.reason}`, { jobId, level: "debug" });
-                continue;
-            }
-
-            const scores = await scoreVideoForVirality(video, niche.niche_name);
-            
-            const threshold = config.qualityScoreThreshold || 7.0;
-            if (scores.overall >= threshold) {
-                scoredVideos.push({
-                    ...video,
-                    _viralScore: scores.overall,
-                    _scoreBreakdown: scores.breakdown,
-                    _reasoning: scores.reasoning,
-                    _usage: scores._usage,
-                    _type: "video",
-                    _isSourceVideo: true,
-                });
-                await logEvent("Agent 1", `✅ Video scored ${scores.overall.toFixed(1)}/10: "${video.title.slice(0, 60)}..."`, { jobId });
-            } else {
-                await logEvent("Agent 1", `⏭️ Video scored ${scores.overall.toFixed(1)}/10 (below threshold)`, { jobId, level: "debug" });
-            }
-        } catch (err) {
-            await logEvent("Agent 1", `Scoring failed for video: ${err.message}`, { jobId, level: "warn" });
-        }
-    }
-
-    scoredVideos.sort((a, b) => (b._viralScore || 0) - (a._viralScore || 0));
-    return scoredVideos.slice(0, 5);
-}
-
 export async function harvestAllCandidates(niche, jobId = null) {
     const log = (msg, level) => (jobId ? logEvent("Agent 1", msg, { jobId, level }) : logEvent("Agent 1", msg, { level }));
     await log(`Scanning sources for ${niche.niche_name}...`);
 
     const candidates = [];
-    // editing_style_preset.trendSources restricts a niche to specific source
-    // types without a schema change — the Explained niche uses it to pull
-    // ONLY from question-subreddits and curiosity RSS feeds: trending pools
-    // (Google/Wikipedia-trending/Bluesky/HN) kept steering it toward news
-    // wrappers (a Nolan film) instead of the underlying evergreen subject
-    // (the Odyssey itself).
     const enabled = new Set(
         niche.editing_style_preset?.trendSources
-        || niche.run_trend_sources
         || ["google", "reddit", "youtube", "gdelt", "rss", "wikipedia", "hackernews", "wikipedia_trending", "bluesky", "twitch", "kick", "dailymotion"]
     );
     const tag = (items, source) => items.map((i) => ({ ...i, source }));
-
-    const socialVideos = enabled.has("reddit") || enabled.has("youtube") ? await harvestSocialVideos(niche, jobId) : [];
-    candidates.push(...socialVideos);
 
     for (const feedUrl of enabled.has("rss") ? niche.rss_feeds || [] : []) {
         try {
@@ -135,7 +42,7 @@ export async function harvestAllCandidates(niche, jobId = null) {
         }
     }
 
-    const socialFeeds = normaliseSocialFeeds(niche.social_rss_feeds);
+    const socialFeeds = niche.social_rss_feeds || [];
     if (socialFeeds.length) {
         const results = await fetchSocialRSSFeeds(socialFeeds, config.socialFeedHeaders);
         for (const result of results) {
@@ -359,7 +266,7 @@ export async function harvestTopic(niche, jobId) {
         { jobId }
     );
 
-    recalibrateWeights(ranked).catch(() => {});
+    recalibrateWeights(ranked).catch((err) => logEvent("Agent 1", `Weight recalibration failed: ${err.message}`, { jobId, level: "warn" }));
 
     // Runner-up candidates so the orchestrator can retry with a different
     // topic when the quality gate rejects every script draft for the top one
@@ -369,7 +276,9 @@ export async function harvestTopic(niche, jobId) {
 }
 
 export async function resolveLoreContext(niche, title, jobId) {
-    const wikiApis = !niche.run_trend_sources || niche.run_trend_sources.includes("wikipedia") ? niche.lore_wiki_apis || [] : [];
+    const wikiApis = niche.editing_style_preset?.trendSources
+        ? (niche.editing_style_preset.trendSources.includes("wikipedia") ? niche.lore_wiki_apis || [] : [])
+        : niche.lore_wiki_apis || [];
     for (const apiRoot of wikiApis) {
         const wikiResults = await searchWiki(apiRoot, title.split(" ").slice(0, 6).join(" ")).catch(() => []);
         if (wikiResults.length) {

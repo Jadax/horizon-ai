@@ -3,12 +3,14 @@
  * Kick has a public (undocumented) API at kick.com/api/v2.
  * No authentication required for basic endpoints.
  */
+import { UA } from "./rss.js";
+
 export async function fetchKickTrending(options = {}) {
   const results = [];
   try {
     // Top live streams
     const liveRes = await fetch("https://kick.com/api/v2/channels?limit=15&sort=viewers", {
-      headers: { Accept: "application/json" },
+      headers: { Accept: "application/json", "User-Agent": UA },
       signal: AbortSignal.timeout(15000),
     });
     if (liveRes.ok) {
@@ -28,7 +30,7 @@ export async function fetchKickTrending(options = {}) {
 
     // Top clips (Kick supports clip endpoints)
     const clipsRes = await fetch("https://kick.com/api/v2/clips?sort=views&limit=10", {
-      headers: { Accept: "application/json" },
+      headers: { Accept: "application/json", "User-Agent": UA },
       signal: AbortSignal.timeout(15000),
     });
     if (clipsRes.ok) {
