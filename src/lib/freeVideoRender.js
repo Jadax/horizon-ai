@@ -100,20 +100,60 @@ function buildAssSubtitles(captions, overlays = [], style = {}, sparkleOverlays 
     'Style: NumberPunch,Arial,140,&H0000FFFF,&H00000000,&H80000000,1,1,5,2,5,180,1',
     'Style: POV,Arial,56,&H00D6F4FF,&H00000000,&H80000000,1,1,4,2,8,120,1',
     'Style: Sparkle,Arial,28,&H00FFFFFF,&H00000000,&H00000000,0,1,1,0,5,0,0',
+    // === NICHE-SPECIFIC STYLES ===
+    // Tech: Terminal/code aesthetic — monospace, green-on-dark, code snippet look
+    'Style: Tech_Code,Arial,68,&H0000FF88,&H00000000,&H80000000,1,1,4,2,5,200,1',
+    'Style: Tech_Highlight,Arial,80,&H00FFD700,&H00000000,&H80000000,1,1,5,2,5,220,1',
+    // Travel: Destination cards — semi-transparent box, warm gold
+    'Style: Travel_Dest,Arial,72,&H0000D7FF,&H00000000,&H80000000,1,1,5,2,5,240,1',
+    'Style: Travel_Price,Arial,88,&H0000CCFF,&H00000000,&H80000000,1,1,6,2,5,260,1',
+    // Entertainment: Kinetic typography — bold, impact, bounce animation
+    'Style: Kinetic,Arial,96,&H0000FFFF,&H00000000,&H80000000,1,1,6,3,5,200,1',
+    'Style: Kinetic_Red,Arial,104,&H000000FF,&H00000000,&H80000000,1,1,6,3,5,200,1',
+    // Gaming: Lore drop — mystic purple, ornate feel
+    'Style: Lore_Drop,Arial,80,&H00E74C3C,&H00000000,&H80000000,1,1,5,2,5,220,1',
+    'Style: Lore_Reveal,Arial,76,&H009B59B6,&H00000000,&H80000000,1,1,5,2,5,220,1',
+    // Pet: Playful — coral, rounded feel, bouncy
+    'Style: Pet_Reaction,Arial,84,&H00FF6B6B,&H00000000,&H80000000,1,1,5,2,5,200,1',
+    'Style: Pet_Cute,Arial,76,&H002ECC71,&H00000000,&H80000000,1,1,4,2,5,220,1',
     '',
     '[Events]',
     'Format: Layer, Start, End, Style, Text',
   ].join('\n');
   const clean = (t) => String(t || '').replace(/[{}]/g, '').replace(/\n/g, ' ');
+  
+  // Map color_preset to niche-specific overlay styles
+  const nicheOverlayStyle = {
+    neon_tech: 'Tech_Code',
+    teal_gold: 'Travel_Dest',
+    red_yellow: 'Kinetic',
+    purple_crimson: 'Lore_Drop',
+    coral_emerald: 'Pet_Reaction',
+    warm_gold: 'Travel_Dest',
+    classic_white: 'Hook',
+  };
+  const defaultOverlayStyle = nicheOverlayStyle[style.color_preset] || 'Hook';
+  
   const lines = [
     ...captions.map((cap) => `Dialogue: 0,${toAssTimestamp(cap.start)},${toAssTimestamp(cap.end)},Default,${clean(cap.text)}`),
     ...overlays.map((o) => {
-      const s = o.style || 'Hook';
-      // SFX and emoji get pop-in/pop-out animation; Hook gets fade-in
+      const s = o.style || defaultOverlayStyle;
+      // Niche-specific animations
       let fade = '';
-      if (s.startsWith('SFX_')) fade = '\\fad(150,200)\\fscx120\\fscy120'; // pop in big then settle
-      else if (s === 'EmojiPop') fade = '\\fad(100,150)\\fscx150\\fscy150'; // burst in bigger
-      else if (s === 'Hook') fade = '\\fad(300,200)'; // smooth entrance
+      if (s.startsWith('SFX_')) fade = '\\fad(150,200)\\fscx120\\fscy120';
+      else if (s === 'EmojiPop') fade = '\\fad(100,150)\\fscx150\\fscy150';
+      else if (s === 'Hook') fade = '\\fad(300,200)';
+      // Tech: code typing effect
+      else if (s === 'Tech_Code' || s === 'Tech_Highlight') fade = '\\fad(200,150)';
+      // Travel: destination card slide-in
+      else if (s === 'Travel_Dest' || s === 'Travel_Price') fade = '\\fad(250,200)\\frz3';
+      // Entertainment: kinetic bounce
+      else if (s === 'Kinetic' || s === 'Kinetic_Red') fade = '\\fad(150,200)\\fscx110\\fscy110';
+      // Gaming: lore reveal glow
+      else if (s === 'Lore_Drop' || s === 'Lore_Reveal') fade = '\\fad(300,250)\\blur2';
+      // Pet: playful pop
+      else if (s === 'Pet_Reaction' || s === 'Pet_Cute') fade = '\\fad(180,200)\\fscx115\\fscy115';
+      else fade = '\\fad(200,200)';
       return `Dialogue: 1,${toAssTimestamp(o.start)},${toAssTimestamp(o.end)},${s},${fade}${clean(o.text)}`;
     }),
   ];
@@ -340,7 +380,9 @@ async function renderWithFFmpeg(payload, jobId) {
     // rendered frame with apostrophes/colons/commas in the text.
     if ((payload.captions && payload.captions.length) || (payload.overlays && payload.overlays.length)) {
       assFile = path.join(tmpDir, `horizon-captions-${randomUUID()}.ass`);
-      await writeFile(assFile, buildAssSubtitles(payload.captions || [], payload.overlays || [], payload.captionStyle || {}, payload.sparkleOverlays));
+      // Pass color_preset through to buildAssSubtitles for niche-specific overlay styles
+      const styleWithPreset = { ...payload.captionStyle, color_preset: payload.color_preset };
+      await writeFile(assFile, buildAssSubtitles(payload.captions || [], payload.overlays || [], styleWithPreset, payload.sparkleOverlays));
       const assPath = assFile.replace(/\\/g, '/').replace(/:/g, '\\:').replace(/'/g, '\u2019');
       // Warm color grading (payload.colorFilter) is applied before subtitles
       // so the grade affects the video but not the text rendering.
