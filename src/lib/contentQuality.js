@@ -11,6 +11,13 @@ ALGORITHM CONTEXT: YouTube Shorts has 200B+ daily views. The algorithm tests
 (80%+ target). 50-60% of drop-offs happen in the first 3 seconds. Shorts
 15-30s achieve highest retention. Loop endings unlock 100%+ replay rates.
 
+2026 RETENTION BENCHMARKS:
+- 70% APV minimum for 1M+ views
+- 80% APV for viral acceleration
+- 12-20 cuts per minute (entertainment style)
+- 5-7 second pattern interrupts (maximum)
+- 3 second hooks (must stop scroll)
+
 1. hook_strength — Does the first 2 SECONDS create an irresistible pattern interrupt?
    - 90-100: Pattern interrupt that stops the scroll COLD within 2 seconds. Specific, surprising, concrete. "Nobody survives..." / "This $10 thing tripled my..."
    - 80-89: Strong hook with clear curiosity gap, lands in first 2-3 seconds.
@@ -43,6 +50,13 @@ ALGORITHM CONTEXT: YouTube Shorts has 200B+ daily views. The algorithm tests
    - 90-100: "I need to send this to someone" energy. Loop-worthy.
    - 80-89: Strong standalone value, likely to be saved or shared.
    - <65: Consumable but forgettable.
+
+NICHE-SPECIFIC CHECKS:
+TECH/EXPLAINED: Does it have a concrete before/after or dollar-amount hook? Is there a code snippet or visual comparison moment? Does it avoid generic "tech is amazing" platitudes?
+TRAVEL: Does it have a POV or immersive hook? Is there a specific location name? Does it paint a sensory picture (colors, sounds, tastes)?
+ENTERTAINMENT: Does it have 12-20 cuts worth of pacing? Is there a dramatic reveal or reaction moment? Does it use sound effects or kinetic typography moments?
+GAMING: Does it reference specific game mechanics or lore? Is there a challenge or achievement hook? Does it avoid generic "gaming is fun" statements?
+PET: Does it have a story-driven hook (not just "cute animal")? Is there a specific action or reaction? Does it create tension or surprise?
 
 The total is their arithmetic mean. A passing total means "would hold its own
 against top creators in this niche" — NOT hypothetical perfection. A script

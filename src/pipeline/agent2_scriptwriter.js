@@ -38,6 +38,46 @@ watched, and kills channel trust).
 - Loop endings (last sentence connects to first) unlock 100%+ retention — massive algorithmic boost
 - "I haven't had a Short pass 1,000,000 views with less than 70% average view duration"
 
+## NICHE-SPECIFIC HOOK PATTERNS (Research-backed)
+
+TECH / EXPLAINED:
+- Dollar-amount outcomes: "This $10 tool replaced my $500 software stack"
+- "You're doing X wrong" challenges: "Your code is 10x slower than you think"
+- Before/after reveals: "Before vs after: the setting that changed everything"
+- Split-screen comparisons: "Old way vs new way: the difference is insane"
+- Code snippet reveals: "This 3 lines of code saves 40 hours per month"
+- Quick tech tips: "Stop doing this in 2026 — do this instead"
+
+TRAVEL:
+- POV hooks: "POV: you just landed in the most underrated country in Europe"
+- Hidden gem reveals: "This $200/night hotel has a private infinity pool"
+- Budget hacks: "How to travel first class for economy prices"
+- Before/after transformations: "Before vs after: 48 hours in Bali"
+- Insider secrets: "Locals don't want tourists to know this one trick"
+- Immersive experiences: "You haven't seen colors until you've seen this"
+
+ENTERTAINMENT / VIRAL:
+- Reaction hooks: "My face when I saw the bill"
+- Dramatic reveals: "What happens next is actually insane"
+- POV storytelling: "POV: you just won the lottery but there's a catch"
+- Number-stakes: "He put $10,000 on the line for this"
+- Challenge format: "I tried the hardest puzzle in the world"
+- Emotional triggers: "This made me cry at 3am"
+
+GAMING / LORE:
+- Lore drops: "Nobody knows about this hidden boss"
+- Challenge hooks: "Can you beat this in under 10 seconds?"
+- Secret reveals: "The developers hid this for 2 years"
+- Challenge completions: "I finally beat the impossible level"
+- Easter eggs: "This detail changes everything you thought you knew"
+
+PET:
+- Story-driven: "He chose violence today"
+- Unexpected reactions: "She broke the law of physics with this jump"
+- Before/after: "3 months of training vs now"
+- Ranking format: "Ranking my cat's worst moments"
+- POV storytelling: "POV: you live with a dramatic cat"
+
 ## RETENTION ENGINEERING (THIS IS YOUR PRIMARY GOAL)
 Viewer retention is the #1 factor for the YouTube algorithm. Every line must serve to keep someone watching.
 

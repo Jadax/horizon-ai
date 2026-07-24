@@ -36,6 +36,45 @@ const CAPTION_COLORS = {
   pink: '&H00C8B4FF',
 };
 
+// Niche-specific visual presets (color grading + accent colors)
+const COLOR_PRESETS = {
+  neon_tech: {
+    colorFilter: 'eq=contrast=1.15:saturation=1.1:brightness=-0.05',
+    captionColor: 'yellow',
+    accentColor: '&H00FFD700', // electric blue
+  },
+  teal_gold: {
+    colorFilter: 'eq=contrast=1.12:saturation=1.25:brightness=0.02',
+    captionColor: 'cream',
+    accentColor: '&H0000FFD7', // warm gold
+  },
+  red_yellow: {
+    colorFilter: 'eq=contrast=1.18:saturation=1.3:brightness=0.01',
+    captionColor: 'yellow',
+    accentColor: '&H0000FFFF', // bright yellow
+  },
+  purple_crimson: {
+    colorFilter: 'eq=contrast=1.14:saturation=1.15:brightness=-0.03',
+    captionColor: 'pink',
+    accentColor: '&H00E74C3C', // crimson
+  },
+  coral_emerald: {
+    colorFilter: 'eq=contrast=1.1:saturation=1.2:brightness=0.03',
+    captionColor: 'mint',
+    accentColor: '&H00FF6B6B', // coral
+  },
+  warm_gold: {
+    colorFilter: 'eq=contrast=1.08:saturation=1.15:brightness=0.04',
+    captionColor: 'cream',
+    accentColor: '&H00FFD700', // gold
+  },
+  classic_white: {
+    colorFilter: null,
+    captionColor: 'white',
+    accentColor: '&H00FFFFFF', // white
+  },
+};
+
 function buildAssSubtitles(captions, overlays = [], style = {}, sparkleOverlays = false) {
   const primary = CAPTION_COLORS[style.color] || CAPTION_COLORS.white;
   const fontsize = Number(style.fontsize) || 100;
@@ -85,6 +124,18 @@ function buildAssSubtitles(captions, overlays = [], style = {}, sparkleOverlays 
 export async function renderVideo(payload, jobId) {
   // The local renderer is the only engine implementing the complete 2.0
   // contract: grounded cuts, captions, SRT, covers, and persistent output.
+  
+  // Apply niche-specific color preset if provided
+  if (payload.color_preset && COLOR_PRESETS[payload.color_preset]) {
+    const preset = COLOR_PRESETS[payload.color_preset];
+    if (!payload.colorFilter && preset.colorFilter) {
+      payload.colorFilter = preset.colorFilter;
+    }
+    if (!payload.captionStyle?.color && preset.captionColor) {
+      payload.captionStyle = { ...payload.captionStyle, color: preset.captionColor };
+    }
+  }
+  
   return await renderWithFFmpeg(payload, jobId);
 }
 

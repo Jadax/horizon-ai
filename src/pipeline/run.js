@@ -60,6 +60,7 @@ export async function runPipelineForNiche(niche) {
         // same curious/light register regardless of topic.
         music_energy: niche.editing_style_preset?.musicEnergy || decision.music_energy,
         music_brief: decision.music_brief,
+        color_preset: decision.color_preset || "classic_white",
       };
       const effectiveNiche = {
         ...niche,

@@ -50,6 +50,52 @@ DURATION RULES:
 - A one-fact hook should target 15-18 seconds (lean, punchy)
 - A story with twist should target 22-30 seconds (enough room to breathe)
 
+NICHE-SPECIFIC VISUAL TACTICS (MKBHD/Fireship/Two Minute Papers level):
+
+TECH / EXPLAINED:
+- Dark mode aesthetic: dark backgrounds with vibrant neon accents
+- Code snippet overlays (terminal-style text boxes)
+- Split-screen comparisons (before/after, old vs new)
+- Progress bars, loading animations as visual metaphors
+- Electric blue (#00D4FF) + neon green (#00FF88) accent colors
+- Puck voice for energetic delivery
+- Music: bass-heavy electronic, 110-128 BPM
+
+TRAVEL:
+- Cinematic color grading: teal shadows + warm golden highlights
+- Split-screen before/after destinations
+- Speed ramping (slow-mo → fast → slow for dramatic reveals)
+- Semi-transparent dark text boxes for readability
+- Destination name cards with flag emojis
+- Warm gold (#FFD700) + deep teal (#008080) palette
+- Music: upbeat acoustic + ambient, 100-120 BPM
+
+ENTERTAINMENT / VIRAL:
+- MrBeast-style pacing: 12-20 cuts per minute
+- Kinetic typography (words fly in, scale, bounce)
+- Bold impact colors: red (#FF0000) + yellow (#FFE600)
+- Face zoom-in on reactions (stock or generated)
+- Countdown overlays for urgency
+- Sound effects: whoosh transitions, bass drops, dings
+- Music: bass-heavy electronic, 120-130 BPM
+
+GAMING / LORE:
+- Dark moody backgrounds with dramatic lighting
+- Game UI mockups (health bars, inventories, skill trees)
+- Character silhouettes and concept art style
+- Purple (#9B59B6) + crimson (#E74C3C) accent colors
+- Fenrir voice for authoritative tone
+- Music: orchestral + electronic hybrid, 90-110 BPM
+
+PET:
+- Bright, saturated colors (high contrast)
+- Cozy warm lighting (golden hour aesthetic)
+- Emoji pop-ins and SFX text overlays
+- Before/after transformations
+- Emerald (#2ECC71) + coral (#FF6B6B) palette
+- Kore voice for friendly delivery
+- Music: playful acoustic + upbeat, 100-120 BPM
+
 1. word_clip_mode: true if the topic is a single sharp moment/stat/quote
    that lands harder as giant on-screen words than as flowing narration.
    false if it's a story, explanation, or anything needing cause-and-effect
@@ -70,13 +116,15 @@ DURATION RULES:
    narration, so take this as seriously as the other choices.
 5. music_brief: 2-4 mood tags, 1-3 instrumental genres, and a BPM range that
    match the emotional arc. Prefer instrumental music beneath narration.
-6. reasoning: one sentence explaining all of the above together.
+6. color_preset: pick one of "neon_tech", "teal_gold", "red_yellow", "purple_crimson", "coral_emerald", "warm_gold", or "classic_white" to set the visual identity.
+7. reasoning: one sentence explaining all of the above together.
 
 Respond ONLY with JSON:
 {"word_clip_mode": true/false, "target_duration_seconds": number,
  "footage_mood": ["keyword1","keyword2",...],
   "music_energy": "High"|"Suspense"|"Chill"|"Wonder",
   "music_brief":{"moods":["tense"],"genres":["ambient"],"bpm":[75,95]},
+  "color_preset": "neon_tech",
   "reasoning": "..."}`;
 
 export async function decideFormat(niche, topic, jobId) {
@@ -127,6 +175,11 @@ export async function decideFormat(niche, topic, jobId) {
       genres: Array.isArray(musicBrief.genres) ? musicBrief.genres.slice(0, 3) : [],
       bpm: Array.isArray(musicBrief.bpm) && musicBrief.bpm.length === 2 ? musicBrief.bpm.map(Number) : [70, 120],
     };
+    // Apply niche-specific color preset (neon_tech, teal_gold, red_yellow, etc.)
+    const validPresets = ["neon_tech", "teal_gold", "red_yellow", "purple_crimson", "coral_emerald", "warm_gold", "classic_white"];
+    if (!validPresets.includes(decision.color_preset)) {
+      decision.color_preset = "classic_white";
+    }
     decision._usage = { tokens: res.tokens || 0 };
 
     await logEvent(
@@ -144,6 +197,7 @@ export async function decideFormat(niche, topic, jobId) {
       footage_mood: niche.footage_keywords.slice(0, 5),
       music_energy: niche.editing_style_preset?.music_energy || "Chill",
       music_brief: { moods: [niche.editing_style_preset?.music_energy?.toLowerCase() || "chill"], genres: [], bpm: [70, 120] },
+      color_preset: "classic_white",
       reasoning: "Fallback to niche defaults (format decision call failed)",
       _usage: { tokens: 0 },
     };
