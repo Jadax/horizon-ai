@@ -195,8 +195,38 @@ export async function uploadScheduled({ videoUrl, title, description, tags, jobI
     }
   }
 
-  // ── TikTok - STUB (requires Content Posting API app approval) ──────
-  // if (config.tiktok?.accessToken) { ... }
+  // ── TikTok (Content Posting API — requires TIKTOK_ACCESS_TOKEN from approved app) ──
+  if (config.tiktok.accessToken) {
+    try {
+      await logEvent("Agent 5", "Uploading to TikTok...", { jobId });
+      const ttVariant = publishPackage?.platform_variants?.tiktok || {};
+      const ttResult = await uploadToTikTok({
+        videoUrl,
+        title: (ttVariant.caption || title || "").slice(0, 150),
+        accessToken: config.tiktok.accessToken,
+      });
+      publishedTo.push({ platform: "tiktok", externalId: ttResult.share_url, status: "published" });
+      await supabase.from("publish_targets").upsert({
+        pipeline_log_id: jobId,
+        platform: "tiktok",
+        mode: "direct",
+        status: "published",
+        package: {
+          video: publishPackage?.video,
+          subtitles: publishPackage?.subtitles,
+          metadata: publishPackage?.metadata,
+          variant: ttVariant,
+          monetization: publishPackage?.monetization,
+        },
+        external_id: ttResult.share_url || null,
+        external_url: ttResult.share_url || null,
+        published_at: new Date().toISOString(),
+      }, { onConflict: "pipeline_log_id,platform" });
+      await logEvent("Agent 5", `✓ TikTok published: ${ttResult.share_url}`, { jobId });
+    } catch (err) {
+      await logEvent("Agent 5", `TikTok upload failed: ${err.message}`, { jobId, level: "error" });
+    }
+  }
 
   // Update job - status reflects REAL uploads only
   const status = uploadSuccess ? "Scheduled" : "Rendered";
@@ -266,4 +296,56 @@ async function uploadToInstagram({ videoUrl, caption, businessId, accessToken })
   if (publishData.error) throw new Error(`IG publish failed: ${publishData.error.message}`);
 
   return { id: publishData.id, permalink: null };
+}
+
+/**
+ * Upload a video via TikTok's Content Posting API.
+ * Flow: POST /v2/post/publish/video/init/ → upload to returned URL → POST /v2/post/publish/video/complete/
+ * Requires: TIKTOK_ACCESS_TOKEN from an approved TikTok for Developers app (video.upload scope).
+ * The video URL must be publicly accessible. Max file size: 500MB.
+ */
+async function uploadToTikTok({ videoUrl, title, accessToken }) {
+  const baseUrl = "https://open.tiktokapis.com/v2";
+
+  // Step 1: Initialize upload — get a upload URL + upload token
+  const initRes = await fetch(`${baseUrl}/post/publish/video/init/`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${accessToken}`,
+    },
+    body: JSON.stringify({
+      post_info: { title: title.slice(0, 150), privacy_level: "PUBLIC_TO_EVERYONE" },
+      source_info: { source: "URL", video_url: videoUrl },
+    }),
+  });
+  const initData = await initRes.json();
+  if (initData.error?.code !== "ok" && initData.data?.upload_url !== "DIRECT_URL") {
+    // When source=URL, TikTok processes the video directly — no separate upload step needed
+    // The publish_id is returned for polling
+  }
+  const publishId = initData.data?.publish_id;
+  if (!publishId) throw new Error(`TikTok init failed: ${JSON.stringify(initData.error || initData)}`);
+
+  // Step 2: Poll status until published (max 5 min, 10s intervals)
+  for (let i = 0; i < 30; i++) {
+    await new Promise((r) => setTimeout(r, 10000));
+    const statusRes = await fetch(`${baseUrl}/post/publish/status/fetch/`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${accessToken}`,
+      },
+      body: JSON.stringify({ publish_id: publishId }),
+    });
+    const statusData = await statusRes.json();
+    if (statusData.error?.code !== "ok") throw new Error(`TikTok status check failed: ${JSON.stringify(statusData.error)}`);
+    const status = statusData.data?.status;
+    if (status === "PUBLISH_SUCCESS") {
+      return { share_url: statusData.data?.share_url || null, publish_id: publishId };
+    }
+    if (status === "PUBLISH_FAILED") throw new Error(`TikTok publish failed: ${statusData.data?.fail_reason || "unknown"}`);
+    if (i === 29) throw new Error("TikTok publish timed out (5 min)");
+  }
+  throw new Error("TikTok publish loop exited unexpectedly");
 }

@@ -83,6 +83,11 @@ trendingRouter.get("/diagnostics", async (_req, res) => {
       ok: Boolean(config.instagram.accessToken && config.instagram.businessId),
       detail: config.instagram.accessToken ? `business ID: ${config.instagram.businessId || "NOT SET"}` : "INSTAGRAM_ACCESS_TOKEN not set — package-mode only",
     }),
+    Promise.resolve({
+      name: "TikTok Content Posting",
+      ok: Boolean(config.tiktok.accessToken),
+      detail: config.tiktok.accessToken ? "access token configured" : "TIKTOK_ACCESS_TOKEN not set — package-mode only (requires app approval)",
+    }),
   ]);
   res.json(checks.map((c) => (c.status === "fulfilled" ? c.value : { name: "unknown", ok: false, detail: c.reason?.message || "check failed" })));
 });

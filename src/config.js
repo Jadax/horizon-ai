@@ -129,6 +129,12 @@ export const config = {
       return {};
     }
   })(),
+
+  // TikTok Content Posting API — requires app approval at developers.tiktok.com.
+  // Once approved, set TIKTOK_ACCESS_TOKEN (OAuth long-lived token).
+  tiktok: {
+    accessToken: process.env.TIKTOK_ACCESS_TOKEN || null,
+  },
   
   // Social RSS feed auth headers: {"bearer_token": {"Authorization": "Bearer xxx"}}
   socialFeedHeaders: parseJsonEnv("SOCIAL_FEED_HEADERS", {}),
