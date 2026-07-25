@@ -56,6 +56,11 @@ h1{font-size:17px;font-weight:700;letter-spacing:.22em}
 h1 span{color:var(--emerald)}
 .tagline{font-family:var(--mono);font-size:9.5px;color:var(--muted);letter-spacing:.1em;
   margin-left:14px;padding-left:14px;border-left:1px solid var(--border);text-transform:uppercase}
+.ver-badge{font-family:var(--mono);font-size:9px;color:var(--muted);background:var(--panel-3);
+  padding:3px 7px;border-radius:6px;letter-spacing:.05em;border:1px solid var(--border);transition:.3s}
+.ver-badge.stale{color:var(--red);border-color:rgba(248,113,113,.4);background:rgba(248,113,113,.1);
+  animation:ver-pulse 1.5s ease-in-out infinite}
+@keyframes ver-pulse{50%{opacity:.6}}
 .header-right{display:flex;align-items:center;gap:14px;font-family:var(--mono);font-size:11px;color:var(--muted)}
 .autopilot{display:flex;align-items:center;gap:8px;cursor:pointer;user-select:none;
   border:1px solid var(--border);padding:7px 12px;border-radius:20px;transition:.2s;background:var(--panel)}
@@ -442,6 +447,7 @@ table.ch-matrix tr:hover td{background:var(--panel-2)}
     <div class="pulse"></div>
     <h1>HORIZON <span>AI</span></h1>
     <span class="tagline">Autonomous content engine</span>
+    <span class="ver-badge" id="ver-badge">v...</span>
   </div>
   <div class="header-right">
     <span id="clock"></span>
@@ -1485,6 +1491,22 @@ setInterval(loadCosts, 60_000);
 setInterval(loadPublished, 60_000);
 setInterval(loadViralInsights, 120_000);
 setInterval(loadChannelManager, 60_000);
+
+// ── Version check ──
+let _dashVer = null;
+async function checkVersion(){
+  try{
+    const r = await fetch("/api/version", { headers: H });
+    const { version } = await r.json();
+    const badge = document.getElementById("ver-badge");
+    if(!_dashVer) _dashVer = version;
+    badge.textContent = version;
+    if(_dashVer !== version) badge.classList.add("stale");
+    else badge.classList.remove("stale");
+  }catch(e){ document.getElementById("ver-badge").textContent = "v?"; }
+}
+checkVersion();
+setInterval(checkVersion, 120_000);
 </script>
 <div class="modal-backdrop" id="nsetModal">
   <div class="modal" style="width:min(640px,100%)">

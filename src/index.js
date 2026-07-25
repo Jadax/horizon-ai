@@ -4,6 +4,7 @@
 import express from "express";
 import cron from "node-cron";
 import path from "node:path";
+import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { config } from "./config.js";
 import { bus, getRecentEvents, logEvent } from "./supabase.js";
@@ -33,6 +34,8 @@ app.use((req, res, next) => {
 });
 
 app.get("/health", (_req, res) => res.json({ ok: true }));
+const { version: SERVER_VERSION } = JSON.parse(readFileSync(path.join(__dirname, "../package.json"), "utf8"));
+app.get("/api/version", (_req, res) => res.json({ version: SERVER_VERSION }));
 app.get("/", (_req, res) => res.sendFile(path.join(__dirname, "dashboard", "dashboard.html")));
 
 // ── LIVE STATUS STREAM (SSE) ────────────────────────────────────────
