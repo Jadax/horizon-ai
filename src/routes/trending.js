@@ -67,9 +67,7 @@ trendingRouter.get("/diagnostics", async (_req, res) => {
         .catch((e) => ({ name: "Pexels", ok: false, detail: `Network error: ${e.message}` }));
 
   const checks = await Promise.allSettled([
-    fetch("https://api.openai.com/v1/models", {
-      headers: { Authorization: `Bearer ${config.openaiKey}` },
-    }).then((r) => ({ name: "OpenAI", ok: r.ok, detail: r.ok ? `HTTP ${r.status}` : `HTTP ${r.status}` })),
+    Promise.resolve({ name: "Gemini", ok: Boolean(config.geminiKey), detail: config.geminiKey ? "API key configured" : "GEMINI_API_KEY not set — pipeline will not work" }),
     checkTTSEngine().then((ok) => ({ name: `TTS engine (${config.ttsEngine})`, ok, detail: ok ? "operational" : "not reachable" })),
     checkRenderEngine().then((ok) => ({ name: `Render engine (${config.renderEngine})`, ok, detail: ok ? "operational" : "not reachable" })),
     supabase

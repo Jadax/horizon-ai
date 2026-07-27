@@ -1,5 +1,4 @@
 import { config } from "../config.js";
-import OpenAI from "openai";
 import { randomUUID } from "node:crypto";
 import { supabase, logEvent } from "../supabase.js";
 import { fetchRSSFeed } from "../sources/rss.js";
@@ -16,10 +15,7 @@ import { fetchTwitchTrending } from "../sources/twitch.js";
 import { fetchKickTrending } from "../sources/kick.js";
 import { fetchDailymotionTrending } from "../sources/dailymotion.js";
 import { rankCandidates, recalibrateWeights } from "../lib/trendScoring.js";
-import { withRetry } from "../lib/openaiRetry.js";
 import { llmJson, llmVision } from "../lib/llm.js";
-
-const openai = new OpenAI({ apiKey: config.openaiKey });
 
 export async function harvestAllCandidates(niche, jobId = null) {
     const log = (msg, level) => (jobId ? logEvent("Agent 1", msg, { jobId, level }) : logEvent("Agent 1", msg, { level }));
@@ -435,39 +431,14 @@ export async function generateCutawayImage(beat, jobId, style = "photo") {
         const prompt = style === "illustrated"
             ? `Vertical 9:16. ${ILLUSTRATION_STYLE} Scene to depict: ${beat.query}. What it should convey: ${beat.intent || beat.line}.`
             : `Vertical 9:16 photorealistic cinematic still, no text or watermarks: ${beat.query}. Context: ${beat.intent || beat.line}. Natural lighting, shallow depth of field, looks like a real photograph, not illustration or CGI.`;
-        let buffer = null;
-        if (style === "illustrated" && config.imageEngine !== "openai") {
-            try {
-                buffer = await fetchPollinationsImage(prompt.slice(0, 900));
-            } catch (err) {
-                await logEvent("Agent 1", `Free image engine failed (${err.message}) — falling back to gpt-image-1`, { jobId, level: "warn" });
-            }
-        }
-        if (!buffer) {
-            const res = await withRetry(
-                () => openai.images.generate({
-                    model: "gpt-image-1",
-                    prompt: prompt.slice(0, 900),
-                    size: "1024x1536",
-                    n: 1,
-                    // Flat thick-outline cartoons lose nothing at medium quality,
-                    // and it roughly halves the per-image cost of illustrated
-                    // videos (~8 images each). Photo cutaways keep the default.
-                    ...(style === "illustrated" ? { quality: "medium" } : {}),
-                }),
-                { jobId, label: "generateCutawayImage" }
-            );
-            const b64 = res.data?.[0]?.b64_json;
-            if (!b64) return null;
-            buffer = Buffer.from(b64, "base64");
-        }
-        // Pollinations returns JPEG, gpt-image-1 returns PNG — sniff the magic
-        // bytes so the stored object's extension/content-type match reality.
+        const buffer = await fetchPollinationsImage(prompt.slice(0, 900));
+        if (!buffer) return null;
+        // Pollinations returns JPEG — sniff the magic bytes
         const isJpeg = buffer[0] === 0xff && buffer[1] === 0xd8;
-        const path = `broll-generated/${jobId}-${randomUUID().slice(0, 8)}.${isJpeg ? "jpg" : "png"}`;
-        const { error } = await supabase.storage.from("renders").upload(path, buffer, { contentType: isJpeg ? "image/jpeg" : "image/png", upsert: true });
+        const imgPath = `broll-generated/${jobId}-${randomUUID().slice(0, 8)}.${isJpeg ? "jpg" : "png"}`;
+        const { error } = await supabase.storage.from("renders").upload(imgPath, buffer, { contentType: isJpeg ? "image/jpeg" : "image/png", upsert: true });
         if (error) throw new Error(error.message);
-        const { data } = supabase.storage.from("renders").getPublicUrl(path);
+        const { data } = supabase.storage.from("renders").getPublicUrl(imgPath);
         await logEvent("Agent 1", style === "illustrated"
             ? `Illustrated: "${beat.query}"`
             : `AI-generated cutaway for "${beat.query}" (no stock match found)`, { jobId });
@@ -475,8 +446,8 @@ export async function generateCutawayImage(beat, jobId, style = "photo") {
             url: data.publicUrl,
             type: "image",
             duration: AI_CUTAWAY_DURATION,
-            provider: "ai-generated",
-            license: "AI-generated (OpenAI) — original, not third-party footage",
+            provider: "pollinations",
+            license: "AI-generated (Pollinations FLUX) — original, not third-party footage",
             credit: "AI-generated",
             previewUrl: data.publicUrl,
         };

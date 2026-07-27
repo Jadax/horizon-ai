@@ -16,7 +16,6 @@ const SETTINGS_PATH = path.join(__dirname, "../../settings.json");
 // Keys the dashboard can read (masked) and write
 const CREDENTIALS = [
   { key: "geminiKey", label: "Gemini API Key", env: "GEMINI_API_KEY" },
-  { key: "openaiKey", label: "OpenAI API Key", env: "OPENAI_API_KEY" },
   { key: "instagramAccessToken", label: "Instagram Access Token", env: "INSTAGRAM_ACCESS_TOKEN" },
   { key: "instagramBusinessId", label: "Instagram Business ID", env: "INSTAGRAM_BUSINESS_ID" },
   { key: "tiktokAccessToken", label: "TikTok Access Token", env: "TIKTOK_ACCESS_TOKEN" },
@@ -79,12 +78,11 @@ settingsRouter.get("/settings/check", async (_req, res) => {
   _cachedSettings = await loadSettings();
   res.json({
     gemini: !!getEffectiveValue("geminiKey", "GEMINI_API_KEY"),
-    openai: !!getEffectiveValue("openaiKey", "OPENAI_API_KEY"),
     instagram: !!(getEffectiveValue("instagramAccessToken", "INSTAGRAM_ACCESS_TOKEN") && getEffectiveValue("instagramBusinessId", "INSTAGRAM_BUSINESS_ID")),
     tiktok: !!getEffectiveValue("tiktokAccessToken", "TIKTOK_ACCESS_TOKEN"),
     pexels: !!getEffectiveValue("pexelsKey", "PEXELS_API_KEY"),
     pixabay: !!getEffectiveValue("pixabayKey", "PIXABAY_API_KEY"),
     telegram: !!(getEffectiveValue("telegramBotToken", "TELEGRAM_BOT_TOKEN") && getEffectiveValue("telegramChatId", "TELEGRAM_CHAT_ID")),
-    twitch: !!(getEffectiveValue("twitchClientId", "TWITCH_CLIENT_ID")),
+    twitch: !!getEffectiveValue("twitchClientId", "TWITCH_CLIENT_ID"),
   });
 });

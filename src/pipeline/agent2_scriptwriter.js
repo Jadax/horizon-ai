@@ -1,9 +1,8 @@
 /**
- * AGENT 2 — GPT-4o CRITICAL TRIMMER & SCRIPTWRITER
+ * AGENT 2 — CRITICAL TRIMMER & SCRIPTWRITER
  * 
  * ENHANCED: Retention engineering + pattern interrupts for maximum virality
  */
-import OpenAI from "openai";
 import { config } from "../config.js";
 import { logEvent } from "../supabase.js";
 import { getTitlePatternInsight } from "../lib/trendScoring.js";
@@ -13,8 +12,6 @@ import { HOOK_TEMPLATES, NICHE_VIRAL_PATTERNS } from "../lib/viralScience.js";
 import { BANNED_WORDS } from "../lib/utils.js";
 
 const TITLE_PATTERNS = ["curiosity_gap", "number_stakes", "contrarian_reframe", "direct_consequence", "insider_callout"];
-
-const openai = new OpenAI({ apiKey: config.openaiKey });
 
 function sanitizeText(text) {
   if (!text) return { text, flagged: [] };

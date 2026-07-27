@@ -41,8 +41,6 @@ export async function synthesizeSpeech(text, voiceId = null, options = {}) {
         return await synthesizeGeminiTTS(text, voiceId, options);
       case 'elevenlabs':
         return await synthesizeElevenLabs(text, voiceId, options);
-      case 'openai':
-        return await synthesizeOpenAITTS(text, voiceId, options);
       case 'gtts':
         return await synthesizeGTTS(text, options);
       case 'chatterbox':
@@ -63,13 +61,6 @@ export async function synthesizeSpeech(text, voiceId = null, options = {}) {
     return await synthesizeGTTS(text, options);
   }
 }
-
-// OpenAI's TTS voices; anything else configured as voice_profile_id (e.g. a
-// leftover ElevenLabs voice ID from the paid-stack era) maps to the default.
-const OPENAI_VOICES = new Set(['alloy', 'ash', 'ballad', 'coral', 'echo', 'fable', 'nova', 'onyx', 'sage', 'shimmer', 'verse']);
-const OPENAI_TTS_INSTRUCTIONS =
-  'Narrate like a sharp, casual friend telling a genuinely interesting story: conversational pace with natural variation, ' +
-  'clear emphasis on the surprising words, brief pauses at sentence breaks, energetic but never salesy or breathless.';
 
 /**
  * Gemini TTS — FREE tier (verified live: real speech, healthy levels).
@@ -124,23 +115,6 @@ async function synthesizeElevenLabs(text, voiceId, options) {
     voice_settings: { stability: 0.45, similarity_boost: 0.8 },
   }, {
     headers: { 'xi-api-key': config.elevenlabsKey, 'Content-Type': 'application/json' },
-    responseType: 'arraybuffer',
-    timeout: 60000,
-  });
-  return Buffer.from(res.data);
-}
-
-async function synthesizeOpenAITTS(text, voiceId, options) {
-  const voice = OPENAI_VOICES.has(String(voiceId || '').toLowerCase()) ? String(voiceId).toLowerCase() : 'onyx';
-  const res = await axios.post('https://api.openai.com/v1/audio/speech', {
-    model: 'gpt-4o-mini-tts',
-    voice,
-    input: text,
-    instructions: OPENAI_TTS_INSTRUCTIONS,
-    response_format: 'mp3',
-    speed: options.speed || 1.0,
-  }, {
-    headers: { Authorization: `Bearer ${config.openaiKey}` },
     responseType: 'arraybuffer',
     timeout: 60000,
   });
@@ -236,9 +210,6 @@ export function audioToBase64(audioBuffer) {
  * checking that previously reported the working default as "Down").
  */
 export async function checkTTSEngine() {
-  if (PRIMARY_ENGINE === 'openai') {
-    return Boolean(config.openaiKey);
-  }
   if (['chatterbox', 'fish-speech', 'coqui'].includes(PRIMARY_ENGINE)) {
     try {
       const res = await axios.get(TTS_API_URL.replace(/\/(synthesize|tts)$/, '/health'), { timeout: 5000 });

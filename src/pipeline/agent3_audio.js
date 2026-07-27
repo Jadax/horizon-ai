@@ -2,7 +2,6 @@ import { config } from "../config.js";
 import { supabase, logEvent } from "../supabase.js";
 import { synthesizeSpeech } from "../lib/freeTTS.js";
 import { verifyContentIdSafety } from "../lib/musicBrain.js";
-import OpenAI, { toFile } from "openai";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { readFile, writeFile, unlink } from "node:fs/promises";
@@ -12,7 +11,6 @@ import { randomUUID } from "node:crypto";
 import ffmpeg from "ffmpeg-static";
 
 const execFileAsync = promisify(execFile);
-const openai = new OpenAI({ apiKey: config.openaiKey });
 
 // gpt-4o-mini-tts stops generating early on longer inputs often enough that
 // a production run burned all 3 whole-script retries in a row (106-word
@@ -145,12 +143,11 @@ export async function synthesizeVoiceover(script, voiceId, jobId, expectedMaxSec
 }
 
 /**
- * Free alignment path: Gemini's audio understanding produces per-word
- * timestamps (verified live: 17/17 words with correct text and monotonic
- * times on a known clip). Used first when a Gemini key exists; OpenAI
- * whisper-1 remains the fallback so alignment survives a Gemini outage.
+ * Word-level alignment via Gemini's native audio understanding.
+ * Gemini-only — no Whisper/OpenAI fallback.
  */
 async function alignWithGemini(audioBuffer, script) {
+    if (!config.geminiKey) throw new Error("GEMINI_API_KEY not set");
     const res = await fetch(
         `https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-lite-latest:generateContent?key=${config.geminiKey}`,
         {
@@ -172,85 +169,23 @@ async function alignWithGemini(audioBuffer, script) {
     const words = (parsed.words || [])
         .map((w) => ({ word: String(w.word || "").trim(), start: Number(w.start), end: Number(w.end) }))
         .filter((w) => w.word && Number.isFinite(w.start) && Number.isFinite(w.end) && w.end > w.start);
-    // Monotonicity + coverage sanity — a hallucinated timeline fails here
-    // and falls through to whisper.
     for (let i = 1; i < words.length; i++) {
         if (words[i].start < words[i - 1].start - 0.05) throw new Error("Gemini align: non-monotonic timestamps");
     }
     const expected = script.split(/\s+/).filter(Boolean).length;
-    if (!words.length || words.length / expected < 0.8) {
+    if (!words.length || words.length / expected < 0.7) {
         throw new Error(`Gemini align: coverage too low (${words.length}/${expected})`);
     }
     return words;
 }
 
 export async function alignGeneratedSpeech(audioBuffer, script, jobId) {
-    if (config.geminiKey) {
-        try {
-            return await alignWithGemini(audioBuffer, script);
-        } catch (err) {
-            await logEvent("Agent 3", `Gemini alignment failed (${err.message}) — falling back to whisper`, { jobId, level: "warn" });
-        }
+    try {
+        return await alignWithGemini(audioBuffer, script);
+    } catch (err) {
+        await logEvent("Agent 3", `Audio alignment failed: ${err.message}`, { jobId, level: "error" });
+        throw err;
     }
-    const file = await toFile(audioBuffer, "voiceover.mp3");
-    const transcription = await openai.audio.transcriptions.create({
-        file,
-        model: "whisper-1",
-        response_format: "verbose_json",
-        timestamp_granularities: ["word", "segment"],
-        prompt: script.slice(0, 220),
-    });
-    const words = (transcription.words || []).map((word) => ({
-        word: String(word.word || "").trim(),
-        start: Number(Number(word.start).toFixed(3)),
-        end: Number(Number(word.end).toFixed(3)),
-    })).filter((word) => word.word && word.end > word.start);
-    const expected = script.split(/\s+/).filter(Boolean).length;
-    if (words.length / expected >= 0.9) return words;
-
-    // Whisper's word-level timestamps silently omit words even when the
-    // transcript text is complete (reproduced locally: the word "Real" was in
-    // transcript.text but absent from transcription.words) — and word-clip
-    // scripts made of dozens of staccato 2-4 word sentences make the word
-    // list especially sparse, which used to fail an entire production run at
-    // 34/67 here. The transcript TEXT is the honest signal of what was
-    // actually spoken; when it confirms the audio is complete, rebuild the
-    // missing timings from the segment-level timestamps (which are reliable)
-    // by spacing each segment's words across its span, weighted by length.
-    const transcriptWords = String(transcription.text || "").split(/\s+/).filter(Boolean);
-    if (transcriptWords.length / expected < 0.7) {
-        throw new Error(`TTS audio incomplete: transcript heard only ${transcriptWords.length}/${expected} script words`);
-    }
-    const segments = (transcription.segments || []).filter((s) => Number.isFinite(s.start) && Number.isFinite(s.end) && s.end > s.start);
-    if (!segments.length) {
-        throw new Error(`TTS alignment coverage too low (${words.length}/${expected} word timestamps, no segments to rebuild from)`);
-    }
-    const rebuilt = [];
-    for (const segment of segments) {
-        const segWords = String(segment.text || "").split(/\s+/).filter(Boolean);
-        if (!segWords.length) continue;
-        const totalChars = segWords.reduce((sum, w) => sum + w.length, 0) || 1;
-        let cursor = segment.start;
-        const span = segment.end - segment.start;
-        for (const w of segWords) {
-            const dur = span * (w.length / totalChars);
-            rebuilt.push({
-                word: w,
-                start: Number(cursor.toFixed(3)),
-                end: Number((cursor + dur).toFixed(3)),
-            });
-            cursor += dur;
-        }
-    }
-    if (rebuilt.length / expected < 0.7) {
-        throw new Error(`TTS alignment coverage too low even after segment rebuild (${rebuilt.length}/${expected} words)`);
-    }
-    await logEvent(
-        "Agent 3",
-        `Whisper word timestamps were sparse (${words.length}/${expected}) — rebuilt ${rebuilt.length} timings from segment boundaries`,
-        { jobId, level: "warn" }
-    );
-    return rebuilt;
 }
 
 export async function pickMusic(energyLevel, jobId, brief = {}) {

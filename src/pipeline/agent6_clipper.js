@@ -33,7 +33,6 @@
  * export) and feed the resulting file into the upload path above — that's
  * not a workaround, it's the actual first-party mechanism.
  */
-import OpenAI, { toFile } from "openai";
 import { config } from "../config.js";
 import { supabase, logEvent } from "../supabase.js";
 import { llmJson } from "../lib/llm.js";
@@ -48,14 +47,6 @@ import { randomUUID } from "node:crypto";
 import ffmpeg from "ffmpeg-static";
 
 const execFileAsync = promisify(execFile);
-
-const openai = new OpenAI({ apiKey: config.openaiKey });
-
-// Whisper's transcription endpoint caps request bodies at 25MB — there's no
-// chunking/compression step here (v1 scope). Fail loudly and early rather
-// than let a huge upload silently hang for minutes before erroring on the
-// OpenAI side.
-const MAX_TRANSCRIBE_BYTES = 24 * 1024 * 1024;
 
 // If less than this fraction of the source is actually spoken words,
 // there's not enough dialogue for the hook-scoring prompt to work with —
@@ -78,31 +69,44 @@ async function fetchSource(sourceUrl, clipJobId) {
 }
 
 async function transcribeBuffer(buffer, clipJobId) {
-  let transcriptionBuffer = buffer;
+  let audioBuffer = buffer;
   let tempInput = null;
   let tempAudio = null;
-  if (buffer.byteLength > MAX_TRANSCRIBE_BYTES) {
+  if (buffer.byteLength > 20 * 1024 * 1024) {
     tempInput = path.join(tmpdir(), `horizon-transcribe-${randomUUID()}.mp4`);
     tempAudio = path.join(tmpdir(), `horizon-transcribe-${randomUUID()}.mp3`);
     try {
       await writeFile(tempInput, buffer);
       await execFileAsync(ffmpeg, ["-y", "-i", tempInput, "-vn", "-ac", "1", "-ar", "16000", "-b:a", "32k", tempAudio], { timeout: 300000 });
-      transcriptionBuffer = await readFile(tempAudio);
-      if (transcriptionBuffer.byteLength > MAX_TRANSCRIBE_BYTES) throw new Error("Compressed source still exceeds Whisper's 25MB limit; upload a shorter source");
+      audioBuffer = await readFile(tempAudio);
     } finally {
       await unlink(tempInput).catch(() => {});
       await unlink(tempAudio).catch(() => {});
     }
   }
-  await logEvent("Agent 6", "Transcribing with word-level timestamps…", { jobId: clipJobId });
-  const file = await toFile(transcriptionBuffer, "source.mp3");
-  const transcription = await openai.audio.transcriptions.create({
-    file,
-    model: "whisper-1",
-    response_format: "verbose_json",
-    timestamp_granularities: ["word"],
-  });
-  return (transcription.words || []).map((w) => ({ word: w.word, start: w.start, end: w.end }));
+  await logEvent("Agent 6", "Transcribing with Gemini (word-level timestamps)…", { jobId: clipJobId });
+  if (!config.geminiKey) throw new Error("GEMINI_API_KEY not set — cannot transcribe");
+  const res = await fetch(
+    `https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-lite-latest:generateContent?key=${config.geminiKey}`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        contents: [{ parts: [
+          { text: 'Transcribe this audio with per-word timestamps. Return JSON only: {"words":[{"word":"...","start":0.0,"end":0.4},...]} with start/end in seconds, covering every spoken word in order.' },
+          { inlineData: { mimeType: "audio/mp3", data: audioBuffer.toString("base64") } },
+        ] }],
+        generationConfig: { responseMimeType: "application/json", temperature: 0 },
+      }),
+      signal: AbortSignal.timeout(120000),
+    }
+  );
+  const json = await res.json();
+  if (json.error) throw new Error(`Gemini transcribe: ${json.error.message?.slice(0, 120)}`);
+  const parsed = JSON.parse(json.candidates?.[0]?.content?.parts?.[0]?.text || "{}");
+  return (parsed.words || [])
+    .map((w) => ({ word: String(w.word || "").trim(), start: Number(w.start), end: Number(w.end) }))
+    .filter((w) => w.word && Number.isFinite(w.start) && Number.isFinite(w.end) && w.end > w.start);
 }
 
 /** Groups words into pseudo-sentences on punctuation so the planning prompt
