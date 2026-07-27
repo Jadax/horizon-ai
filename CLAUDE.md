@@ -29,11 +29,11 @@ You are an expert software engineer optimized for token efficiency, accuracy, an
 ## Stack (near-$0/video, verified live)
 | Function | Primary (free) | Fallback |
 |---|---|---|
-| LLM text (scripts, critic, trims, format, curiosity rank) | Gemini flash-latest → flash-lite (lib/llm.js llmJson) | OpenAI gpt-4o/mini |
-| TTS | Gemini TTS `gemini-2.5-flash-preview-tts` (freeTTS 'gemini', 12 voices) | openai → gtts (python) |
-| Word alignment (captions) | Gemini audio understanding (agent3 alignWithGemini) | whisper-1 → segment rebuild |
-| Vision (QA, Leo frames) | Gemini inline images (llm.js llmVision) | gpt-4o-mini |
-| Images (illustrated frames) | Pollinations FLUX, no key | gpt-image-1 medium |
+| LLM text (scripts, critic, trims, format, curiosity rank) | Gemini flash-latest → flash-lite (lib/llm.js llmJson) | none — Gemini only |
+| TTS | Gemini TTS `gemini-2.5-flash-preview-tts` (freeTTS 'gemini', 12 voices) | gtts (python) |
+| Word alignment (captions) | Gemini audio understanding (agent3 alignWithGemini) | none — Gemini only |
+| Vision (QA, Leo frames) | Gemini inline images (llm.js llmVision) | none — Gemini only |
+| Images (illustrated frames) | Pollinations FLUX, no key | none — Pollinations only |
 | Stock footage | Pexels/Pixabay APIs + vision QA | AI cutaways (cap 4) |
 | Music | Supabase music_library (Jamendo sync: `npm run music:sync`) | renders without music |
 | Render | in-process ffmpeg-static | — |
@@ -72,4 +72,4 @@ Run buttons per niche, trending explorer, live SSE stream, preview+approve queue
 - Railway: single service, nixpacks installs python3+gTTS, /health check.
 - Known open: YouTube Trending needs OAuth re-consent w/ youtube.readonly (`npm run auth:youtube`); Instagram Reels posting requires INSTAGRAM_ACCESS_TOKEN + INSTAGRAM_BUSINESS_ID (Facebook App → IG Business account → long-lived token); TikTok Content Posting API blocked on app approval (client built, ready when approved); Jamendo sync untested (needs free JAMENDO_CLIENT_ID); Telegram untested (needs bot token).
 - Reddit unauthenticated: .rss only (.json 403s), ~10 req/min budget — cache+pacing in sources/reddit.js.
-- Gemini free models for THIS key: gemini-flash-latest (throttles), gemini-flash-lite-latest (reliable), gemini-2.5-flash-preview-tts. gpt-image-1 needs no org verification but account must have credit.
+- Gemini free models for THIS key: gemini-flash-latest (throttles), gemini-flash-lite-latest (reliable), gemini-2.5-flash-preview-tts. No OpenAI — zero credits, pipeline is Gemini-only.
