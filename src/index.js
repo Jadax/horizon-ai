@@ -17,6 +17,7 @@ import { trendingRouter } from "./routes/trending.js";
 import { costsRouter } from "./routes/costs.js";
 import { nichesRouter } from "./routes/niches.js";
 import { clipsRouter } from "./routes/clips.js";
+import { settingsRouter } from "./routes/settings.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -59,6 +60,7 @@ app.use("/api", trendingRouter);
 app.use("/api", costsRouter);
 app.use("/api", nichesRouter);
 app.use("/api", clipsRouter);
+app.use("/api", settingsRouter);
 
 // ── Cron jobs ──────────────────────────────────────────────────────
 cron.schedule(config.pipelineCron, () => {

@@ -571,6 +571,10 @@ table.ch-matrix tr:hover td{background:var(--panel-2)}
     <div id="channelManagerPanel" style="margin-bottom:18px">
       <div class="donut-empty" style="padding:12px">Loading channels…</div>
     </div>
+    <div class="sec-title">API Keys & Credentials <button onclick="loadSettings()" style="padding:3px 10px">↻</button></div>
+    <div id="settingsPanel" style="margin-bottom:18px">
+      <div class="donut-empty" style="padding:12px">Loading settings…</div>
+    </div>
     <div class="sec-title">Niche control <button onclick="loadNiches()" style="padding:3px 10px">↻</button></div>
     <div id="channelPanel" class="channel-panel"></div>
     <div class="sec-title">Cost tracker <span id="costTotal" style="color:var(--emerald)"></span></div>
@@ -1484,7 +1488,7 @@ async function toggleMatrixDot(niche, platform, channelKey, enabled){
 }
 
 populateClipNicheSelects();
-loadDiag(); loadJobs(); loadCosts(); loadPublished(); loadNiches(); loadClips(); loadChannelManager(); loadViralInsights();
+loadDiag(); loadJobs(); loadCosts(); loadPublished(); loadNiches(); loadClips(); loadChannelManager(); loadViralInsights(); loadSettings();
 setInterval(loadJobs, 30_000);
 setInterval(loadClips, 20_000);
 setInterval(loadCosts, 60_000);
@@ -1507,6 +1511,43 @@ async function checkVersion(){
 }
 checkVersion();
 setInterval(checkVersion, 120_000);
+
+// ── API Settings Panel ──
+async function loadSettings(){
+  try{
+    const r = await fetch("/api/settings", { headers: H });
+    if(!r.ok) return;
+    const data = await r.json();
+    const el = document.getElementById("settingsPanel");
+    el.innerHTML = `<div style="display:grid;gap:10px;max-width:520px">
+      ${Object.entries(data).map(([key, info]) => `
+        <div style="display:flex;align-items:center;gap:8px">
+          <label style="font-family:var(--mono);font-size:11px;color:var(--text-dim);min-width:170px;text-align:right">${info.label}</label>
+          <input type="password" id="set-${key}" value="${info.value}" placeholder="${info.set ? '••••••••' : 'Not set'}"
+            style="flex:1;padding:6px 10px;border-radius:8px;border:1px solid var(--border);background:var(--panel-2);color:var(--text);font-family:var(--mono);font-size:11px;outline:none"
+            onfocus="this.type='text'" onblur="this.type='password'">
+          <span style="font-size:10px;min-width:50px;text-align:center;color:${info.set ? 'var(--emerald)' : 'var(--muted)'}">${info.set ? '✓ Set' : 'Empty'}</span>
+        </div>
+      `).join("")}
+      <div style="margin-top:6px;display:flex;gap:8px;justify-content:flex-end">
+        <button onclick="saveSettings()" style="padding:7px 18px;border-radius:8px;border:1px solid var(--emerald-dim);background:var(--emerald-soft);color:var(--emerald);font-family:var(--mono);font-size:11px;cursor:pointer">Save</button>
+      </div>
+    </div>`;
+  }catch(e){ console.error("loadSettings failed", e); }
+}
+async function saveSettings(){
+  const body = {};
+  document.querySelectorAll("[id^='set-']").forEach(inp => {
+    const key = inp.id.replace("set-", "");
+    if(inp.value && inp.value !== "••••••••") body[key] = inp.value;
+  });
+  try{
+    const r = await fetch("/api/settings", { method: "POST", headers: H, body: JSON.stringify(body) });
+    const res = await r.json();
+    if(res.ok) loadSettings();
+    else alert("Error: " + (res.error || "unknown"));
+  }catch(e){ alert("Save failed: " + e.message); }
+}
 </script>
 <div class="modal-backdrop" id="nsetModal">
   <div class="modal" style="width:min(640px,100%)">

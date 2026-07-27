@@ -87,14 +87,14 @@ async function describeCompilation(videos, persona, referenceBrief) {
     messages: [
       {
         role: "system",
-        content: `You write copy for a top pet social channel. PERSONA: ${persona}.
-VIBE: Warm, cozy, feel-good. Think "aww" energy — not dramatic, not clickbaity.
+        content: `You write copy for a warm, beloved pet social channel. PERSONA: ${persona}.
+VIBE: Fun, cute, warm — like a hug in video form. The kind of content that makes you smile and feel like you're part of a little family. Not dramatic, not clickbaity — just genuine warmth and joy.
 Given the source clips and an optional reference strategy from top pet accounts, return JSON:
 {
-  "narration": "1-2 soft, warm sentences a doting cat parent would say — casual, affectionate, like you're watching your cat do something adorable (max 22 words, natural rhythm, no emoji, no hashtags)",
-  "hook": "2-4 word warm overlay for the first seconds (cute, cozy, affectionate — e.g. HIS ROYAL HIGHNESS, COZY VIBES, MORNING MOOD, THE STRETCH, PURE BLISS)",
-  "title": "warm, cozy title under 55 chars, one cat or heart emoji",
-  "description": "1 soft sentence then newline then #cat #catsofyoutube #kitten #catlover #shorts"
+  "narration": "1-2 warm, affectionate sentences a loving cat parent would say — like you're sharing a cozy moment with someone who just needs to smile (max 22 words, natural rhythm, no emoji, no hashtags)",
+  "hook": "2-4 word warm overlay for the first seconds (cute, cozy, belonging — e.g. YOU'RE HOME, COZY TOGETHER, MORNING Cuddles, PURE JOY, STAY AWHILE)",
+  "title": "warm, inviting title under 55 chars, one cat or heart emoji",
+  "description": "1 warm sentence then newline then #cat #catsofyoutube #kitten #catlover #shorts"
 }
 ${referenceBrief?.strategy ? `TOP PET STRATEGY HINT: ${JSON.stringify(referenceBrief.strategy)}` : ""}`,
       },
@@ -106,7 +106,7 @@ ${referenceBrief?.strategy ? `TOP PET STRATEGY HINT: ${JSON.stringify(referenceB
 
 async function processCompilation(videos, nicheRow) {
   const persona = nicheRow?.editing_style_preset?.persona ||
-    "Leo: a dramatic, slightly royal little hunter who takes himself very seriously and is adored for it";
+    "Leo: a warm, playful house cat who makes everyone feel like they belong. Think cozy blanket energy — soft, affectionate, with just enough mischief to keep things fun";
   const targetChannel = nicheRow?.target_channel || "primary";
   const batchLabel = videos.map((f) => path.basename(f)).join(", ");
   const frameFile = await extractBestFrame(videos[0], 2).catch(() => null);
@@ -176,7 +176,7 @@ async function processCompilation(videos, nicheRow) {
     let words = [];
     let voDuration = 0;
     if (copy.narration && copy.narration.trim()) {
-      const voiceId = config.leoVoiceId || "Leda";
+      const voiceId = config.leoVoiceId || "Kore";
       const engine = config.leoVoiceId && config.elevenlabsKey ? "elevenlabs" : undefined;
       const voResult = await synthesizeVoiceover(
         copy.narration, voiceId, jobId, compilation.duration, engine ? { engine } : undefined
@@ -205,6 +205,7 @@ async function processCompilation(videos, nicheRow) {
         : buildAutoCaptions(compilation),
       overlays: finalOverlays,
       captionStyle: nicheRow?.editing_style_preset?.caption || { color: "cream", fontsize: 72 },
+      warmAudio: true,
     };
 
     const renderResult = await renderVideo(payload, jobId);
@@ -675,7 +676,7 @@ async function markClipUsed(libraryId, clipIndex) {
  */
 async function processClipFromVideo(file, clip, libraryEntry, nicheRow) {
   const persona = nicheRow?.editing_style_preset?.persona ||
-    "Leo: a dramatic, slightly royal little hunter who takes himself very seriously and is adored for it";
+    "Leo: a warm, playful house cat who makes everyone feel like they belong. Think cozy blanket energy — soft, affectionate, with just enough mischief to keep things fun";
   const base = path.basename(file);
   const { hasAudio } = await probeVideo(file);
   const targetChannel = nicheRow?.target_channel || "primary";
@@ -711,7 +712,7 @@ async function processClipFromVideo(file, clip, libraryEntry, nicheRow) {
       .catch(() => null)
       .finally(() => unlink(frameFile).catch(() => {}));
 
-    // Generate copy — top pet account energy (That Little Puff, Hammy & Olivia, DontStopMeowing)
+    // Generate copy — warm, cute, belonging-focused pet content
     const copy = await llmJson({
       tier: "fast",
       temperature: 0.9,
@@ -719,49 +720,49 @@ async function processClipFromVideo(file, clip, libraryEntry, nicheRow) {
       messages: [
         {
           role: "system",
-          content: `You write viral copy for the #1 pet social channel on the internet (38M+ subscribers). PERSONA: ${persona}.
-参考: That Little Puff, Hammy & Olivia, DontStopMeowing, Tucker Budzyn, AaronsAnimals.
+          content: `You write warm, feel-good copy for a beloved pet channel. PERSONA: ${persona}.
+参考: That Little Puff, Hammy & Olivia, DontStopMeowing — but SOFTER. More like a cozy hug than a comedy sketch.
 
-STYLE: Bright, playful, energetic. NOT soft, NOT sleepy, NOT cozy. FUNNY first, cute second. The kind of narration that makes someone laugh out loud AND screenshot to send to a friend.
+STYLE: Warm, cute, affectionate. Think "come sit with me" energy. The kind of narration that makes someone feel like they belong, like this little cat is their friend. FUNNY in a gentle way — not loud, not chaotic.
 
 RULES:
-- Write like you're narrating a tiny drama about this specific cat's ridiculous life
-- Be SPECIFIC and absurd: "this man has three brain cells and they're all on break" beats "being cute"
-- First line MUST be a pattern interrupt — something that stops the scroll cold
-- Use the cat's name (Leo) in every video — builds character brand
-- End with a loop-ready line that connects back to the hook
+- Write like you're sharing a cozy moment with someone who needs to smile
+- Be SPECIFIC and warm: "the way he tucks his paws makes my whole heart" beats "being cute"
+- First line MUST be a warm pattern interrupt — something that makes someone pause and go "aww"
+- Use the cat's name (Leo) gently — like talking to a friend about their cat
+- End with a cozy, loop-ready line that makes you want to watch again
 
 HOOK (on-screen text, first 2 seconds):
-- 3-6 words MAX. Bold. Unexpected. Personality-driven.
-- Examples: "leo chose violence today" / "this man has ONE brain cell" / "leo's daily crime report"
-- Must create a "wait what?" reaction mid-scroll
+- 3-6 words MAX. Warm. Inviting. Cozy.
+- Examples: "you needed this today" / "come sit with us" / "Leo's cozy corner" / "pure comfort"
+- Must make someone feel like they're part of something warm
 
 SFX TEXT (scatter 2-3 throughout the video):
-- Cat sound effects as ON-SCREEN TEXT at the exact moment they'd happen
-- "Meow!" when cat opens mouth / looks at camera
+- Cat sounds as ON-SCREEN TEXT at the exact moment they'd happen
 - "Purr~" when cat is relaxed / being pet
 - "Mrow?" when cat looks confused
 - "Nom nom" when cat is eating / licking
-- These are BRIGHT COLORED pop-in text, not subtitles
+- "Meow" when cat opens mouth / looks at camera
+- These are SOFT COLORED pop-in text, not subtitles — warm pastels, not neon
 
 EMOJI PUNCTUATION (scatter 2-3 throughout):
-- 😎 when Leo looks cool/smug
-- 😍 when Leo does something adorable
-- 🤨 when Leo looks confused/suspicious
-- 💀 when something is hilariously bad
-- These POP IN at key moments as visual punctuation
+- 😊 when Leo does something heartwarming
+- 🥺 when Leo looks extra cute/vulnerable
+- 💛 when there's a warm/cozy moment
+- 😸 when Leo looks content/happy
+- These POP IN gently at key moments as warm punctuation
 
 DURATION: This is a ${clipDuration.toFixed(0)}-second moment.
-SCENE: ${clip.description || "Leo being Leo"} | Mood: ${clip.mood || "playful"}
+SCENE: ${clip.description || "Leo being Leo"} | Mood: ${clip.mood || "cozy"}
 
 Return JSON:
-{"narration":"funny, personality-driven narration (max 30 words, talk TO Leo, pattern interrupt opening, loop-ready ending, mention Leo by name)",
-"hook":"3-6 word bold on-screen text for the first 2 seconds — scroll-stopping, personality-driven",
-"sfx":[{"text":"Meow/Mrow/Purr/Nom etc","timing":"what moment in the clip this should appear","color":"one of: pink, cyan, yellow, green"},"2-3 cat sound effects as on-screen text"],
-"emoji":[{"emoji":"😎/😍/🤨/💀","timing":"what moment this should appear"},"2-3 emoji pop-ins"],
-"title":"attention-grabbing title under 55 chars, one cat emoji, makes you click",
-"description":"1 funny sentence that makes you want to click + newline + #cat #catsofyoutube #kitten #catlover #shorts #funnycat #catmemes #leo",
-"tags":["12-15 tags: cat, cute cat, funny cat, kitten, cat video, meow, catlover, catsofyoutube, funnycat, catmemes, pethumor, catlife, royalcat, leo the cat, funny animals"]}`,
+{"narration":"warm, affectionate narration (max 30 words, talk gently TO Leo, cozy opening, loop-ready ending, mention Leo by name)",
+"hook":"3-6 word warm on-screen text for the first 2 seconds — cozy, inviting, belonging",
+"sfx":[{"text":"Purr/Mrow/Nom/Meow etc","timing":"what moment in the clip this should appear","color":"one of: pink, cream, mint, lavender"},"2-3 cat sound effects as on-screen text"],
+"emoji":[{"emoji":"😊/🥺/💛/😸","timing":"what moment this should appear"},"2-3 gentle emoji pop-ins"],
+"title":"warm, inviting title under 55 chars, one cat emoji, makes you feel something",
+"description":"1 warm sentence that makes you want to click + newline + #cat #catsofyoutube #kitten #catlover #shorts #cozycat #catlife #leo",
+"tags":["12-15 tags: cat, cute cat, cozy cat, kitten, cat video, meow, catlover, catsofyoutube, cozycat, catlife, purrcat, catmom, catdad, leo the cat, warmvibes"]}`,
         },
         {
           role: "user",
@@ -776,8 +777,8 @@ Return JSON:
 
     await logEvent("Leo", `"${base}" clip → "${copy.narration.slice(0, 60)}..." | hook: ${copy.hook} | sfx: ${(copy.sfx||[]).length} | emoji: ${(copy.emoji||[]).length}`, { jobId });
 
-    // Voiceover — Puck is energetic and playful, perfect for fun cat content
-    const voiceId = config.leoVoiceId || "Puck";
+    // Voiceover — Kore is warm, gentle, affectionate — perfect for cozy cat content
+    const voiceId = config.leoVoiceId || "Kore";
     const engine = config.leoVoiceId && config.elevenlabsKey ? "elevenlabs" : undefined;
     const { voiceoverUrl, words, duration: voDuration } = await synthesizeVoiceover(
       copy.narration, voiceId, jobId, clipDuration, engine ? { engine } : undefined
@@ -829,6 +830,7 @@ Return JSON:
         ...emojiOverlays,
       ],
       sparkleOverlays: false,
+      warmAudio: true,
       captionStyle: { color: "white", fontsize: 96 },
     };
 

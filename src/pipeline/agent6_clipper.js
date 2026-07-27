@@ -36,6 +36,7 @@
 import OpenAI, { toFile } from "openai";
 import { config } from "../config.js";
 import { supabase, logEvent } from "../supabase.js";
+import { llmJson } from "../lib/llm.js";
 import { detectAudioPeaks } from "../lib/audioPeaks.js";
 import { renderSourceClip } from "../lib/sourceClipRender.js";
 import { execFile } from "node:child_process";
@@ -152,16 +153,16 @@ return an empty list rather than forcing a mediocre clip.`;
 async function planDialogueClips(words, clipJobId) {
   await logEvent("Agent 6", "Scanning transcript for standalone-worthy moments…", { jobId: clipJobId });
   const sentences = toSentenceChunks(words);
-  const res = await openai.chat.completions.create({
-    model: "gpt-4o",
+  const res = await llmJson({
+    tier: "smart",
     temperature: 0.4,
-    response_format: { type: "json_object" },
+    label: "clipPlanning",
     messages: [
       { role: "system", content: CLIP_SYSTEM },
       { role: "user", content: JSON.stringify({ sentences }) },
     ],
   });
-  const { clips } = JSON.parse(res.choices[0].message.content || "{}");
+  const { clips } = JSON.parse(res.content || "{}");
   const totalDuration = words[words.length - 1].end;
   const validated = (Array.isArray(clips) ? clips : [])
     .filter((c) => Number(c.hook_score) >= 8.5)
@@ -200,10 +201,10 @@ async function planActionClips(peaks, words, clipJobId) {
     let callout = IMPACT_WORDS[Math.floor(Math.random() * IMPACT_WORDS.length)];
     if (nearbyWords.trim().length > 3) {
       try {
-        const res = await openai.chat.completions.create({
-          model: "gpt-4o-mini",
+        const res = await llmJson({
+          tier: "fast",
           temperature: 0.6,
-          max_tokens: 12,
+          label: "clipCallout",
           messages: [
             {
               role: "system",
@@ -212,7 +213,7 @@ async function planActionClips(peaks, words, clipJobId) {
             { role: "user", content: nearbyWords.slice(0, 200) },
           ],
         });
-        const suggestion = res.choices[0].message.content?.trim();
+        const suggestion = res.content?.trim();
         if (suggestion) callout = suggestion.slice(0, 24);
         tokens += res.usage?.total_tokens || 0;
       } catch {

@@ -28,6 +28,9 @@ export const config = {
   // Free-tier Gemini key — when set, all text-only LLM calls route through
   // Gemini first (see lib/llm.js) with OpenAI as the paid fallback.
   geminiKey: process.env.GEMINI_API_KEY,
+  // Set GEMINI_ONLY=true to disable the OpenAI fallback entirely — when
+  // Gemini fails, the run crashes instead of burning OpenAI credits.
+  geminiOnly: process.env.GEMINI_ONLY === "true",
   
   // ─── Free TTS ──────────────────────────────────────────────────────
   // Defaults to 'gtts', not 'chatterbox' — chatterbox is a Python library

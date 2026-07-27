@@ -220,35 +220,55 @@ export async function runPipelineForNiche(niche) {
     );
     if (targetError) throw new Error(`Could not persist publish packages: ${targetError.message}`);
 
-    // ── Agent 5: YouTube upload (multi-channel fan-out) ──
-    if (config.autopilot && (niche.run_platforms || config.publishPlatforms).includes("youtube")) {
-      // Multi-channel: targetChannels array in preset takes priority; fall back
-      // to target_channel (primary), then "primary". Each channel gets its own
-      // upload row in publish_targets for analytics tracking.
-      const preset = niche.editing_style_preset || {};
-      const channels = Array.isArray(preset.targetChannels) && preset.targetChannels.length
-        ? preset.targetChannels
-        : [niche.target_channel || "primary"];
+    // ── Agent 5: upload (YouTube multi-channel fan-out + IG/TT auto-post) ──
+    if (config.autopilot) {
+      const platforms = niche.run_platforms || config.publishPlatforms;
+      const hasYt = platforms.includes("youtube");
       const results = [];
-      for (const channel of channels) {
+
+      // YouTube: multi-channel fan-out
+      if (hasYt) {
+        const preset = niche.editing_style_preset || {};
+        const channels = Array.isArray(preset.targetChannels) && preset.targetChannels.length
+          ? preset.targetChannels
+          : [niche.target_channel || "primary"];
+        for (const channel of channels) {
+          const result = await uploadScheduled({
+            videoUrl: renderedUrl,
+            title: scriptOut.title,
+            description: scriptOut.description,
+            tags: scriptOut.tags,
+            jobId,
+            targetChannel: channel,
+            niche: niche.niche_name,
+            publishPackage,
+          });
+          results.push({ channel, result });
+        }
+      }
+
+      // Instagram / TikTok: uploadScheduled handles these internally
+      // when their tokens are configured — fire once if not already done via YT
+      if (!hasYt && (config.instagram.accessToken || config.tiktok.accessToken)) {
         const result = await uploadScheduled({
           videoUrl: renderedUrl,
           title: scriptOut.title,
           description: scriptOut.description,
           tags: scriptOut.tags,
           jobId,
-          targetChannel: channel,
+          targetChannel: "primary",
           niche: niche.niche_name,
           publishPackage,
         });
-        results.push({ channel, result });
+        results.push({ channel: "primary", result });
       }
+
       const primary = results[0];
       await updateJob(jobId, {
         youtube_video_id: primary?.result?.videoId || null,
         target_region: primary?.result?.region,
         publish_schedule: primary?.result?.publishAt?.toISOString(),
-        published_to: results.map((r) => ({ channel: r.channel, videoId: r.result.videoId, url: r.result.url })),
+        published_to: results.map((r) => ({ channel: r.channel, videoId: r.result?.videoId })),
         status: primary?.result?.success ? "Scheduled" : "Rendered",
       });
     } else if (!config.autopilot) {
@@ -261,7 +281,7 @@ export async function runPipelineForNiche(niche) {
         videoUrl: renderedUrl,
       });
     } else {
-      await logEvent("Pipeline", `YouTube was not selected — platform packages are ready`, { jobId });
+      await logEvent("Pipeline", `No upload tokens configured — platform packages are ready for manual publish`, { jobId });
     }
 
     await logEvent("Pipeline", `✓ ${niche.niche_name} run complete`, { jobId });

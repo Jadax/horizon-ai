@@ -120,7 +120,7 @@ function buildAssSubtitles(captions, overlays = [], style = {}, sparkleOverlays 
     '[Events]',
     'Format: Layer, Start, End, Style, Text',
   ].join('\n');
-  const clean = (t) => String(t || '').replace(/[{}]/g, '').replace(/\n/g, ' ');
+  const clean = (t) => String(t || '').replace(/[{}]/g, '').replace(/\\N/g, ' ').replace(/\n/g, ' ').replace(/\\fad\([^)]*\)/gi, '').replace(/\\fscx\d+/gi, '').replace(/\\fscy\d+/gi, '').replace(/\\frz[\d.]+/gi, '').replace(/\\blur[\d.]+/gi, '').replace(/\\[a-z]+\([^)]*\)/gi, '').replace(/\\[a-z]+/gi, '');
   
   // Map color_preset to niche-specific overlay styles
   const nicheOverlayStyle = {
@@ -405,17 +405,18 @@ async function renderWithFFmpeg(payload, jobId) {
     // pet videos live on their natural sound (meows, purrs), which every
     // clip-replacement pipeline otherwise silently discards.
     const srcAudio = payload.keepSourceAudio && clips[0]?.type === 'video' ? `[0:a]volume=0.55[srcaud]` : null;
+    const warmEq = payload.warmAudio ? ',equalizer=f=200:t=q:w=1.0:g=3,equalizer=f=4000:t=q:w=1.0:g=-2' : '';
     if (payload.audioUrl && payload.musicUrl) {
       // Sidechain compression is driven by the authoritative narration audio,
       // so ducking follows actual speech rather than estimated script timing.
-      filterComplex += `;[${audioInputIndex}:a]aresample=async=1,asplit=2[voice_mix][voice_key];[${musicInputIndex}:a]volume=0.20[music];[music][voice_key]sidechaincompress=threshold=0.02:ratio=10:attack=20:release=250[ducked]`;
+      filterComplex += `;[${audioInputIndex}:a]aresample=async=1${warmEq},asplit=2[voice_mix][voice_key];[${musicInputIndex}:a]volume=0.20[music];[music][voice_key]sidechaincompress=threshold=0.02:ratio=10:attack=20:release=250[ducked]`;
       filterComplex += srcAudio
         ? `;${srcAudio};[voice_mix][ducked][srcaud]amix=inputs=3:duration=first:normalize=0,loudnorm=I=-14:TP=-1.5:LRA=11[aout]`
         : `;[voice_mix][ducked]amix=inputs=2:duration=first:normalize=0,loudnorm=I=-14:TP=-1.5:LRA=11[aout]`;
     } else if (payload.audioUrl) {
       filterComplex += srcAudio
-        ? `;${srcAudio};[${audioInputIndex}:a][srcaud]amix=inputs=2:duration=first:normalize=0,loudnorm=I=-14:TP=-1.5:LRA=11[aout]`
-        : `;[${audioInputIndex}:a]loudnorm=I=-14:TP=-1.5:LRA=11[aout]`;
+        ? `;${srcAudio};[${audioInputIndex}:a]aresample=async=1${warmEq}[voice_warm];[voice_warm][srcaud]amix=inputs=2:duration=first:normalize=0,loudnorm=I=-14:TP=-1.5:LRA=11[aout]`
+        : `;[${audioInputIndex}:a]aresample=async=1${warmEq},loudnorm=I=-14:TP=-1.5:LRA=11[aout]`;
     }
     args.push('-filter_complex', filterComplex);
 

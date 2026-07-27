@@ -17,7 +17,7 @@ import { fetchKickTrending } from "../sources/kick.js";
 import { fetchDailymotionTrending } from "../sources/dailymotion.js";
 import { rankCandidates, recalibrateWeights } from "../lib/trendScoring.js";
 import { withRetry } from "../lib/openaiRetry.js";
-import { llmJson } from "../lib/llm.js";
+import { llmJson, llmVision } from "../lib/llm.js";
 
 const openai = new OpenAI({ apiKey: config.openaiKey });
 
@@ -341,26 +341,21 @@ async function verifyVisualMatches(brief, candidates) {
     if (!config.visualQualityGate) return { clips: candidates, tokens: 0 };
     const reviewable = candidates.filter((clip) => clip.previewUrl).slice(0, MAX_VISION_CANDIDATES);
     if (!reviewable.length) return { clips: [], tokens: 0 };
-    const content = [
-        {
-            type: "text",
-            text: `You are the final visual-continuity reviewer for a premium vertical video.\nSPOKEN LINE: ${brief.line}\nREQUIRED VISUAL: ${brief.query}\nWHY: ${brief.intent || "The image must directly prove the narration."}\n\nInspect every numbered candidate preview. Accept only a candidate that visibly depicts the literal subject, action, setting, or truthful visual metaphor needed for this exact line. Reject generic lifestyle, dancing, phones, scenery, candles, or any image that merely shares a broad mood or country. Do not infer unseen facts.\n\nReturn JSON only: {"accepted":[{"index":0,"score":0,"reason":"..."}]}. Score 0-10; include only clips scoring 8 or higher.`,
-        },
-        ...reviewable.flatMap((clip, index) => [
-            { type: "text", text: `Candidate ${index}` },
-            { type: "image_url", image_url: { url: clip.previewUrl, detail: "low" } },
-        ]),
-    ];
-    const res = await withRetry(
-        () => openai.chat.completions.create({
-            model: "gpt-4o-mini",
-            temperature: 0,
-            response_format: { type: "json_object" },
-            messages: [{ role: "user", content }],
-        }),
-        { label: "verifyVisualMatches" }
-    );
-    const result = JSON.parse(res.choices[0].message.content || "{}");
+    const prompt = `You are the final visual-continuity reviewer for a premium vertical video.\nSPOKEN LINE: ${brief.line}\nREQUIRED VISUAL: ${brief.query}\nWHY: ${brief.intent || "The image must directly prove the narration."}\n\nInspect every numbered candidate preview. Accept only a candidate that visibly depicts the literal subject, action, setting, or truthful visual metaphor needed for this exact line. Reject generic lifestyle, dancing, phones, scenery, candles, or any image that merely shares a broad mood or country. Do not infer unseen facts.\n\nReturn JSON only: {"accepted":[{"index":0,"score":0,"reason":"..."}]}. Score 0-10; include only clips scoring 8 or higher.\n\n${reviewable.map((clip, i) => `Candidate ${i}: ${clip.previewUrl}`).join("\n")}`;
+    const images = reviewable.map((clip) => ({ mimeType: "image/jpeg", base64: null, url: clip.previewUrl }));
+    // llmVision handles URL fetching internally
+    const resolvedImages = [];
+    for (const img of images) {
+        try {
+            const res = await fetch(img.url, { signal: AbortSignal.timeout(15000) });
+            if (!res.ok) continue;
+            const mimeType = res.headers.get("content-type")?.split(";")[0] || "image/jpeg";
+            resolvedImages.push({ mimeType, base64: Buffer.from(await res.arrayBuffer()).toString("base64") });
+        } catch { /* skip unresolvable */ }
+    }
+    if (!resolvedImages.length) return { clips: candidates, tokens: 0 };
+    const visionRes = await llmVision({ prompt, images: resolvedImages, label: "visualQA", maxTokens: 600 });
+    const result = JSON.parse(visionRes.content || "{}");
     const accepted = (result.accepted || [])
         .filter((item) => Number(item.score) >= 8 && reviewable[Number(item.index)])
         .map((item) => ({

@@ -84,6 +84,9 @@ export async function llmVision({ prompt, images, label = "vision", maxTokens = 
       console.warn(`[${label}] Gemini vision failed (${err.message}) — falling back to OpenAI`);
     }
   }
+  if (config.geminiOnly) {
+    throw new Error(`[${label}] Gemini vision failed and GEMINI_ONLY is set`);
+  }
   const res = await withRetry(
     () => openai.chat.completions.create({
       model: "gpt-4o-mini",
@@ -114,6 +117,9 @@ export async function llmJson({ messages, temperature = 0.7, tier = "smart", lab
         console.warn(`[${label}] ${err.message} — trying next provider`);
       }
     }
+  }
+  if (config.geminiOnly) {
+    throw new Error(`[${label}] All Gemini models failed and GEMINI_ONLY is set`);
   }
   const res = await withRetry(
     () => openai.chat.completions.create({
