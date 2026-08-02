@@ -8,7 +8,7 @@ import { logEvent } from "../supabase.js";
 import { getTitlePatternInsight } from "../lib/trendScoring.js";
 import { gradeContent } from "../lib/contentQuality.js";
 import { llmJson } from "../lib/llm.js";
-import { HOOK_TEMPLATES, NICHE_VIRAL_PATTERNS } from "../lib/viralScience.js";
+import { HOOK_TEMPLATES, NICHE_VIRAL_PATTERNS, WPM_BY_NICHE } from "../lib/viralScience.js";
 import { BANNED_WORDS } from "../lib/utils.js";
 
 const TITLE_PATTERNS = ["curiosity_gap", "number_stakes", "contrarian_reframe", "direct_consequence", "insider_callout"];
@@ -31,7 +31,10 @@ watched, and kills channel trust).
 - 77% of YouTube views in 2025 came from videos under 1 minute
 - The algorithm uses a TWO-STAGE test: (1) Viewed vs. Swiped Away (target: 70-80%+), (2) Average Percentage Viewed (target: 80%+)
 - 50-60% of drop-offs happen in the FIRST 3 SECONDS — your hook IS your thumbnail
+- The algorithm samples a Short in its first 0.8 seconds (audience seeding) — the opening words also render as on-screen hook text in frame 1, so they must be complete and compelling alone
+- A swipe-away rate under 30% expands distribution; over 50% kills the video
 - Shorts 15-30s consistently achieve 80%+ APV; over 45s see dramatic drop-offs
+- The 0.2-second rule: viewers swipe on dead air, so write dense — no throat-clearing, every syllable earns the next
 - Loop endings (last sentence connects to first) unlock 100%+ retention — massive algorithmic boost
 - "I haven't had a Short pass 1,000,000 views with less than 70% average view duration"
 
@@ -150,6 +153,14 @@ prop. If the line mentions writing a letter, query a hand writing on paper
 or sealing an envelope, never a candle. If no literal asset exists, use the
 closest truthful metaphor and explain why in intent. The visual plan is
 internal, never viewer-facing.
+- NAMED-ENTITY RULE: for news, sport, celebrity, location, or product stories,
+  every relevant query must include the named entity plus the literal action or
+  setting. "Indian cricketer batting in stadium" is valid; "India culture",
+  "celebration", "dancers", or "person on phone" are invalid unless the line
+  explicitly says those things. Never create a visual beat that cannot be
+  honestly verified from the supplied topic context.
+- COVERAGE RULE: the 6-12 beats must cover the entire narration in order. A
+  beat may be reused only when the same subject/action is still being spoken.
 
 ## RESPOND ONLY WITH JSON:
 {
@@ -171,8 +182,14 @@ export async function writeScript(niche, topic, loreContext, jobId) {
   const wordClipMode = Boolean(niche.editing_style_preset?.wordClipMode);
   const minSeconds = niche.target_duration_min_seconds || (wordClipMode ? 25 : 40);
   const maxSeconds = niche.target_duration_max_seconds || (wordClipMode ? 35 : 50);
-  const wordsMin = Math.round(minSeconds * 2.3);
-  const wordsMax = Math.round(maxSeconds * 2.3);
+  // Spoken density per niche: Shorts run fast (160-180 wpm — research says
+  // density is a retention lever, dead air is a swipe trigger), slow
+  // cinematic niches breathe (140 wpm). Dashboard-set editing_style_preset
+  // .wpm wins over the research table. 2.3 words/sec flat was the old
+  // default (~138 wpm); the table is now niche-aware.
+  const wpm = Number(niche.editing_style_preset?.wpm) || WPM_BY_NICHE[niche.niche_name] || 150;
+  const wordsMin = Math.round(minSeconds * (wpm / 60));
+  const wordsMax = Math.round(maxSeconds * (wpm / 60));
   const loopMode = maxSeconds <= 70;
   const titlePatternHint = await getTitlePatternInsight(niche.niche_name).catch(() => null);
 
@@ -186,6 +203,7 @@ export async function writeScript(niche, topic, loreContext, jobId) {
     `LOOP_MODE: ${loopMode}`,
     `TARGET_WORDS_MIN: ${wordsMin}`,
     `TARGET_WORDS_MAX: ${wordsMax}`,
+    `SPOKEN_DENSITY: ${wpm} words per minute — write tight and dense; every dead syllable is a swipe trigger. Short punchy sentences. No filler.`,
     // Viral science: hook templates and retention rules
     `VIRAL_HOOK_STRATEGY (${viralPatterns.hookStrategy || "curiosity + emotion"}):`,
     ...hookTemplates.slice(0, 5).map((t, i) => `  ${i + 1}. [${t.pattern}] ${t.template} — Example: "${t.example}"`),

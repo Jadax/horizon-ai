@@ -235,12 +235,80 @@ Return JSON: {"scores":[{"index":0,"total":24},...]} where total = sum of the th
     }
 }
 
+/**
+ * A trend is not automatically a producible short. Before committing spend,
+ * rank the best candidates by whether they have enough source substance and
+ * can be shown with truthful visuals. This prevents a noisy headline from
+ * outranking a story that can actually be explained and illustrated.
+ */
+async function rerankForProductionReadiness(candidates, niche, jobId) {
+    const pool = candidates.slice(0, 16);
+    try {
+        const res = await llmJson({
+            tier: "fast",
+            temperature: 0.1,
+            label: "productionReadiness",
+            messages: [
+                {
+                    role: "system",
+                    content: `You are a ruthless short-form executive producer. Score each candidate 1-10 for:
+- audience_pull: a concrete curiosity, stakes, or emotional hook for this niche.
+- factual_grounding: enough verifiable detail in the headline/context to make a truthful short without filling gaps.
+- visualability: can a viewer see specific people, objects, actions, locations, or a truthful simple metaphor for most of the story? Broad mood-only visuals score low.
+- novelty: not an obvious repeat or generic update.
+
+Return JSON only: {"scores":[{"index":0,"total":0,"audience_pull":0,"factual_grounding":0,"visualability":0,"novelty":0,"reason":"..."}]}. Total is 4-40. Do not reward tragedy, outrage, or celebrity alone without a specific story.`,
+                },
+                {
+                    role: "user",
+                    content: JSON.stringify({
+                        niche: niche.niche_name,
+                        candidates: pool.map((candidate, index) => ({
+                            index,
+                            title: String(candidate.title || "").slice(0, 180),
+                            context: String(candidate.selftext || "").slice(0, 400),
+                            source: candidate.source,
+                        })),
+                    }),
+                },
+            ],
+        });
+        const parsed = JSON.parse(res.content || "{}");
+        const byIndex = new Map((parsed.scores || []).map((score) => [Number(score.index), score]));
+        const ranked = pool
+            .map((candidate, index) => {
+                const score = byIndex.get(index) || {};
+                const grounded = Number(score.factual_grounding) || 0;
+                const visual = Number(score.visualability) || 0;
+                const total = Number(score.total) || 0;
+                // A factually thin or unshowable story cannot enter the
+                // autopilot pipeline, however attractive its raw trend score.
+                const eligible = grounded >= 7 && visual >= 7 && total >= 26;
+                return {
+                    ...candidate,
+                    _productionScore: total,
+                    _productionEligible: eligible,
+                    _productionReason: String(score.reason || "").slice(0, 180),
+                };
+            })
+            .sort((a, b) => b._productionScore - a._productionScore);
+        const eligible = ranked.filter((candidate) => candidate._productionEligible);
+        const output = eligible.length ? [...eligible, ...ranked.filter((candidate) => !candidate._productionEligible)] : ranked;
+        await logEvent("Agent 1", `Production-readiness re-rank: ${eligible.length}/${pool.length} candidates are factually grounded and visually producible`, { jobId });
+        return [...output, ...candidates.slice(pool.length)];
+    } catch (err) {
+        await logEvent("Agent 1", `Production-readiness re-rank failed (${err.message}) — using trend ranking`, { jobId, level: "warn" });
+        return candidates;
+    }
+}
+
 export async function harvestTopic(niche, jobId) {
     let ranked = await harvestAllCandidates(niche, jobId);
     if (!ranked.length) throw new Error("No topic candidates found from any source");
     if (niche.editing_style_preset?.explainerMode) {
         ranked = await rerankByCuriosity(ranked, jobId);
     }
+    ranked = await rerankForProductionReadiness(ranked, niche, jobId);
 
     const seen = await recentTopicKeys(niche.niche_name);
     const fresh = ranked.filter((c) => !seen.has(topicKey(c.title)));
@@ -335,31 +403,39 @@ const MAX_VISION_CANDIDATES = 10;
 
 async function verifyVisualMatches(brief, candidates) {
     if (!config.visualQualityGate) return { clips: candidates, tokens: 0 };
-    const reviewable = candidates.filter((clip) => clip.previewUrl).slice(0, MAX_VISION_CANDIDATES);
-    if (!reviewable.length) return { clips: [], tokens: 0 };
-    const prompt = `You are the final visual-continuity reviewer for a premium vertical video.\nSPOKEN LINE: ${brief.line}\nREQUIRED VISUAL: ${brief.query}\nWHY: ${brief.intent || "The image must directly prove the narration."}\n\nInspect every numbered candidate preview. Accept only a candidate that visibly depicts the literal subject, action, setting, or truthful visual metaphor needed for this exact line. Reject generic lifestyle, dancing, phones, scenery, candles, or any image that merely shares a broad mood or country. Do not infer unseen facts.\n\nReturn JSON only: {"accepted":[{"index":0,"score":0,"reason":"..."}]}. Score 0-10; include only clips scoring 8 or higher.\n\n${reviewable.map((clip, i) => `Candidate ${i}: ${clip.previewUrl}`).join("\n")}`;
-    const images = reviewable.map((clip) => ({ mimeType: "image/jpeg", base64: null, url: clip.previewUrl }));
-    // llmVision handles URL fetching internally
-    const resolvedImages = [];
-    for (const img of images) {
+    const candidatesWithPreview = candidates.filter((clip) => clip.previewUrl).slice(0, MAX_VISION_CANDIDATES);
+    if (!candidatesWithPreview.length) return { clips: [], tokens: 0 };
+    // Preserve the candidate mapping while fetching previews. A failed
+    // thumbnail must never shift a model index onto another video clip.
+    const resolved = [];
+    for (const clip of candidatesWithPreview) {
         try {
-            const res = await fetch(img.url, { signal: AbortSignal.timeout(15000) });
+            const res = await fetch(clip.previewUrl, { signal: AbortSignal.timeout(15000) });
             if (!res.ok) continue;
             const mimeType = res.headers.get("content-type")?.split(";")[0] || "image/jpeg";
-            resolvedImages.push({ mimeType, base64: Buffer.from(await res.arrayBuffer()).toString("base64") });
+            resolved.push({ clip, image: { mimeType, base64: Buffer.from(await res.arrayBuffer()).toString("base64") } });
         } catch { /* skip unresolvable */ }
     }
-    if (!resolvedImages.length) return { clips: candidates, tokens: 0 };
-    const visionRes = await llmVision({ prompt, images: resolvedImages, label: "visualQA", maxTokens: 600 });
-    const result = JSON.parse(visionRes.content || "{}");
+    if (!resolved.length) return { clips: [], tokens: 0 };
+    const prompt = `You are the final visual-continuity reviewer for a premium vertical video.
+SPOKEN LINE: ${brief.line}
+REQUIRED VISUAL: ${brief.query}
+WHY: ${brief.intent || "The image must directly prove the narration."}
+
+The previews are supplied in exact Candidate order: 0 through ${resolved.length - 1}. Accept only footage that visibly depicts the literal subject, action, setting, or truthful visual metaphor for this exact line. Reject broad mood matches, generic lifestyle, dancing, phones, scenery, candles, or clips that only match a country or broad topic. Do not infer unseen facts.
+
+Return JSON only: {"accepted":[{"index":0,"score":0,"reason":"..."}]}. Include only scores 8-10.`;
+    const visionRes = await llmVision({ prompt, images: resolved.map((entry) => entry.image), label: "visualQA", maxTokens: 600 });
+    const jsonText = String(visionRes.content || "{}").replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "");
+    const result = JSON.parse(jsonText);
     const accepted = (result.accepted || [])
-        .filter((item) => Number(item.score) >= 8 && reviewable[Number(item.index)])
+        .filter((item) => Number(item.score) >= 8 && resolved[Number(item.index)])
         .map((item) => ({
-            ...reviewable[Number(item.index)],
+            ...resolved[Number(item.index)].clip,
             visualScore: Number(item.score),
             visualReview: String(item.reason || "Verified against narration beat").slice(0, 240),
         }));
-    return { clips: accepted, tokens: res.usage?.total_tokens || 0 };
+    return { clips: accepted, tokens: visionRes.tokens || 0 };
 }
 
 async function searchPixabay(keyword, perPage = 10) {
@@ -507,7 +583,9 @@ export async function harvestFootage(niche, jobId, minTotalSeconds = 55, priorit
         : [];
     const rest = niche.footage_keywords.filter((k) => !priorityKeywords?.includes(k));
     const keywords = scriptedQueries.length
-        ? [...scriptedQueries, ...rest.sort(() => Math.random() - 0.5)]
+        // A visual plan exists specifically to prevent generic niche b-roll.
+        // Do not append random fallback keywords here.
+        ? [...new Set(scriptedQueries)]
         : priorityKeywords?.length
         ? [...priorityKeywords, ...rest.sort(() => Math.random() - 0.5)]
         : [...niche.footage_keywords].sort(() => Math.random() - 0.5);
@@ -560,7 +638,7 @@ export async function harvestFootage(niche, jobId, minTotalSeconds = 55, priorit
         }
     }
 
-    if (clips.length < 3) {
+    if (clips.length < 3 || total < minTotalSeconds * 0.65) {
         throw new Error(
             "Insufficient licensed footage passed visual QA — check PEXELS_API_KEY / PIXABAY_API_KEY, broaden footage_keywords, or temporarily disable VISUAL_QUALITY_GATE for diagnostics"
         );

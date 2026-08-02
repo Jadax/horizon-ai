@@ -35,10 +35,17 @@ and whether word-clip mode is stylistically available for this niche.
 Decide, for THIS SPECIFIC TOPIC, not generically for the niche:
 
 ALGORITHM DATA (YouTube Shorts 2025-2026):
+- The algorithm samples a Short within its first 0.8 seconds to seed the
+  audience; the viewer decides in the first 3 seconds. Both windows need an
+  on-screen hook — which the render layer now adds automatically from the
+  script's opening words, so make those words land hard.
 - 15-30 second Shorts consistently achieve 80%+ APV (average percentage viewed)
 - Shorts under 10s feel incomplete; over 45s see dramatic drop-offs
 - 70% APV minimum required for 1M+ views
 - 50-60% of viewers who drop off do so in the first 3 seconds
+- A swipe-away rate under 30% expands distribution; over 50% kills it
+- The 0.2-second rule: no audio gap >0.2s in the first 3s, >0.4s after —
+  density is a retention lever (audio is silenced/tightened downstream)
 - Loop endings (connecting last sentence to first) unlock 100%+ retention
 - Target: 70-80%+ viewed rate (stop the scroll), 80%+ APV (hold attention)
 
@@ -49,6 +56,12 @@ DURATION RULES:
 - NEVER exceed 50 seconds — the data shows dramatic retention loss
 - A one-fact hook should target 15-18 seconds (lean, punchy)
 - A story with twist should target 22-30 seconds (enough room to breathe)
+
+SPOKEN DENSITY:
+- Shorts run 160-180 wpm: dense, every syllable earns the next.
+- A 15s topic ≈ 45-55 words; 30s ≈ 75-90 words; 45s ≈ 110-130 words.
+- Dead air and throat-clearing are swipe triggers — pick short durations
+  for thin topics instead of padding them out to hit the range max.
 
 NICHE-SPECIFIC VISUAL TACTICS (MKBHD/Fireship/Two Minute Papers level):
 

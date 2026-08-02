@@ -200,6 +200,84 @@ export const PLATFORM_RULES = {
   },
 };
 
+// ─── 2026 RESEARCH: TOP-CREATOR SETTINGS ──────────────────────────────
+// Distilled from live breakdowns of MrBeast, Zenn, Kurzgesagt, Fireship,
+// MKBHD, Two Minute Papers + algorithm field tests (audioforgepro 0.2s
+// rule, ChatCut/Vidocu first-frame A/B, Kineclip 2s swipe test, Vāṇī
+// 30-video voice test, toolriz WPM calibration).
+
+export const FIRST_FRAME_HOOK = {
+  // YouTube samples a Short in its FIRST 0.8s to seed the audience; the
+  // viewer decides in the first 3s. On-screen text loading in frame 1 was
+  // A/B-proven (Vidocu, May 2026): 3s hold 54% → 71%, completion +48%.
+  samplingWindowSec: 0.8,
+  decisionWindowSec: 3,
+  spec: "4-7 high-contrast words, top safe zone, payoff stated outright. Text must be visible in frame 1 — it is advertising real estate, not narration support.",
+};
+
+export const AUDIO_PACING = {
+  // The "0.2 second rule" (audioforgepro): during the first 3s no gap
+  // between audio elements may exceed 0.2s; after that 0.3-0.4s max. Dead
+  // space is a swipe trigger. Speech 160-180 WPM for Shorts.
+  maxGapFirst3s: 0.2,
+  maxGapAfter: 0.4,
+  shortsWpm: 170,
+  longformWpm: 150,
+};
+
+export const CAPTION_SPEC = {
+  // MrBeast/Zenn spec (VidNo breakdown): thick bold ALL-CAPS, heavy black
+  // outline, yellow emphasis on numbers/amounts, max 2 lines, 3-7 words
+  // per line, centered 60-70% down the frame, scale-pop on key words.
+  case: "ALL CAPS",
+  outlinePx: 4,
+  maxWordsPerLine: 7,
+  emphasisColor: "#FFE500",
+  primary: "#FFFFFF",
+  spec: "Readable in a single glance under fast cuts — most faceless content is watched muted (80%+ of Shorts).",
+};
+
+// Which Gemini voice matches each niche's proven voice style. The Vāṇī
+// 30-video field test: Horror=deep/breathy (+22% AVD), Facts=fast/neutral
+// (+18%), Motivation=authoritative/bold (+30%), News=news-neutral (+12%).
+// Map from niche_name to one of the 12 Gemini prebuilt voices (see
+// freeTTS.js GEMINI_VOICES); falls back to the niche's voice_profile_id.
+export const VOICE_BY_NICHE = {
+  Aesthetic: "Zephyr",           // soft cinematic wonder
+  Explained: "Charon",           // curious storyteller
+  Finance: "Fenrir",             // authoritative bold numbers
+  Food: "Kore",                  // warm inviting host
+  "Gaming/Lore": "Fenrir",       // epic deep lore narrator
+  Leo: "Kore",                   // warm playful (already set)
+  "Mindful/Calm": "Kore",        // gentle reassuring
+  News: "Fenrir",                // urgent broadcast authority
+  "News India": "Fenrir",
+  Psychology: "Charon",          // calm analytical
+  Technology: "Puck",            // energetic fast explainer
+  Travel: "Orus",                // warm wanderlust
+  Viral: "Puck",                 // high-energy punchy
+};
+
+// Per-niche spoken density: Shorts run fast (170 wpm) so more info lands
+// per second; slow cinematic niches breathe (140 wpm). Injected into
+// agent2's word-count math via editing_style_preset.wpm (dashboard-set
+// override wins over this table).
+export const WPM_BY_NICHE = {
+  Aesthetic: 140,
+  Explained: 150,
+  Finance: 165,
+  Food: 145,
+  "Gaming/Lore": 165,
+  Leo: 145,
+  "Mindful/Calm": 140,
+  News: 170,
+  "News India": 170,
+  Psychology: 150,
+  Technology: 165,
+  Travel: 150,
+  Viral: 170,
+};
+
 // ─── NICHE VIRAL PATTERNS ─────────────────────────────────────────────
 
 export const NICHE_VIRAL_PATTERNS = {

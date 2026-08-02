@@ -70,6 +70,32 @@ export function buildEditPayload({ cuts, voiceoverUrl, words, duration, musicTra
     }
   }
 
+  // FIRST-FRAME HOOK: the algorithm samples a Short within its first 0.8s,
+  // so even non-illustrated niches get a punchy on-screen hook burned over
+  // frame 1 (research: 3s hold 54% → 71% with first-frame text). Pulls the
+  // script's opening 4-7 words as ALL-CAPS bold text in the niche's overlay
+  // style for the first ~3 seconds — skipped for word-clip mode, where the
+  // captions themselves already ARE the on-screen words.
+  const overlays = videoClips
+    .filter((clip) => clip.overlay && Number.isFinite(clip.timelineStart))
+    .map((clip) => ({
+      text: clip.overlay,
+      start: clip.timelineStart,
+      end: Math.min(clip.timelineStart + 3.2, clip.timelineEnd ?? clip.timelineStart + 3.2),
+    }));
+  if (!preset.wordClipMode && !overlays.some((o) => o.start < 0.5)) {
+    const hookText = words
+      .slice(0, 7)
+      .map((w) => w.word)
+      .filter(Boolean)
+      .join(" ")
+      .toUpperCase()
+      .slice(0, 40);
+    if (hookText) {
+      overlays.unshift({ text: hookText, start: 0, end: Math.min(3.0, videoClips[0]?.timelineEnd ?? 3.0) });
+    }
+  }
+
   return {
     // backgroundVideo kept for any caller still expecting a single URL
     // (e.g. render-video-api's minimal payload shape); backgroundClips
@@ -89,13 +115,7 @@ export function buildEditPayload({ cuts, voiceoverUrl, words, duration, musicTra
     // attachment-style "ONLY 10 YEARS LEFT!" look) — rendered by libass,
     // never drawn by the image model, so it can't be misspelled. First
     // clip's overlay is the 3-second visual hook.
-    overlays: videoClips
-      .filter((clip) => clip.overlay && Number.isFinite(clip.timelineStart))
-      .map((clip) => ({
-        text: clip.overlay,
-        start: clip.timelineStart,
-        end: Math.min(clip.timelineStart + 3.2, clip.timelineEnd ?? clip.timelineStart + 3.2),
-      })),
+    overlays,
     syncPrecisionMs: config.subtitleSyncPrecisionMs,
     output: {
       format: "mp4",

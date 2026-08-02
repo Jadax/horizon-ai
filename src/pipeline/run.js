@@ -11,6 +11,7 @@ import { synthesizeVoiceover, pickMusic } from "./agent3_audio.js";
 import { buildEditPayload, render } from "./agent4_shotstack.js";
 import { uploadScheduled } from "./agent5_upload.js";
 import { buildPublishPackage, createPublishTargets } from "../lib/platformAdapter.js";
+import { VOICE_BY_NICHE } from "../lib/viralScience.js";
 import { notifyAwaitingApproval } from "../lib/telegram.js";
 
 export async function runPipelineForNiche(niche) {
@@ -39,7 +40,7 @@ export async function runPipelineForNiche(niche) {
       ...(harvested.alternates || []).map((topic) => ({ topic, loreContext: undefined })),
     ];
 
-    let topic, decision, preset, scriptOut;
+    let topic, decision, preset, scriptOut, clips;
     for (let i = 0; i < topicQueue.length; i++) {
       topic = topicQueue[i].topic;
       let loreContext = topicQueue[i].loreContext;
@@ -87,9 +88,12 @@ export async function runPipelineForNiche(niche) {
       try {
         scriptOut = await writeScript(effectiveNiche, topic, loreContext, jobId);
         usage.openai_tokens += scriptOut._usage?.tokens || 0;
+        clips = await harvestFootage(niche, jobId, 55, decision.footage_mood, scriptOut.visual_plan);
+        usage.openai_tokens += clips._usage?.tokens || 0;
         break;
       } catch (err) {
-        if (!/quality gate/i.test(err.message) || i === topicQueue.length - 1) throw err;
+        const retryable = /quality gate|visually verified footage|visual QA|footage coverage/i.test(err.message);
+        if (!retryable || i === topicQueue.length - 1) throw err;
         await logEvent(
           "Pipeline",
           `Topic "${topic.title.slice(0, 60)}" couldn't produce a passing script (${err.message}) — trying next candidate (${i + 2}/${topicQueue.length})`,
@@ -116,8 +120,6 @@ export async function runPipelineForNiche(niche) {
       error: null,
     });
 
-    const clips = await harvestFootage(niche, jobId, 55, decision.footage_mood, scriptOut.visual_plan);
-    usage.openai_tokens += clips._usage?.tokens || 0;
     await updateJob(jobId, {
       sourced_media_urls: clips.map((c) => ({
         url: c.url, provider: c.provider, license: c.license,
@@ -134,9 +136,18 @@ export async function runPipelineForNiche(niche) {
     });
 
     // ── Agent 3: voiceover + music ──
+    // Top-creator voice matching: prefer the niche's pinned Gemini voice
+    // (editing_style_preset.geminiVoice), then the research-backed table,
+    // then the legacy voice_profile_id. voice_profile_id holds ElevenLabs
+    // IDs that silently fell back to a single Gemini voice for every niche.
+    const geminiVoice =
+      preset.geminiVoice ||
+      VOICE_BY_NICHE[niche.niche_name] ||
+      niche.voice_profile_id ||
+      null;
     const { voiceoverUrl, words, duration, syncPrecisionMs } = await synthesizeVoiceover(
       scriptOut.script,
-      niche.voice_profile_id,
+      geminiVoice,
       jobId,
       decision.target_duration_seconds + 15
     );

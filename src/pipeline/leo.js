@@ -78,7 +78,7 @@ async function leoQualityCheck(renderUrl, expectedDuration) {
   }
 }
 
-async function describeCompilation(videos, persona, referenceBrief) {
+async function describeCompilation(videos, persona, referenceBrief, sceneBriefs = []) {
   const sketch = videos.map((v) => v.replace(VIDEO_EXT, "").replace(/[-_]/g, " ").slice(0, 30));
   const res = await llmJson({
     tier: "fast",
@@ -96,7 +96,8 @@ Given the source clips and an optional reference strategy from top pet accounts,
   "title": "warm, inviting title under 55 chars, one cat or heart emoji",
   "description": "1 warm sentence then newline then #cat #catsofyoutube #kitten #catlover #shorts"
 }
-${referenceBrief?.strategy ? `TOP PET STRATEGY HINT: ${JSON.stringify(referenceBrief.strategy)}` : ""}`,
+${referenceBrief?.strategy ? `TOP PET STRATEGY HINT: ${JSON.stringify(referenceBrief.strategy)}` : ""}
+ACTUAL SCENE NOTES (use these, not filenames, and never invent an action): ${JSON.stringify(sceneBriefs)}`,
       },
       { role: "user", content: JSON.stringify({ CLIPS: sketch, COUNT: videos.length }) },
     ],
@@ -158,7 +159,12 @@ async function processCompilation(videos, nicheRow) {
         }).then((r) => r?.trim() || null).catch(() => null)
       : null;
 
-    const copy = await describeCompilation(videos, persona, referenceBrief);
+    const sceneBriefs = (compilation.clipData || []).map((clip) => ({
+      action: clip.description || "Leo moment",
+      mood: clip.mood || "warm",
+      overlay: clip.overlay || null,
+    }));
+    const copy = await describeCompilation(videos, persona, referenceBrief, sceneBriefs);
 
     // Determine hook overlay text (adds POV text at start like top accounts)
     const hookText = compilation.backgroundClips.length > 2

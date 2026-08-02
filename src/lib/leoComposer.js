@@ -47,7 +47,9 @@ async function extractFrame(file, timeSec, outputFile, w = 512) {
 
 /**
  * Score a video segment for engagement (cute factor) using Gemini Vision
- * on sampled frames from that segment. Returns 1-10 score.
+ * on sampled frames from that segment. The result also carries a concrete
+ * description so captions are about Leo's actual action, never generic pet
+ * filler such as "cozy vibes".
  */
 async function scoreClipEngagement(file, startSec, endSec) {
   const duration = endSec - startSec;
@@ -70,22 +72,31 @@ async function scoreClipEngagement(file, startSec, endSec) {
     );
     const res = await llmVision({
       label: "leoScore",
-      prompt: `You score pet video frames (1-10) on engagement for social media. Return ONLY a JSON number. Criteria:
+      prompt: `You are a senior pet-video editor. Inspect these consecutive frames and return JSON only:
+{"score":1,"description":"what Leo visibly does", "mood":"one or two words", "overlay":"2-5 word specific on-screen hook"}
+
+Score engagement 1-10. Criteria:
 - Adorable/expressive face visible? Higher.
 - Active behavior (playing, hunting, reacting)? Higher.
 - Sleepy/static/back-turned? Lower.
 - Good lighting + composition? Higher.
 - Close-up of the face? Higher.
 
-Rate these ${FRAME_SAMPLES} consecutive frames (ordered) as one scene.`,
+Description must name only visible action/posture/setting, never invent motivation. Overlay must be specific to that visible moment, not generic "cute cat" or "cozy vibes".`,
       images,
-      maxTokens: 10,
+      maxTokens: 160,
     });
-    const score = Math.min(10, Math.max(1, parseFloat(res?.trim() || "5") || 5));
-    return score;
+    const text = String(res?.content || res || "{}").replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "");
+    const analysis = JSON.parse(text);
+    return {
+      score: Math.min(10, Math.max(1, Number(analysis.score) || 5)),
+      description: String(analysis.description || "Leo having a quiet moment").slice(0, 160),
+      mood: String(analysis.mood || "warm").slice(0, 40),
+      overlay: String(analysis.overlay || "LEO MOMENT").toUpperCase().slice(0, 36),
+    };
   } catch (err) {
     console.warn("[leoComposer] vision scoring failed:", err.message);
-    return 5;
+    return { score: 5, description: "Leo moment", mood: "warm", overlay: "LEO MOMENT" };
   } finally {
     await Promise.all(frameFiles.map((f) => unlink(f).catch(() => {})));
   }
@@ -141,9 +152,10 @@ async function extractBestClips(file) {
     candidates.push({ start, end, duration: len, file });
   }
   const scored = await Promise.all(
-    candidates.slice(0, 12).map(async (c) => ({
-      ...c, score: await scoreClipEngagement(file, c.start, c.end),
-    }))
+    candidates.slice(0, 12).map(async (c) => {
+      const analysis = await scoreClipEngagement(file, c.start, c.end);
+      return { ...c, ...analysis };
+    })
   );
   const valid = scored.filter((c) => c.score >= 5);
   valid.sort((a, b) => b.score - a.score);
@@ -197,11 +209,9 @@ export async function buildLeoCompilation(inboxVideos, options = {}) {
   const perClipCaps = [];
   let timeline = 0;
   for (const clip of backgroundClips) {
-    const mood = clip.score >= 8 ? "his royal highness" :
-      clip.score >= 7 ? "cozy vibes only" :
-      clip.score >= 6 ? "living his best life" : "pure bliss";
+    const mood = clip.overlay || clip.description || "LEO MOMENT";
     perClipOverlays.push({
-      text: mood,
+      text: mood.toUpperCase(),
       start: timeline + 0.3,
       end: timeline + 2.2,
     });

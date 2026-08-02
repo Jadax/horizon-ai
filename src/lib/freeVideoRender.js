@@ -76,7 +76,16 @@ const COLOR_PRESETS = {
 };
 
 function buildAssSubtitles(captions, overlays = [], style = {}, sparkleOverlays = false) {
-  const primary = CAPTION_COLORS[style.color] || CAPTION_COLORS.white;
+  // Per-niche caption color: supports both named presets (cream/yellow/...)
+  // and raw hex like "#10B981" / "10B981" — converted to ASS &HAABBGGRR so
+  // dashboard-set caption colors actually reach the render.
+  const toAssColor = (hex) => {
+    const m = /^#?([0-9a-f]{6})$/i.exec(String(hex || "").trim());
+    if (!m) return null;
+    const [r, g, b] = [0, 2, 4].map((i) => parseInt(m[1].slice(i, i + 2), 16));
+    return `&H00${b.toString(16).padStart(2, "0")}${g.toString(16).padStart(2, "0")}${r.toString(16).padStart(2, "0")}`.toUpperCase();
+  };
+  const primary = CAPTION_COLORS[style.color] || toAssColor(style.color) || CAPTION_COLORS.white;
   const fontsize = Number(style.fontsize) || 100;
   const header = [
     '[Script Info]',
@@ -122,6 +131,16 @@ function buildAssSubtitles(captions, overlays = [], style = {}, sparkleOverlays 
   ].join('\n');
   const clean = (t) => String(t || '').replace(/[{}]/g, '').replace(/\\N/g, ' ').replace(/\n/g, ' ').replace(/\\fad\([^)]*\)/gi, '').replace(/\\fscx\d+/gi, '').replace(/\\fscy\d+/gi, '').replace(/\\frz[\d.]+/gi, '').replace(/\\blur[\d.]+/gi, '').replace(/\\[a-z]+\([^)]*\)/gi, '').replace(/\\[a-z]+/gi, '');
   
+  // MrBeast-style emphasis: key numbers, prices, percentages, and big
+  // figures pop in bright yellow inside otherwise white/cream captions so
+  // the eye lands on the one number that matters. Applied AFTER clean()
+  // (which strips braces) so the ASS override tags below survive.
+  const emphasizeNumbers = (t) =>
+    String(t).replace(
+      /(?:\$|€|£|₹)?\s?\d[\d,]*(?:\.\d+)?\s?(?:%|K|M|B|m|b|k)?/g,
+      (m) => (/\d/.test(m) ? `{\\c&H0000FFFF}${m}{\\r}` : m)
+    );
+  
   // Map color_preset to niche-specific overlay styles
   const nicheOverlayStyle = {
     neon_tech: 'Tech_Code',
@@ -135,7 +154,7 @@ function buildAssSubtitles(captions, overlays = [], style = {}, sparkleOverlays 
   const defaultOverlayStyle = nicheOverlayStyle[style.color_preset] || 'Hook';
   
   const lines = [
-    ...captions.map((cap) => `Dialogue: 0,${toAssTimestamp(cap.start)},${toAssTimestamp(cap.end)},Default,${clean(cap.text)}`),
+    ...captions.map((cap) => `Dialogue: 0,${toAssTimestamp(cap.start)},${toAssTimestamp(cap.end)},Default,${primary === '&H0000FFFF' ? clean(cap.text) : emphasizeNumbers(clean(cap.text))}`),
     ...overlays.map((o) => {
       const s = o.style || defaultOverlayStyle;
       // Niche-specific animations
@@ -160,6 +179,8 @@ function buildAssSubtitles(captions, overlays = [], style = {}, sparkleOverlays 
 
   return header + '\n' + lines.join('\n') + '\n';
 }
+
+export { buildAssSubtitles };
 
 export async function renderVideo(payload, jobId) {
   // The local renderer is the only engine implementing the complete 2.0

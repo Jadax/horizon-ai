@@ -67,7 +67,11 @@ export async function llmVision({ prompt, images, label = "vision", maxTokens = 
   if (json.error) throw new Error(`[${label}] ${json.error.message?.slice(0, 160)}`);
   const text = json.candidates?.[0]?.content?.parts?.map((p) => p.text).join("") || "";
   if (!text.trim()) throw new Error(`[${label}] empty vision response`);
-  return { content: text, provider: `gemini/${GEMINI_MODELS.fast}` };
+  return {
+    content: text,
+    tokens: json.usageMetadata?.totalTokenCount || 0,
+    provider: `gemini/${GEMINI_MODELS.fast}`,
+  };
 }
 
 /**
