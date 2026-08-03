@@ -31,14 +31,10 @@ export const config = {
   openaiKey: process.env.OPENAI_API_KEY,
   
   // ─── Free TTS ──────────────────────────────────────────────────────
-  // Defaults to 'gtts', not 'chatterbox' — chatterbox is a Python library
-  // with no HTTP server, so it can't work without you deploying your own
-  // wrapper for it first (see .env.example). gtts runs in-process via a
-  // python3 subprocess, no separate service needed.
-  // 'openai' (gpt-4o-mini-tts) is the default: dramatically more natural
-  // than gTTS's robotic translate voice, uses the already-required OpenAI
-  // key (~$0.01 per video of narration), and freeTTS.js still falls back to
-  // gtts automatically if the call fails.
+  // Defaults to 'gemini' (gemini-2.5-flash-preview-tts, 12 voices, $0 on
+  // the free tier) — the ONLY TTS engine used by the pipeline. 'gtts'
+  // remains the automatic fallback inside freeTTS.js if a Gemini synthesis
+  // call fails, and TTS_ENGINE=gtts still works via a python3 subprocess.
   ttsEngine: process.env.TTS_ENGINE || 'gemini',
   ttsApiUrl: process.env.TTS_API_URL || 'http://localhost:5000/tts',
   ttsFallback: process.env.TTS_FALLBACK || 'gtts',
@@ -147,7 +143,8 @@ export const config = {
   videosPerRun: parseInt(process.env.VIDEOS_PER_RUN || "6", 10),
   autopilot: (process.env.AUTOPILOT || "true").toLowerCase() === "true",
   // Default 78, measured against the critic's actual score distribution
-  // (gpt-4o with the calibrated rubric in contentQuality.js): filler-content
+  // (Gemini flash-lite with the calibrated rubric in contentQuality.js):
+  // filler-content
   // scripts grade ~35-45, genuinely strong ones ~78-84, so 78 separates the
   // clusters. Fabrication/incoherence still hard-fail at ANY score via
   // blocking_issues. Not clamped to a floor — the previous Math.max(85, ...)

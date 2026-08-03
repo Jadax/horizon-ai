@@ -5,6 +5,7 @@
  */
 import express from "express";
 import { readFile, writeFile } from "node:fs/promises";
+import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { config } from "../config.js";
@@ -27,6 +28,50 @@ const CREDENTIALS = [
   { key: "telegramChatId", label: "Telegram Chat ID", env: "TELEGRAM_CHAT_ID" },
   { key: "jamendoClientId", label: "Jamendo Client ID", env: "JAMENDO_CLIENT_ID" },
 ];
+
+// Flat dashboard key → where it actually lives on the config object (nested
+// paths) and which env var backs it. Downstream code reads config.instagram.
+//accessToken / config.tiktok.accessToken / config.telegram.* / config.twitch*,
+// while musicSync + sources/twitch.js read process.env directly — so a save
+// must set BOTH so the running process picks the value up without a restart.
+const CONFIG_PATHS = {
+  geminiKey: ["geminiKey"],
+  instagramAccessToken: ["instagram", "accessToken"],
+  instagramBusinessId: ["instagram", "businessId"],
+  tiktokAccessToken: ["tiktok", "accessToken"],
+  pexelsKey: ["pexelsKey"],
+  pixabayKey: ["pixabayKey"],
+  twitchClientId: ["twitchClientId"],
+  twitchClientSecret: ["twitchClientSecret"],
+  telegramBotToken: ["telegram", "botToken"],
+  telegramChatId: ["telegram", "chatId"],
+  jamendoClientId: ["jamendoClientId"],
+};
+
+function setNested(obj, path, value) {
+  let cur = obj;
+  for (let i = 0; i < path.length - 1; i++) cur = cur[path[i]] ??= {};
+  cur[path[path.length - 1]] = value;
+}
+
+export function applySettingsToConfig(stored) {
+  if (stored === undefined) {
+    try { stored = JSON.parse(readFileSync(SETTINGS_PATH, "utf8").replace(/^\uFEFF/, "")); }
+    catch { stored = {}; }
+  }
+  for (const { key, env } of CREDENTIALS) {
+    const value = (stored[key] ?? "").trim();
+    const path = CONFIG_PATHS[key];
+    if (value) {
+      if (path) setNested(config, path, value);
+      if (env) process.env[env] = value;
+    } else if (stored[key] !== undefined) {
+      // Explicitly cleared in the dashboard — clear from config + env too
+      if (path) setNested(config, path, null);
+      if (env) delete process.env[env];
+    }
+  }
+}
 
 async function loadSettings() {
   try { return JSON.parse(await readFile(SETTINGS_PATH, "utf8")); }
@@ -58,15 +103,14 @@ settingsRouter.post("/settings", async (req, res) => {
     const updated = [];
     for (const { key } of CREDENTIALS) {
       if (req.body[key] !== undefined) {
-        const val = req.body[key]?.trim() || "";
-        stored[key] = val;
-        // Hot-reload into running config
-        if (key in config) config[key] = val || process.env[key] || null;
+        stored[key] = req.body[key]?.trim() || "";
         updated.push(key);
       }
     }
     await writeFile(SETTINGS_PATH, JSON.stringify(stored, null, 2));
     _cachedSettings = stored;
+    // Hot-reload into the running config (nested paths + process.env)
+    applySettingsToConfig(stored);
     res.json({ ok: true, updated });
   } catch (err) {
     res.status(500).json({ error: err.message });

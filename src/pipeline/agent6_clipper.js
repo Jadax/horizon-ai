@@ -5,7 +5,7 @@
  * automatically per source based on how much of it is actually spoken:
  *
  *   DIALOGUE MODE (talk-heavy source — podcasts, commentary, interviews):
- *   transcribe with Whisper, ask GPT-4o to find moments that work as a
+ *   transcribe with Gemini, ask Gemini to find moments that work as a
  *   fully standalone clip (instant hook, self-contained, clear payoff —
  *   same rubric Agent 2 uses for scripts), render with synced captions.
  *
@@ -19,19 +19,18 @@
  *   narration to be retention-shaped — it needs pace, a payoff the camera
  *   actually punches into, and something on screen in the first second.
  *
- * SOURCE RESTRICTION (deliberate, not a TODO): source_type is 'upload' (a
- * file the operator uploaded), 'cc_licensed' (a direct file URL to
+ * SOURCE RESTRICTION (deliberate): source_type is 'upload' (a file the
+ * operator uploaded), 'cc_licensed' (a direct file URL to
  * Creative-Commons/public-domain footage, license_note required), or
  * 'vimeo_own' (fetched via the Vimeo API using the OPERATOR'S OWN personal
  * access token, which Vimeo only honors for videos that token's account
- * owns/has download rights to). There is deliberately no "paste any
- * YouTube/Twitch/Kick link" path: none of those platforms expose an
- * official download API even to the video's own owner, so the only way to
- * pull from them is scraping, which breaks their ToS regardless of who
- * owns the content. If you own a video on one of those platforms, use its
- * own official "download"/export feature (YouTube Studio, Twitch's VOD
- * export) and feed the resulting file into the upload path above — that's
- * not a workaround, it's the actual first-party mechanism.
+ * owns/has download rights to). 'ytdlp_own' covers YouTube/Twitch/Kick/
+ * Instagram/Reddit URLs for content the operator owns (license_note is
+ * required by routes/clips.js) — none of those platforms expose an official
+ * download API even to the video's own owner, so yt-dlp is the programmatic
+ * fallback there; the platform's own "download"/export feature (YouTube
+ * Studio, Twitch's VOD export) remains the preferred path, and the resulting
+ * file can go through the upload path above.
  */
 import { config } from "../config.js";
 import { supabase, logEvent } from "../supabase.js";
@@ -61,9 +60,15 @@ async function updateClipJob(clipJobId, patch) {
   if (error) console.error("[supabase] updateClipJob failed:", error.message);
 }
 
-async function fetchSource(sourceUrl, clipJobId) {
+async function fetchSource(job, clipJobId) {
+  if (job.source_type === "ytdlp_own") {
+    await logEvent("Agent 6", "Downloading owned video via yt-dlp (platform export is preferred; yt-dlp is the programmatic fallback)…", { jobId: clipJobId });
+    const { downloadBestVideo } = await import("../sources/ytDlp.js");
+    const { buffer } = await downloadBestVideo(job.source_url, { timeout: 300000 });
+    return buffer;
+  }
   await logEvent("Agent 6", "Downloading source video…", { jobId: clipJobId });
-  const res = await fetch(sourceUrl);
+  const res = await fetch(job.source_url);
   if (!res.ok) throw new Error(`Could not fetch source video: HTTP ${res.status}`);
   return Buffer.from(await res.arrayBuffer());
 }
@@ -189,10 +194,10 @@ async function planDialogueClips(words, clipJobId) {
   return { clips: validated, tokens: res.usage?.total_tokens || 0 };
 }
 
-/** Turns detected audio peaks into a clip plan. Tries a cheap GPT-4o-mini
- * pass for a punchier call-out word using any nearby speech; falls back to
- * a generic impact-word pool (no extra API cost) when there's nothing
- * useful nearby, which is the common case for pure gameplay audio. */
+/** Turns detected audio peaks into a clip plan. Tries a cheap Gemini
+ * flash-lite pass for a punchier call-out word using any nearby speech;
+ * falls back to a generic impact-word pool (no extra API cost) when there's
+ * nothing useful nearby, which is the common case for pure gameplay audio. */
 async function planActionClips(peaks, words, clipJobId) {
   await logEvent("Agent 6", `Scanning audio for highlight-worthy peaks (no dialogue to hook-score, using loudness instead)…`, { jobId: clipJobId });
   let tokens = 0;
@@ -342,7 +347,7 @@ export async function runClipperJob(clipJobId) {
   }
 
   try {
-    const buffer = await fetchSource(job.source_url, clipJobId);
+    const buffer = await fetchSource(job, clipJobId);
     const words = Array.isArray(job.transcript) && job.transcript.length ? job.transcript : await transcribeBuffer(buffer, clipJobId);
     await updateClipJob(clipJobId, { transcript: words, status: "Analyzing" });
 

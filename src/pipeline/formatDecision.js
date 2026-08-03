@@ -21,9 +21,9 @@
  * WHY THIS EXISTS: the ask behind it was "no human input needed, but make
  * every decision serve the product goal of premier-quality, viral-shaped
  * output" — a single static preset per niche can't do that; a per-topic
- * judgment call can. Runs on gpt-4o-mini (a classification/judgment task,
- * not creative writing) to keep this cheap — see run.js for how its output
- * feeds into Agent 2/3/4's actual generation.
+ * judgment call can. Runs on Gemini flash-lite (a classification/judgment
+ * task, not creative writing) to keep it cheap — see run.js for how its
+ * output feeds into Agent 2/3/4's actual generation.
  */
 import { logEvent } from "../supabase.js";
 import { llmJson } from "../lib/llm.js";

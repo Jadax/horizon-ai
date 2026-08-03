@@ -12,11 +12,10 @@ import ffmpeg from "ffmpeg-static";
 
 const execFileAsync = promisify(execFile);
 
-// gpt-4o-mini-tts stops generating early on longer inputs often enough that
-// a production run burned all 3 whole-script retries in a row (106-word
-// script, ~44 words of audio each time). Short inputs don't exhibit it, so
-// scripts are synthesized as sentence-grouped chunks and concatenated —
-// each chunk is comfortably inside the reliable range.
+// Gemini TTS has a per-request character ceiling well below a whole script,
+// and a truncated synthesis used to burn whole-script retries. Chunking by
+// sentence keeps every request comfortably inside the reliable range, and
+// the chunks are concatenated into one voiceover track afterwards.
 const TTS_CHUNK_MAX_CHARS = 280;
 
 function splitScriptForTTS(script) {

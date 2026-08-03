@@ -17,7 +17,7 @@ export const clipsRouter = express.Router();
 
 const upload = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: 100 * 1024 * 1024 }, // 100MB — Whisper itself caps at 25MB, enforced with a clear error in agent6_clipper.js
+  limits: { fileSize: 100 * 1024 * 1024 }, // 100MB — oversized uploads are re-encoded to audio in agent6_clipper.js
 });
 
 clipsRouter.get("/clips", async (_req, res) => {

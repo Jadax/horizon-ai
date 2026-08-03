@@ -13,13 +13,13 @@ export const runRouter = express.Router();
 const VALID_DURATIONS = { short: [15, 15], medium: [55, 60], long: [180, 240] };
 const VALID_PLATFORMS = ["youtube", "tiktok", "instagram", "linkedin"];
 const VALID_TONES = ["professional", "casual", "dramatic"];
-const VALID_SOURCES = ["google", "reddit", "youtube", "gdelt", "rss", "wikipedia"];
+const VALID_SOURCES = ["google", "reddit", "youtube", "gdelt", "rss", "wikipedia", "hackernews", "wikipedia_trending", "bluesky", "twitch", "kick", "dailymotion", "mastodon", "lemmy"];
 
 function applyRunOverrides(niche, body) {
   const duration = body.duration || null;
   const platforms = body.platforms || ["youtube"];
   const tone = body.tone || "casual";
-  const trendSources = body.trend_source || VALID_SOURCES;
+  const trendSources = body.trend_source || niche.editing_style_preset?.trendSources || VALID_SOURCES;
   if (duration && !VALID_DURATIONS[duration]) throw new Error("duration must be short, medium, or long");
   if (!Array.isArray(platforms) || !platforms.length || platforms.some((value) => !VALID_PLATFORMS.includes(value))) throw new Error("platforms contains an unsupported platform");
   if (!VALID_TONES.includes(tone)) throw new Error("tone must be professional, casual, or dramatic");
@@ -31,7 +31,9 @@ function applyRunOverrides(niche, body) {
     run_platforms: platforms,
     run_tone: tone,
     run_monetization: body.monetization == null ? undefined : Boolean(body.monetization),
-    run_trend_sources: trendSources,
+    // agent1_harvester reads trendSources from editing_style_preset.trendSources —
+    // writing it there (not a dead run_* column) is what actually restricts sources.
+    editing_style_preset: { ...(niche.editing_style_preset || {}), trendSources },
   };
 }
 

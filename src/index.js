@@ -17,7 +17,11 @@ import { trendingRouter } from "./routes/trending.js";
 import { costsRouter } from "./routes/costs.js";
 import { nichesRouter } from "./routes/niches.js";
 import { clipsRouter } from "./routes/clips.js";
-import { settingsRouter } from "./routes/settings.js";
+import { settingsRouter, applySettingsToConfig } from "./routes/settings.js";
+
+// Apply dashboard-saved credentials (settings.json) to the running config at
+// boot so they survive process restarts, not just hot-reloads.
+applySettingsToConfig();
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();

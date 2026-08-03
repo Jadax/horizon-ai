@@ -168,10 +168,9 @@ jobsRouter.post("/publish-targets/:id/mark-published", async (req, res) => {
 });
 
 // Re-render an already-approved job at full production quality (v1, no
-// watermark) without re-calling OpenAI/ElevenLabs — reuses the script,
-// trim points, voiceover, and music already generated and stored. Costs
-// only whatever Shotstack charges for one render, since day-to-day testing
-// stays on the free "stage" environment by default.
+// watermark) without re-calling Gemini TTS — reuses the script, trim
+// points, voiceover, and music already generated and stored. Renders
+// in-process with ffmpeg-static, so it costs nothing extra.
 jobsRouter.post("/jobs/:id/render-production", async (req, res) => {
   const { data: job } = await supabase
     .from("pipeline_logs")

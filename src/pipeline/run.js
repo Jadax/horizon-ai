@@ -26,6 +26,8 @@ export async function runPipelineForNiche(niche) {
     .single();
   if (error) throw new Error(`Could not create pipeline_logs row: ${error.message}`);
   const jobId = job.id;
+  // Legacy cost-tracker columns (kept for the dashboard's legacy estimate —
+  // now tracking Gemini token counts, voiceover chars, and render seconds).
   let usage = { openai_tokens: 0, elevenlabs_characters: 0, shotstack_render_seconds: 0 };
 
   try {
