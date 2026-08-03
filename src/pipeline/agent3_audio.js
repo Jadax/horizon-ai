@@ -245,3 +245,26 @@ export async function pickMusic(energyLevel, jobId, brief = {}) {
     }
     return result;
 }
+
+/**
+ * Pick a one-shot SFX from sfx_library by tag (e.g. "hook", "payoff", "pop").
+ * Mirrors pickMusic's graceful degradation: an empty/unconfigured sfx_library
+ * returns null and the render simply gets no SFX layer. Tries each tag in
+ * order and returns the first match; tolerant of the exact URL column name.
+ */
+export async function pickSfx(tags = [], jobId = null) {
+    for (const tag of tags) {
+        try {
+            const { data, error } = await supabase.from("sfx_library").select("*").contains("tags", [tag]).limit(10);
+            if (error || !data?.length) continue;
+            const row = data[Math.floor(Math.random() * data.length)];
+            const url = row.track_url || row.url || row.sfx_url || row.audio_url || null;
+            if (!url) continue;
+            await logEvent("Agent 3", `SFX: "${row.title || row.name || tag}" (${tag})`, { jobId });
+            return { ...row, url };
+        } catch {
+            continue;
+        }
+    }
+    return null;
+}

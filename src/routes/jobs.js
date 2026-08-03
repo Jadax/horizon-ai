@@ -201,7 +201,7 @@ jobsRouter.post("/jobs/:id/render-production", async (req, res) => {
         return grounded;
       }).filter((cut) => cut.length > 0);
     }
-    const payload = buildEditPayload({
+    const payload = await buildEditPayload({
       cuts,
       voiceoverUrl: job.voiceover_url,
       words: job.voiceover_words,

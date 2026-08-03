@@ -171,7 +171,7 @@ export async function runPipelineForNiche(niche) {
     });
 
     // ── Agent 4: Shotstack render ──
-    const payload = buildEditPayload({
+    const payload = await buildEditPayload({
       cuts,
       voiceoverUrl,
       words,

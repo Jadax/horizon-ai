@@ -11,7 +11,7 @@ import { llmJson } from "../lib/llm.js";
 import { HOOK_TEMPLATES, NICHE_VIRAL_PATTERNS, WPM_BY_NICHE } from "../lib/viralScience.js";
 import { BANNED_WORDS } from "../lib/utils.js";
 
-const TITLE_PATTERNS = ["curiosity_gap", "number_stakes", "contrarian_reframe", "direct_consequence", "insider_callout"];
+const TITLE_PATTERNS = ["curiosity_gap", "number_stakes", "contrarian_reframe", "direct_consequence", "insider_callout", "formula_curiosity", "formula_negative_assertion", "formula_case_study", "formula_niche_hack", "formula_threat"];
 
 function sanitizeText(text) {
   if (!text) return { text, flagged: [] };
@@ -128,6 +128,23 @@ that actually plays. Work through these steps:
    - Insider callout (insider_callout): names a specific tool/mechanic/
      entity a tech-savvy viewer already recognizes, signaling "this is for
      you specifically"
+   Plus the five banked faceless formulas (Monica Njuguna, 1,000+ viral
+   faceless titles reverse-engineered — each is [slot] + [slot] + [slot],
+   filled with concrete specifics from THIS script, never generic fillers):
+   - Formula curiosity (formula_curiosity): [Unexpected Subject] +
+     [Surprising Outcome] + [Time Constraint] — "How Ancient Romans Cooked
+     With Fire, in 90 Seconds" (note the 3 slots are COMPRESSED, not padded)
+   - Formula negative assertion (formula_negative_assertion): [Common
+     Advice] + [Is a Lie] + [Real Solution] — "5G Is a Lie, Here's What
+     Replaces It"
+   - Formula case study (formula_case_study): [Number] + [Action] + [Result]
+     + [Time Frame] — "3 Settings That Fixed My Streaming in a Weekend"
+   - Formula niche hack (formula_niche_hack): [Hyper-Specific Audience] +
+     [Undiscovered Hack] + [Benefit] — "The Keyboard Shortcut Architects
+     Use That Coders Don't"
+   - Formula threat (formula_threat): [Pain Point] + [Shocking Revelation]
+     + [Solution] — "Your Battery Is Dying Faster Than You Think — One
+     Setting Fixes It"
    If a PERFORMANCE HINT is provided in the context below, treat it as a
    tiebreaker, not a mandate — only use the historically-stronger pattern
    when it genuinely fits this specific hook as well as another pattern
@@ -144,8 +161,10 @@ that actually plays. Work through these steps:
    something the script doesn't deliver, rewrite the title to match the
    script — never the reverse, and never stretch the script's claim to fit
    a punchier title.
-5. Keep it under 40 characters where possible; if the specific hook genuinely
-   needs more room to stay accurate, prioritize accuracy over the limit.
+5. Keep it in the 30-50 character sweet spot (the universal range across
+   11 niches — survives mobile truncation at ~60-70 chars and fits both the
+   keyword and the hook); if the specific hook genuinely needs more room to
+   stay accurate, prioritize accuracy over the limit.
 
 ## VISUAL PLAN RULES
 Create 6-12 entries in narration order. Each query must describe a visible
@@ -170,7 +189,7 @@ internal, never viewer-facing.
   "hook_word": "first word of script",
   "loop_tail": "the final mid-sentence fragment",
   "title": "the finished title, following the process above",
-  "title_pattern": "one of: curiosity_gap | number_stakes | contrarian_reframe | direct_consequence | insider_callout",
+  "title_pattern": "one of: curiosity_gap | number_stakes | contrarian_reframe | direct_consequence | insider_callout | formula_curiosity | formula_negative_assertion | formula_case_study | formula_niche_hack | formula_threat",
   "title_reasoning": "1-2 sentences: which specific hook you pulled from the script, which pattern you used, and why it fits this audience — this is for internal review, never shown to viewers",
   "description": "2-sentence YouTube description that also stays specific to the actual script content, not generic hype",
   "tags": ["tag1", "tag2", "tag3", "tag4", "tag5", "tag6", "tag7", "tag8", "tag9", "tag10", "tag11", "tag12", "tag13", "tag14", "tag15"],

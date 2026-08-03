@@ -1,6 +1,7 @@
 import { config } from "../config.js";
 import { logEvent } from "../supabase.js";
 import { renderVideo, checkRenderEngine } from "../lib/freeVideoRender.js";
+import { pickSfx } from "./agent3_audio.js";
 
 const STYLE_FONTS = {
   "heavy-sans": { family: "Montserrat ExtraBold", size: 46 },
@@ -34,7 +35,7 @@ export function captionClips(words, preset) {
   return clips;
 }
 
-export function buildEditPayload({ cuts, voiceoverUrl, words, duration, musicTrack, preset, jobId, isSourceVideo = false }) {
+export async function buildEditPayload({ cuts, voiceoverUrl, words, duration, musicTrack, preset, jobId, isSourceVideo = false }) {
   const total = duration;
 
   let videoClips = [];
@@ -96,6 +97,28 @@ export function buildEditPayload({ cuts, voiceoverUrl, words, duration, musicTra
     }
   }
 
+  // SFX layer (playbook spec: sparse one-shot sounds at -6 to -10 dB under
+  // the VO, placed at key visual moments). Hook at ~0.8s, payoff on the tail.
+  // Only fires if sfx_library has matching rows — an empty library is a no-op.
+  const sfx = [];
+  try {
+    const [hookSfx, payoffSfx] = await Promise.all([
+      pickSfx(["hook", "pop", "ding", "impact"], jobId),
+      pickSfx(["payoff", "chime", "impact", "whoosh"], jobId),
+    ]);
+    if (hookSfx?.url) sfx.push({ url: hookSfx.url, start: 0.8 });
+    if (payoffSfx?.url && payoffSfx.url !== hookSfx?.url) {
+      sfx.push({ url: payoffSfx.url, start: Math.max(0, total - 1.8) });
+    }
+  } catch {
+    // SFX is enhancement, never load-bearing — a DB hiccup must not fail the render
+  }
+
+  // Caption size follows the Blitzcut spec per format: word-clip cards are the
+  // on-screen words (hype 75-95px), fast-cut is punchy (84px), narrated
+  // explainers sit in the standard band (72px). A dashboard-set fontsize wins.
+  const defaultFontsize = preset.wordClipMode ? 96 : preset.transitions === "fast-cut" ? 84 : 72;
+
   return {
     // backgroundVideo kept for any caller still expecting a single URL
     // (e.g. render-video-api's minimal payload shape); backgroundClips
@@ -109,13 +132,14 @@ export function buildEditPayload({ cuts, voiceoverUrl, words, duration, musicTra
     musicUrl: musicTrack?.track_url || null,
     duration: total,
     captions: captionClips(words, preset),
-    captionStyle: preset.caption || {},
+    captionStyle: { ...(preset.caption || {}), fontsize: Number(preset.caption?.fontsize) || defaultFontsize },
     color_preset: preset.color_preset || "classic_white",
     // Bold comic-style text burned over each clip's first seconds (the
     // attachment-style "ONLY 10 YEARS LEFT!" look) — rendered by libass,
     // never drawn by the image model, so it can't be misspelled. First
     // clip's overlay is the 3-second visual hook.
     overlays,
+    sfx,
     syncPrecisionMs: config.subtitleSyncPrecisionMs,
     output: {
       format: "mp4",

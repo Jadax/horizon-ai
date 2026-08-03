@@ -86,7 +86,11 @@ function buildAssSubtitles(captions, overlays = [], style = {}, sparkleOverlays 
     return `&H00${b.toString(16).padStart(2, "0")}${g.toString(16).padStart(2, "0")}${r.toString(16).padStart(2, "0")}`.toUpperCase();
   };
   const primary = CAPTION_COLORS[style.color] || toAssColor(style.color) || CAPTION_COLORS.white;
-  const fontsize = Number(style.fontsize) || 100;
+  // Caption size follows the Blitzcut spec (1080x1920): standard/educational
+  // 60-75px, hype 75-95px, hard max 100px, minimum readable 48px. The old
+  // flat default of 100 sat at the hard max for EVERY niche — per-niche
+  // values are set by agent4; this only enforces the spec's bounds.
+  const fontsize = Math.min(100, Math.max(48, Number(style.fontsize) || 72));
   const header = [
     '[Script Info]',
     'ScriptType: v4.00+',
@@ -300,6 +304,7 @@ async function renderWithFFmpeg(payload, jobId) {
   }
   let assFile = null;
   const thumbnailFiles = [];
+  const sfxFiles = [];
 
   try {
     if (payload.audioUrl) {
@@ -338,6 +343,33 @@ async function renderWithFFmpeg(payload, jobId) {
     }
     const musicInputIndex = clips.length + (payload.audioUrl ? 1 : 0);
     if (payload.musicUrl) args.push('-stream_loop', '-1', '-i', musicFile);
+
+    // SFX layer (playbook spec: sparse one-shot sounds at -6 to -10 dB under
+    // the voiceover, placed at key visual moments — agent4 sends hook/payoff
+    // timings). Mirrors the music download/mix; no-ops when sfx is absent or
+    // a fetch fails, so an unstocked sfx_library never breaks a render.
+    const sfx = Array.isArray(payload.sfx)
+      ? payload.sfx.filter((s) => s?.url && Number.isFinite(Number(s.start))).slice(0, 4)
+      : [];
+    let sfxChain = '';
+    if (sfx.length) {
+      let sfxIndex = clips.length + (payload.audioUrl ? 1 : 0) + (payload.musicUrl ? 1 : 0);
+      const sfxFilters = [];
+      for (const s of sfx) {
+        const sfxFile = path.join(tmpDir, `horizon-sfx-${randomUUID()}.audio`);
+        const sfxRes = await fetch(s.url);
+        if (!sfxRes.ok) continue;
+        await writeFile(sfxFile, Buffer.from(await sfxRes.arrayBuffer()));
+        args.push('-i', sfxFile);
+        sfxFiles.push(sfxFile);
+        // -9 dB default (spec range -6 to -10 dB), placed at its timeline moment
+        const volume = Number(s.volume) || 0.35;
+        const delayMs = Math.max(0, Math.round(Number(s.start) * 1000));
+        sfxFilters.push(`[${sfxIndex}:a]volume=${volume},adelay=${delayMs}:all=1[sfx${sfxFilters.length}]`);
+        sfxIndex++;
+      }
+      sfxChain = sfxFilters.length ? `;${sfxFilters.join(';')}` : '';
+    }
 
     // Normalize every background input to the same size/fps/timebase
     // before concatenating — concat requires matching stream properties,
@@ -427,17 +459,26 @@ async function renderWithFFmpeg(payload, jobId) {
     // clip-replacement pipeline otherwise silently discards.
     const srcAudio = payload.keepSourceAudio && clips[0]?.type === 'video' ? `[0:a]volume=0.55[srcaud]` : null;
     const warmEq = payload.warmAudio ? ',equalizer=f=200:t=q:w=1.0:g=3,equalizer=f=4000:t=q:w=1.0:g=-2' : '';
+    // Resolve the [sfxN] labels produced above so the amix below can include them
+    const sfxLabels = sfxChain ? (sfxChain.match(/\[sfx\d\]/g) || []).join('') : '';
+    const sfxCount = sfxLabels ? sfxLabels.match(/\[sfx\d\]/g).length : 0;
+
     if (payload.audioUrl && payload.musicUrl) {
       // Sidechain compression is driven by the authoritative narration audio,
       // so ducking follows actual speech rather than estimated script timing.
-      filterComplex += `;[${audioInputIndex}:a]aresample=async=1${warmEq},asplit=2[voice_mix][voice_key];[${musicInputIndex}:a]volume=0.20[music];[music][voice_key]sidechaincompress=threshold=0.02:ratio=10:attack=20:release=250[ducked]`;
-      filterComplex += srcAudio
-        ? `;${srcAudio};[voice_mix][ducked][srcaud]amix=inputs=3:duration=first:normalize=0,loudnorm=I=-14:TP=-1.5:LRA=11[aout]`
-        : `;[voice_mix][ducked]amix=inputs=2:duration=first:normalize=0,loudnorm=I=-14:TP=-1.5:LRA=11[aout]`;
+      // Music sits at -14 dB pre-duck (spec: -10 to -15 dB under the VO) with
+      // a 2s fade-in and a 3s fade-out over the tail (AUDIO_RULES musicTiming).
+      const fadeOutStart = Math.max(0, Number(totalDuration) - 3).toFixed(2);
+      filterComplex += `;[${audioInputIndex}:a]aresample=async=1${warmEq},asplit=2[voice_mix][voice_key];[${musicInputIndex}:a]volume=0.20,afade=t=in:d=2,afade=t=out:st=${fadeOutStart}:d=3[music];[music][voice_key]sidechaincompress=threshold=0.02:ratio=10:attack=20:release=250[ducked]`;
+      filterComplex += srcAudio ? `;${srcAudio}` : '';
+      filterComplex += sfxChain;
+      filterComplex += `;[voice_mix][ducked]${srcAudio ? '[srcaud]' : ''}${sfxLabels}amix=inputs=${2 + (srcAudio ? 1 : 0) + sfxCount}:duration=first:normalize=0,loudnorm=I=-14:TP=-1.5:LRA=11[aout]`;
     } else if (payload.audioUrl) {
-      filterComplex += srcAudio
-        ? `;${srcAudio};[${audioInputIndex}:a]aresample=async=1${warmEq}[voice_warm];[voice_warm][srcaud]amix=inputs=2:duration=first:normalize=0,loudnorm=I=-14:TP=-1.5:LRA=11[aout]`
-        : `;[${audioInputIndex}:a]aresample=async=1${warmEq},loudnorm=I=-14:TP=-1.5:LRA=11[aout]`;
+      // No music bed — voice + (optional source audio) + SFX, still normalized
+      filterComplex += `;[${audioInputIndex}:a]aresample=async=1${warmEq}[voice_mix]`;
+      filterComplex += srcAudio ? `;${srcAudio}` : '';
+      filterComplex += sfxChain;
+      filterComplex += `;[voice_mix]${srcAudio ? '[srcaud]' : ''}${sfxLabels}amix=inputs=${1 + (srcAudio ? 1 : 0) + sfxCount}:duration=first:normalize=0,loudnorm=I=-14:TP=-1.5:LRA=11[aout]`;
     }
     args.push('-filter_complex', filterComplex);
 
@@ -467,6 +508,7 @@ async function renderWithFFmpeg(payload, jobId) {
       await unlink(audioFile).catch(() => {});
     }
     if (payload.musicUrl) await unlink(musicFile).catch(() => {});
+    for (const f of sfxFiles) await unlink(f).catch(() => {});
     if (assFile) await unlink(assFile).catch(() => {});
 
     return {
@@ -485,6 +527,7 @@ async function renderWithFFmpeg(payload, jobId) {
       await unlink(audioFile).catch(() => {});
     }
     if (payload.musicUrl) await unlink(musicFile).catch(() => {});
+    for (const f of sfxFiles) await unlink(f).catch(() => {});
     if (assFile) await unlink(assFile).catch(() => {});
     await Promise.all(thumbnailFiles.map((file) => unlink(file).catch(() => {})));
     throw error;
