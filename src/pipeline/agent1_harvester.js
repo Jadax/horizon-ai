@@ -6,6 +6,7 @@ import { fetchSocialRSSFeeds } from "../sources/socialRss.js";
 import { fetchGoogleTrends, fetchGoogleNews } from "../sources/googleTrends.js";
 import { fetchGDELT } from "../sources/gdelt.js";
 import { fetchYouTubeTrending } from "../sources/youtubeTrending.js";
+import { fetchYouTubeSuggest } from "../sources/youtubeSuggest.js";
 import { fetchMastodonHashtag, fetchLemmyHot } from "../sources/fediverse.js";
 import { fetchHackerNewsTop } from "../sources/hackerNews.js";
 import { fetchWikipediaTrending } from "../sources/wikipediaTrending.js";
@@ -24,7 +25,7 @@ export async function harvestAllCandidates(niche, jobId = null) {
     const candidates = [];
     const enabled = new Set(
         niche.editing_style_preset?.trendSources
-        || ["google", "reddit", "youtube", "gdelt", "rss", "wikipedia", "hackernews", "wikipedia_trending", "bluesky", "twitch", "kick", "dailymotion"]
+        || ["google", "reddit", "youtube", "youtube_suggest", "gdelt", "rss", "wikipedia", "hackernews", "wikipedia_trending", "bluesky", "twitch", "kick", "dailymotion"]
     );
     const tag = (items, source) => items.map((i) => ({ ...i, source }));
 
@@ -89,6 +90,23 @@ export async function harvestAllCandidates(niche, jobId = null) {
         if (ytTrending.length) await log(`YouTube Trending: ${ytTrending.length} candidates`);
     } catch (err) {
         await log(`YouTube Trending fetch failed: ${err.message}`, "warn");
+    }
+
+    // Search-intent source: YouTube autocomplete over the niche's own
+    // keywords surfaces "how to / what is / best X" queries people are
+    // typing right now — topics no RSS/Trends feed reports. Opt-in per niche.
+    if (enabled.has("youtube_suggest")) try {
+        const suggestSeeds = [
+            ...(niche.footage_keywords || []),
+            ...(niche.target_sources || []).filter((s) => s.startsWith("r/")).map((s) => s.replace(/^r\//, "")),
+        ].filter((s) => typeof s === "string" && s.trim()).slice(0, 4);
+        if (suggestSeeds.length) {
+            const suggestions = await fetchYouTubeSuggest(suggestSeeds, 5);
+            candidates.push(...tag(suggestions, "YouTube Suggest"));
+            await log(`YouTube Suggest: ${suggestions.length} search-intent candidates`);
+        }
+    } catch (err) {
+        await log(`YouTube Suggest fetch failed: ${err.message}`, "warn");
     }
 
     // Gaming/Viral niches: Twitch clips + streams

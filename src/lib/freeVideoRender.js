@@ -91,6 +91,15 @@ function buildAssSubtitles(captions, overlays = [], style = {}, sparkleOverlays 
   // flat default of 100 sat at the hard max for EVERY niche — per-niche
   // values are set by agent4; this only enforces the spec's bounds.
   const fontsize = Math.min(100, Math.max(48, Number(style.fontsize) || 72));
+  // Vertical safe-zone (stolen from browser-use/video-use render.py:41-56):
+  // TikTok/IG Reels/Shorts UIs cover the bottom ~25-30% of a 1080x1920
+  // frame, so captions must sit at least ~25% up. MarginV 500 ≈ 26% from the
+  // bottom — the old 280 put the baseline right under the platform's own
+  // caption bar. `caption.box` opts a niche into the solid-background-box
+  // caption look (BorderStyle=3) that solves readability over busy footage.
+  const boxMode = !!style.box;
+  const backColour = boxMode ? (toAssColor(style.background) || "&HFF000000") : "&H80000000";
+  const borderStyle = boxMode ? 3 : 1;
   const header = [
     '[Script Info]',
     'ScriptType: v4.00+',
@@ -99,7 +108,7 @@ function buildAssSubtitles(captions, overlays = [], style = {}, sparkleOverlays 
     '',
     '[V4+ Styles]',
     'Format: Name, Fontname, Fontsize, PrimaryColour, OutlineColour, BackColour, Bold, BorderStyle, Outline, Shadow, Alignment, MarginV, Spacing',
-    `Style: Default,Arial,${fontsize},${primary},&H00000000,&H80000000,1,1,5,2,2,280,1`,
+    `Style: Default,Arial,${fontsize},${primary},&H00000000,${backColour},1,${borderStyle},5,2,2,500,1`,
     // Hook: bold, big, warm golden, center-top, thick outline — scroll-stopping
     'Style: Hook,Arial,116,&H0000CCFF,&H00000000,&H80000000,1,1,7,3,8,300,2',
     // SFX pop-in styles — bright colorful cat sounds

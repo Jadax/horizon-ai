@@ -137,6 +137,11 @@ export async function runPipelineForNiche(niche) {
       ...usage,
     });
 
+    // SEO split (stolen from Fully-Automated-YouTube-Channel): agent2 embeds
+    // title_keywords (the top search terms people actually use) in the title —
+    // merge them into the upload tags so the title keywords rank as tags too.
+    const uploadTags = [...new Set([...(scriptOut.title_keywords || []), ...(scriptOut.tags || [])])];
+
     // ── Agent 3: voiceover + music ──
     // Top-creator voice matching: prefer the niche's pinned Gemini voice
     // (editing_style_preset.geminiVoice), then the research-backed table,
@@ -218,7 +223,7 @@ export async function runPipelineForNiche(niche) {
       duration,
       title: scriptOut.title,
       description: scriptOut.description,
-      tags: scriptOut.tags,
+      tags: uploadTags,
       thumbnailUrl: renderResult.thumbnailUrl,
       coverVariants: renderResult.coverVariants,
       qualityReport,
@@ -250,7 +255,7 @@ export async function runPipelineForNiche(niche) {
             videoUrl: renderedUrl,
             title: scriptOut.title,
             description: scriptOut.description,
-            tags: scriptOut.tags,
+            tags: uploadTags,
             jobId,
             targetChannel: channel,
             niche: niche.niche_name,

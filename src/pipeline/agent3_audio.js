@@ -178,13 +178,61 @@ async function alignWithGemini(audioBuffer, script) {
     return words;
 }
 
-export async function alignGeneratedSpeech(audioBuffer, script, jobId) {
+async function probeAudioDuration(audioBuffer) {
+  const tmp = path.join(tmpdir(), `horizon-align-${randomUUID()}.mp3`);
+  try {
+    await writeFile(tmp, audioBuffer);
     try {
-        return await alignWithGemini(audioBuffer, script);
+      const { stderr } = await execFileAsync(ffmpeg, ["-i", tmp], { timeout: 20000 });
+      return parseDuration(stderr);
     } catch (err) {
-        await logEvent("Agent 3", `Audio alignment failed: ${err.message}`, { jobId, level: "error" });
-        throw err;
+      // ffmpeg -i without output exits non-zero but prints metadata to stderr
+      return parseDuration(err.stderr || "");
     }
+  } finally {
+    await unlink(tmp).catch(() => {});
+  }
+}
+
+function parseDuration(stderr) {
+  const m = /Duration:\s*(\d+):(\d+):(\d+\.\d+)/.exec(stderr);
+  if (!m) return null;
+  const seconds = Number(m[1]) * 3600 + Number(m[2]) * 60 + Number(m[3]);
+  return Number.isFinite(seconds) && seconds > 0 ? seconds : null;
+}
+
+/**
+ * Evenly-paced word timing fallback (stolen from Fully-Automated-YouTube-Channel
+ * create_videos.py:64-67,201-209): when real alignment fails, split the script
+ * into words and spread them proportionally across the measured audio
+ * duration. Visually acceptable (4-word-style chunks) and costs zero API
+ * calls — keeps the render alive instead of failing the whole run.
+ */
+async function proportionalFallback(script, audioBuffer) {
+  const duration = await probeAudioDuration(audioBuffer);
+  if (!duration) return null;
+  const words = String(script || "").split(/\s+/).filter(Boolean);
+  if (!words.length) return null;
+  const perWord = duration / words.length;
+  return words.map((word, i) => ({
+    word,
+    start: Number((i * perWord).toFixed(3)),
+    end: Number(((i + 1) * perWord).toFixed(3)),
+  }));
+}
+
+export async function alignGeneratedSpeech(audioBuffer, script, jobId) {
+  try {
+    return await alignWithGemini(audioBuffer, script);
+  } catch (err) {
+    const fallback = await proportionalFallback(script, audioBuffer).catch(() => null);
+    if (fallback) {
+      await logEvent("Agent 3", `Audio alignment failed (${err.message}) — using proportional word timing`, { jobId, level: "warn" });
+      return fallback;
+    }
+    await logEvent("Agent 3", `Audio alignment failed: ${err.message}`, { jobId, level: "error" });
+    throw err;
+  }
 }
 
 export async function pickMusic(energyLevel, jobId, brief = {}) {

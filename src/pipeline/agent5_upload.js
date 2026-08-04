@@ -54,6 +54,33 @@ function youtubeClient(channelKey) {
 }
 
 /**
+ * Jittered retry for transient upload failures (stolen from
+ * Fully-Automated-YouTube-Channel): 5xx from the API or network blips should
+ * back off (capped 30s) instead of immediately failing the whole run.
+ */
+function isRetriable(err) {
+  const code = err?.code ?? err?.response?.status ?? err?.status;
+  if ([500, 502, 503, 504, 408, 429].includes(Number(code))) return true;
+  return /ECONNRESET|ETIMEDOUT|EPIPE|socket hang up|EAI_AGAIN/i.test(String(err?.message || ""));
+}
+
+async function withRetry(fn, { label = "request", maxAttempts = 5 } = {}) {
+  let lastErr;
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      return await fn();
+    } catch (err) {
+      lastErr = err;
+      if (attempt >= maxAttempts || !isRetriable(err)) throw err;
+      const wait = Math.min(30_000, Math.random() * 1000 * 2 ** (attempt - 1));
+      await logEvent("Agent 5", `${label} failed (${err.message}) — retry ${attempt}/${maxAttempts - 1} in ${Math.round(wait)}ms`, { level: "warn" });
+      await new Promise((r) => setTimeout(r, wait));
+    }
+  }
+  throw lastErr;
+}
+
+/**
  * Add affiliate links to description - only if tracking ID is set
  */
 async function addAffiliateLinks(description, title, niche, jobId) {
@@ -112,30 +139,53 @@ export async function uploadScheduled({ videoUrl, title, description, tags, jobI
     } else {
       await logEvent("Agent 5", `Uploading to YouTube (channel: ${channelKey})...`, { jobId });
 
-      const videoRes = await fetch(videoUrl);
+      const videoRes = await withRetry(() => fetch(videoUrl), { label: "fetch render" });
       if (!videoRes.ok) throw new Error(`Could not fetch render: HTTP ${videoRes.status}`);
 
       const yt = youtubeClient(channelKey);
-      const { data } = await yt.videos.insert({
-        part: ["snippet", "status"],
-        requestBody: {
-          snippet: {
-            title: title.slice(0, 100),
-            description: `${finalDescription}\n\n#Shorts\n\nA MythosVibe production — Tushant Sharma`,
-            tags: (publishPackage?.platform_variants?.youtube?.tags || tags || []).slice(0, 60),
-            categoryId: "24",
+      const { data } = await withRetry(
+        () => yt.videos.insert({
+          part: ["snippet", "status"],
+          requestBody: {
+            snippet: {
+              title: title.slice(0, 100),
+              description: `${finalDescription}\n\n#Shorts\n\nA MythosVibe production — Tushant Sharma`,
+              tags: (publishPackage?.platform_variants?.youtube?.tags || tags || []).slice(0, 60),
+              categoryId: "24",
+            },
+            status: {
+              privacyStatus: "private",
+              publishAt: publishAt.toISOString(),
+              selfDeclaredMadeForKids: false,
+              containsSyntheticMedia: true,
+            },
           },
-          status: {
-            privacyStatus: "private",
-            publishAt: publishAt.toISOString(),
-            selfDeclaredMadeForKids: false,
-            containsSyntheticMedia: true,
-          },
-        },
-        media: { body: Readable.fromWeb(videoRes.body) },
-      });
+          media: { body: Readable.fromWeb(videoRes.body) },
+        }),
+        { label: "YouTube insert" }
+      );
 
       videoId = data.id;
+
+      // Custom thumbnail (stolen from growth-tools repo): YouTube only needs
+      // the source image once — it generates the maxresdefault/sddefault/
+      // hqdefault/mqdefault/default set automatically. Best-effort: a
+      // thumbnail failure must not fail the scheduled upload.
+      try {
+        const thumbUrl = publishPackage?.video?.thumbnailUrl || publishPackage?.video?.coverVariants?.[0] || null;
+        if (thumbUrl) {
+          const thumbRes = await fetch(thumbUrl);
+          if (thumbRes.ok) {
+            await withRetry(
+              () => yt.thumbnails.set({ videoId, media: { body: Readable.fromWeb(thumbRes.body) } }),
+              { label: "thumbnail set" }
+            );
+            await logEvent("Agent 5", `✓ Custom thumbnail set: ${videoId}`, { jobId });
+          }
+        }
+      } catch (thumbErr) {
+        await logEvent("Agent 5", `Custom thumbnail failed (non-fatal): ${thumbErr.message}`, { jobId, level: "warn" });
+      }
       publishedTo.push({ platform: 'youtube', videoId: data.id, status: 'scheduled' });
       await supabase.from("publish_targets").upsert({
         pipeline_log_id: jobId,

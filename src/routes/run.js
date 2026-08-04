@@ -13,7 +13,7 @@ export const runRouter = express.Router();
 const VALID_DURATIONS = { short: [15, 15], medium: [55, 60], long: [180, 240] };
 const VALID_PLATFORMS = ["youtube", "tiktok", "instagram", "linkedin"];
 const VALID_TONES = ["professional", "casual", "dramatic"];
-const VALID_SOURCES = ["google", "reddit", "youtube", "gdelt", "rss", "wikipedia", "hackernews", "wikipedia_trending", "bluesky", "twitch", "kick", "dailymotion", "mastodon", "lemmy"];
+const VALID_SOURCES = ["google", "reddit", "youtube", "youtube_suggest", "gdelt", "rss", "wikipedia", "hackernews", "wikipedia_trending", "bluesky", "twitch", "kick", "dailymotion", "mastodon", "lemmy"];
 
 function applyRunOverrides(niche, body) {
   const duration = body.duration || null;

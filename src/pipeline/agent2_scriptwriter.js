@@ -163,8 +163,12 @@ that actually plays. Work through these steps:
    a punchier title.
 5. Keep it in the 30-50 character sweet spot (the universal range across
    11 niches — survives mobile truncation at ~60-70 chars and fits both the
-   keyword and the hook); if the specific hook genuinely needs more room to
-   stay accurate, prioritize accuracy over the limit.
+    keyword and the hook); if the specific hook genuinely needs more room to
+    stay accurate, prioritize accuracy over the limit.
+6. EXTRACT TITLE_KEYWORDS. List 5-8 keywords or short phrases that people
+   actually search for in this niche that are embedded verbatim in the title
+   (real search terms from the topic/context, never made-up ones). These
+   get merged into the upload tags so the title keywords also rank as tags.
 
 ## VISUAL PLAN RULES
 Create 6-12 entries in narration order. Each query must describe a visible
@@ -191,6 +195,7 @@ internal, never viewer-facing.
   "title": "the finished title, following the process above",
   "title_pattern": "one of: curiosity_gap | number_stakes | contrarian_reframe | direct_consequence | insider_callout | formula_curiosity | formula_negative_assertion | formula_case_study | formula_niche_hack | formula_threat",
   "title_reasoning": "1-2 sentences: which specific hook you pulled from the script, which pattern you used, and why it fits this audience — this is for internal review, never shown to viewers",
+  "title_keywords": ["5-8", "keywords", "or", "phrases", "people", "actually", "search", "for", "that", "are", "embedded", "verbatim", "in", "the", "title"],
   "description": "2-sentence YouTube description that also stays specific to the actual script content, not generic hype",
   "tags": ["tag1", "tag2", "tag3", "tag4", "tag5", "tag6", "tag7", "tag8", "tag9", "tag10", "tag11", "tag12", "tag13", "tag14", "tag15"],
   "visual_plan": [{"line":"exact phrase from the script", "query":"concrete licensed-stock search phrase", "intent":"what viewers see and why it proves the words"}]
