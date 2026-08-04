@@ -197,6 +197,7 @@ internal, never viewer-facing.
   "title_reasoning": "1-2 sentences: which specific hook you pulled from the script, which pattern you used, and why it fits this audience — this is for internal review, never shown to viewers",
   "title_keywords": ["5-8", "keywords", "or", "phrases", "people", "actually", "search", "for", "that", "are", "embedded", "verbatim", "in", "the", "title"],
   "description": "2-sentence YouTube description that also stays specific to the actual script content, not generic hype",
+  "interactionGuide": "a single short, natural, open question or prompt a real viewer would answer in one line — engineered to seed comments (comment velocity is a top engagement signal). In LANGUAGE, conversational, never spammy ('what would you choose?', 'which one have you tried?'). Empty string if nothing would feel natural for this topic.",
   "tags": ["tag1", "tag2", "tag3", "tag4", "tag5", "tag6", "tag7", "tag8", "tag9", "tag10", "tag11", "tag12", "tag13", "tag14", "tag15"],
   "visual_plan": [{"line":"exact phrase from the script", "query":"concrete licensed-stock search phrase", "intent":"what viewers see and why it proves the words"}]
 }`;

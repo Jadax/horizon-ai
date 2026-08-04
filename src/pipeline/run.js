@@ -12,6 +12,7 @@ import { buildEditPayload, render } from "./agent4_shotstack.js";
 import { uploadScheduled } from "./agent5_upload.js";
 import { buildPublishPackage, createPublishTargets } from "../lib/platformAdapter.js";
 import { VOICE_BY_NICHE } from "../lib/viralScience.js";
+import { complianceScan } from "../lib/compliance.js";
 import { notifyAwaitingApproval } from "../lib/telegram.js";
 
 export async function runPipelineForNiche(niche) {
@@ -108,6 +109,18 @@ export async function runPipelineForNiche(niche) {
     const nicheThreshold = Number(niche.editing_style_preset?.qualityThreshold) || config.contentQualityThreshold;
     if (!qualityResult?.passed || qualityResult.score < nicheThreshold) {
       throw new Error(`Mandatory quality gate rejected script (${qualityResult?.score || 0}/100)`);
+    }
+    // Compliance gate (stolen from clipforge ad-law scanner): deterministic
+    // medical/financial claim check runs BEFORE we spend a single render/upload
+    // second — a hard-flag (e.g. "cures", "guaranteed income") would get the
+    // video demonetized or struck. Hard flags kill the topic; soft flags are
+    // logged for the next rewrite.
+    const compliance = complianceScan(scriptOut.title || "", scriptOut.description || "", scriptOut.script || "");
+    if (compliance.blocking.length) {
+      throw new Error(`Compliance gate blocked script (${compliance.blocking.map((b) => `${b.label}:"${b.match}"`).join(", ")})`);
+    }
+    if (compliance.warnings.length) {
+      await logEvent("Pipeline", `Compliance soft-flags: ${compliance.warnings.map((w) => `${w.label}:"${w.match}"`).join(", ")}`, { jobId, level: "warn" });
     }
     await updateJob(jobId, { 
       content_quality_score: qualityResult.score,
@@ -256,6 +269,7 @@ export async function runPipelineForNiche(niche) {
             title: scriptOut.title,
             description: scriptOut.description,
             tags: uploadTags,
+            commentCta: scriptOut.interactionGuide || null,
             jobId,
             targetChannel: channel,
             niche: niche.niche_name,
@@ -273,6 +287,7 @@ export async function runPipelineForNiche(niche) {
           title: scriptOut.title,
           description: scriptOut.description,
           tags: scriptOut.tags,
+          commentCta: scriptOut.interactionGuide || null,
           jobId,
           targetChannel: "primary",
           niche: niche.niche_name,

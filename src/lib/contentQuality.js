@@ -67,6 +67,9 @@ Report three separate lists:
 - "blocking_issues": ONLY defects that must prevent publishing (fabricated facts,
   incoherent narrative, title not delivered by script, policy-risky content).
   Empty array if none. Style preferences never go here.
+  For SHORTS/loop formats: if the final line does NOT flow grammatically back
+  into the opening line (the loop is broken and won't produce a seamless replay),
+  that IS a blocking issue.
 - "improvements": optional polish notes (weaker lines, pacing tweaks).
 - "viral_boosters": 1-3 concrete changes that would most increase shareability/saveability
   (stronger hook angle, more specific number, emotional beat, perspective shift).

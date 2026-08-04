@@ -102,7 +102,7 @@ async function addAffiliateLinks(description, title, niche, jobId) {
   return { description: description + affiliateText, products };
 }
 
-export async function uploadScheduled({ videoUrl, title, description, tags, jobId, targetChannel, niche, publishPackage }) {
+export async function uploadScheduled({ videoUrl, title, description, tags, commentCta, jobId, targetChannel, niche, publishPackage }) {
   const { data: nicheRow } = niche
     ? await supabase.from("niche_configurations").select("editing_style_preset").eq("niche_name", niche).single()
     : { data: null };
@@ -185,6 +185,31 @@ export async function uploadScheduled({ videoUrl, title, description, tags, jobI
         }
       } catch (thumbErr) {
         await logEvent("Agent 5", `Custom thumbnail failed (non-fatal): ${thumbErr.message}`, { jobId, level: "warn" });
+      }
+
+      // Pinned-comment comment-velocity CTA (stolen from clipforge's
+      // interactionGuide): a designed, on-topic question seeded on the video
+      // manufactures the comments-velocity signal platforms reward. Best-effort
+      // — pinned comments only stick once the video is live, so at schedule
+      // time this is a seed; failures are non-fatal.
+      try {
+        if (commentCta) {
+          const pinBody = typeof commentCta === "string" && commentCta.trim() ? commentCta.trim() : null;
+          if (pinBody) {
+            const commentRes = await withRetry(
+              () => yt.comments.insert({
+                part: ["snippet"],
+                requestBody: { snippet: { videoId, topLevelComment: { snippet: { textOriginal: pinBody.slice(0, 500) } } } },
+              }),
+              { label: "comment insert", maxAttempts: 2 }
+            );
+            if (commentRes?.data?.id) {
+              await logEvent("Agent 5", `✓ Comment CTA seeded on ${videoId}: "${pinBody.slice(0, 80)}"`, { jobId });
+            }
+          }
+        }
+      } catch (commentErr) {
+        await logEvent("Agent 5", `Comment CTA failed (non-fatal): ${commentErr.message}`, { jobId, level: "warn" });
       }
       publishedTo.push({ platform: 'youtube', videoId: data.id, status: 'scheduled' });
       await supabase.from("publish_targets").upsert({
