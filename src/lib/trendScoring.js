@@ -99,6 +99,79 @@ function freshnessScore(pubDate) {
   return Math.max(0, 1 - hoursOld / 48); // linear decay over 48h
 }
 
+/** Normalize a topic title to the stable key used both for corroboration
+ * grouping AND for trend_history persistence. */
+function topicKey(title) {
+  return String(title || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, "")
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 5)
+    .join(" ");
+}
+
+/**
+ * VELOCITY / RGR FACTOR (stolen from the Google Trends "Rising vs Breakout"
+ * model — pre-peak rising topics score above already-peaked ones). Computes a
+ * 0..1.5 multiplier from the persisted count series in `trend_history`:
+ *   RGR = (count_now - count_prev) / count_prev
+ *   factor = 1 + 1.5 * clamp(RGR, -0.5, +0.5)
+ * A climbing topic pushes toward +1.5 (early/rising); a decaying/flat topic
+ * drops toward 0.5-1.0 (post-peak or saturated). Neutral (1.0) until there
+ * are >=2 usable snapshots, so day-one runs aren't penalized.
+ */
+export async function velocityFactor(topic, source = null) {
+  const key = topicKey(topic);
+  if (!key) return 1;
+  try {
+    const { data, error } = await supabase
+      .from("trend_history")
+      .select("count, observed_at")
+      .eq("topic_key", key)
+      .order("observed_at", { ascending: false })
+      .limit(2);
+    if (error || !data || data.length < 2) return 1;
+    const [nowRow, prevRow] = data;
+    const now = Number(nowRow.count);
+    const prev = Number(prevRow.count);
+    if (!prev || !Number.isFinite(now)) return 1;
+    const rgr = (now - prev) / prev;
+    const clamped = Math.max(-0.5, Math.min(0.5, rgr));
+    return +(1 + 1.5 * clamped).toFixed(3);
+  } catch {
+    return 1;
+  }
+}
+
+/**
+ * Persist a per-run trend snapshot so velocityFactor has a time series to read.
+ * Records ONE row per unique topic_key across the ranked candidates (a topic
+ * corroborated across N sources that run gets count=N). Bounded to the top
+ * MAX_SNAPSHOTS to avoid unbounded write bursts on every harvest loop.
+ */
+export async function persistTrendSnapshot(candidates) {
+  const MAX_SNAPSHOTS = 40;
+  const seen = {};
+  for (const c of candidates) {
+    const key = topicKey(c.title || "");
+    if (!key || seen[key]) continue;
+    seen[key] = true;
+    const count = ((c._corroborationCount || 1) + 1) / 2; // 1..n -> 1..(n+1)/2 for a single row per key
+    try {
+      await supabase.from("trend_history").insert({
+        topic_key: key,
+        source: c.source || null,
+        count: Math.max(1, Math.round(count)),
+        proxy_score: c._trendScore || 0,
+      });
+    } catch {
+      // ignore per-row write failures — velocity is best-effort
+    }
+    if (Object.keys(seen).length >= MAX_SNAPSHOTS) break;
+  }
+}
+
 /**
  * Groups candidates by a rough topic key (normalized title prefix) to
  * detect cross-source corroboration — the core "not yet viral but
@@ -129,28 +202,27 @@ export async function rankCandidates(candidates, nicheName = null) {
   const weights = await loadWeights(nicheName);
   const groups = groupByTopic(candidates);
 
-  return candidates
-    .map((c) => {
-      const key = (c.title || "")
-        .toLowerCase()
-        .replace(/[^a-z0-9\s]/g, "")
-        .split(/\s+/)
-        .slice(0, 5)
-        .join(" ");
+  return Promise.all(
+    candidates.map(async (c) => {
+      const key = topicKey(c.title);
       const corroboration = Math.min(1, ((groups.get(key)?.length || 1) - 1) / 3);
       const fresh = freshnessScore(c.pubDate);
       const specific = looksSpecific(c.title || "") ? 1 : 0.3;
       const sourceRel = (weights.sources[c.source] ?? weights.source_reliability_default) / 20;
+      // Rising/velocity boost (Google Trends "Rising vs Breakout" steal): a
+      // topic whose corroboration count is climbing pre-peak outranks one that
+      // already peaked. Multiplies the corroboration+freshness spine.
+      const velocity = await velocityFactor(c.title, c.source);
 
       const score =
-        corroboration * weights.cross_source_corroboration +
+        (corroboration * weights.cross_source_corroboration +
         fresh * weights.freshness +
         specific * weights.specificity +
-        sourceRel * 100 * 0.01 * weights.source_reliability_default;
+        sourceRel * 100 * 0.01 * weights.source_reliability_default) * velocity;
 
-      return { ...c, _trendScore: Math.round(score * 10) / 10, _corroborationCount: groups.get(key)?.length || 1 };
+      return { ...c, _trendScore: Math.round(score * 10) / 10, _velocity: velocity, _corroborationCount: groups.get(key)?.length || 1 };
     })
-    .sort((a, b) => b._trendScore - a._trendScore);
+  ).then((ranked) => ranked.sort((a, b) => b._trendScore - a._trendScore));
 }
 
 /**

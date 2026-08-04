@@ -128,6 +128,25 @@ CREATE TABLE IF NOT EXISTS trend_rules (
   updated_at timestamptz DEFAULT now()
 );
 
+-- Trend velocity history: per-run snapshots of how many candidates matched
+-- each topic_key (cross-source corroboration count) + a proxy score, stored
+-- over time so the scorer can compute RGR/velocity/acceleration (stolen from
+-- the Google Trends "Rising vs Breakout" model). A topic whose corroboration
+-- count is CLIMBING across runs is pre-peak and worth a score boost; a
+-- flat/decaying topic is post-peak and gets docked. The formula only kicks in
+-- once >=3 snapshots exist, so it stays neutral on day one instead of
+-- over-fitting noise.
+CREATE TABLE IF NOT EXISTS trend_history (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  topic_key text NOT NULL,
+  source text,
+  observed_at timestamptz NOT NULL DEFAULT now(),
+  count numeric NOT NULL DEFAULT 1,
+  proxy_score numeric DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_trend_history_key_time ON trend_history (topic_key, observed_at);
+ALTER TABLE trend_history ENABLE ROW LEVEL SECURITY;
+
 CREATE TABLE IF NOT EXISTS clip_jobs (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   source_type text NOT NULL CHECK (source_type IN ('upload', 'cc_licensed', 'vimeo_own')),

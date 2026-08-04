@@ -15,7 +15,7 @@ import { fetchTopReddit, searchWiki } from "../sources/reddit.js";
 import { fetchTwitchTrending } from "../sources/twitch.js";
 import { fetchKickTrending } from "../sources/kick.js";
 import { fetchDailymotionTrending } from "../sources/dailymotion.js";
-import { rankCandidates, recalibrateWeights } from "../lib/trendScoring.js";
+import { rankCandidates, recalibrateWeights, persistTrendSnapshot } from "../lib/trendScoring.js";
 import { llmJson, llmVision } from "../lib/llm.js";
 
 export async function harvestAllCandidates(niche, jobId = null) {
@@ -349,6 +349,7 @@ export async function harvestTopic(niche, jobId) {
     );
 
     recalibrateWeights(ranked).catch((err) => logEvent("Agent 1", `Weight recalibration failed: ${err.message}`, { jobId, level: "warn" }));
+    persistTrendSnapshot(ranked).catch((err) => logEvent("Agent 1", `Trend velocity snapshot failed: ${err.message}`, { jobId, level: "warn" }));
 
     // Runner-up candidates so the orchestrator can retry with a different
     // topic when the quality gate rejects every script draft for the top one

@@ -317,6 +317,14 @@ export async function runPipelineForNiche(niche) {
       await logEvent("Pipeline", `No upload tokens configured — platform packages are ready for manual publish`, { jobId });
     }
 
+    // A/B variant matrix (opt-in via preset.variants) — re-render cheap
+    // hook/caption variants of the winner and post them for empirical testing.
+    if (preset.variants && (config.autopilot || true)) {
+      await runVariantShorts({ niche, jobId, preset, payload, words, duration, syncPrecisionMs, uploadTags, scriptOut, qualityResult }).catch((e) =>
+        logEvent("Pipeline", `Variant A/B run skipped (non-fatal): ${e.message}`, { jobId, level: "warn" })
+      );
+    }
+
     await logEvent("Pipeline", `✓ ${niche.niche_name} run complete`, { jobId });
     return jobId;
   } catch (err) {
@@ -384,4 +392,119 @@ if (process.argv[1]?.endsWith("run.js")) {
       console.error(e);
       process.exit(1);
     });
+}
+
+/**
+ * VARIANT A/B (stolen from MoneyPrinterTurbo + clipforge's variant matrix):
+ * after the primary short is published, re-render the SAME content as N-1
+ * cheap variants that A/B the two biggest CTR/retention levers — the first
+ * 3-second hook text and the caption treatment (punch-card vs word-clip) —
+ * then post each as its own Short on the same channel. Zero extra LLM/TTS
+ * cost (only re-render). YouTube treats these as distinct videos, so the
+ * closed-loop learner's title_pattern grouping naturally reveals which hook
+ * won. The earlier archives showed "guaranteed virality" is really empirical:
+ * testing 3 hooks on the best topic beats guessing one.
+ *
+ * Config lives in the existing editing_style_preset.variants jsonb (no new
+ * column): either a NUMBER (N = total variants incl. the primary, cheap
+ * caption-style cycle) or an ARRAY of {style?, color?, hook?, title?}.
+ * Opt-in only; failures are non-fatal (a variant never breaks the main job).
+ */
+function variantList(preset, baseTitle) {
+  const v = preset.variants;
+  if (!v) return [];
+  if (Array.isArray(v)) return v.slice(0, 3);
+  if (Number.isFinite(Number(v))) {
+    const count = Math.max(2, Math.min(4, Math.floor(Number(v))));
+    const styles = ["punch", "wordclip"];
+    const list = [];
+    for (let i = 1; i < count; i++) {
+      list.push({ style: styles[(i - 1) % styles.length], title: `${baseTitle} #${i}` });
+    }
+    return list;
+  }
+  return [];
+}
+
+async function runVariantShorts({ niche, jobId, preset, payload, words, duration, syncPrecisionMs, uploadTags, scriptOut, qualityResult }) {
+  const variants = variantList(preset, scriptOut.title);
+  if (!variants.length) return;
+  const primaryChannel = Array.isArray(preset.targetChannels) && preset.targetChannels.length
+    ? preset.targetChannels[0]
+    : (niche.target_channel || "primary");
+
+  for (let i = 0; i < variants.length; i++) {
+    const variant = variants[i];
+    try {
+      const vPayload = structuredClone(payload);
+      if (variant.style) vPayload.captionStyle = { ...(vPayload.captionStyle || {}), style: variant.style };
+      if (variant.color) vPayload.captionStyle = { ...(vPayload.captionStyle || {}), color: variant.color };
+      if (variant.hook && Array.isArray(vPayload.overlays) && vPayload.overlays.length) {
+        vPayload.overlays[0] = { ...vPayload.overlays[0], text: String(variant.hook).slice(0, 40) };
+      }
+
+      const { data: child, error: cErr } = await supabase
+        .from("pipeline_logs")
+        .insert({ niche: niche.niche_name, status: "Rendering", target_channel: primaryChannel, topic: `variant ${i + 2} of ${jobId}` })
+        .select()
+        .single();
+      if (cErr || !child) throw new Error(`Variant row creation failed: ${cErr?.message || "no row"}`);
+      const vJobId = child.id;
+
+      const renderResult = await render(vPayload, vJobId);
+      const vTitle = variant.title || `${scriptOut.title} #${i + 2}`;
+      const vPackage = buildPublishPackage({
+        jobId: vJobId,
+        niche: niche.niche_name,
+        videoUrl: renderResult.url,
+        subtitleUrl: renderResult.subtitleUrl,
+        syncPrecisionMs,
+        duration,
+        title: vTitle,
+        description: scriptOut.description,
+        tags: uploadTags,
+        thumbnailUrl: renderResult.thumbnailUrl,
+        coverVariants: renderResult.coverVariants,
+        qualityReport: {
+          overall_score: qualityResult.score,
+          hook_score: qualityResult.hookScore,
+          technical_pass: true,
+          retention_prediction: `${qualityResult.score}%`,
+          issues: [],
+          breakdown: qualityResult.breakdown,
+        },
+        platforms: ["youtube"],
+        monetizationEnabled: niche.run_monetization ?? Boolean(config.affiliate.trackingId),
+      });
+      vPackage.variant_group = jobId; // lineage so the learner can compare A/B arms
+      vPackage.variant_index = i + 2;
+      vPackage.variant_style = variant.style || "n/a";
+
+      if (config.autopilot) {
+        const up = await uploadScheduled({
+          videoUrl: renderResult.url,
+          title: vTitle,
+          description: scriptOut.description,
+          tags: uploadTags,
+          commentCta: scriptOut.interactionGuide || null,
+          jobId: vJobId,
+          targetChannel: primaryChannel,
+          niche: niche.niche_name,
+          publishPackage: vPackage,
+        });
+        await updateJob(vJobId, {
+          rendered_video_url: renderResult.url,
+          publish_package: vPackage,
+          youtube_video_id: up?.videoId || null,
+          publish_schedule: up?.publishAt?.toISOString(),
+          status: up?.success ? "Scheduled" : "Rendered",
+        });
+      } else {
+        await updateJob(vJobId, { rendered_video_url: renderResult.url, publish_package: vPackage, status: "Awaiting Approval" });
+      }
+      await logEvent("Pipeline", `✓ A/B variant ${i + 2}/${variants.length + 1} rendered${config.autopilot ? " + scheduled" : ""}: "${vTitle}"`, { jobId });
+    } catch (err) {
+      await logEvent("Pipeline", `A/B variant ${i + 2} skipped (non-fatal): ${err.message}`, { jobId, level: "warn" });
+    }
+  }
 }

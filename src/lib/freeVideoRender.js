@@ -143,7 +143,38 @@ function buildAssSubtitles(captions, overlays = [], style = {}, sparkleOverlays 
     'Format: Layer, Start, End, Style, Text',
   ].join('\n');
   const clean = (t) => String(t || '').replace(/[{}]/g, '').replace(/\\N/g, ' ').replace(/\n/g, ' ').replace(/\\fad\([^)]*\)/gi, '').replace(/\\fscx\d+/gi, '').replace(/\\fscy\d+/gi, '').replace(/\\frz[\d.]+/gi, '').replace(/\\blur[\d.]+/gi, '').replace(/\\[a-z]+\([^)]*\)/gi, '').replace(/\\[a-z]+/gi, '');
-  
+
+  // PUNCH-CARD caption style (stolen from clipforge's 爆款 phrase-cards +
+  // ShortsGenerator): split each caption into short 2-3 word "cards" on
+  // natural punctuation/word boundaries, staggered so they pop in sequence like
+  // rapid callouts — the scroll-stopping phrase-card cadence the viral
+  // word-clip niche runs on. Total timing stays inside the original caption
+  // window (so audio sync is preserved); pure ASS event generation using the
+  // existing Default style, no filterchain risk.
+  if (style.style === "punch") {
+    const out = [];
+    for (const cap of captions) {
+      const text = String(cap.text || "").trim();
+      if (!text) continue;
+      const words = text.split(/\s+/).filter(Boolean);
+      const cards = [];
+      let buf = [];
+      for (const w of words) {
+        buf.push(w);
+        if (buf.length >= 3 || /[,.;!?]$/.test(w)) {
+          cards.push(buf.join(" "));
+          buf = [];
+        }
+      }
+      if (buf.length) cards.push(buf.join(" "));
+      const span = Math.max(0.08, (cap.end - cap.start) / Math.max(1, cards.length));
+      cards.forEach((card, i) => {
+        const s = cap.start + i * span;
+        out.push({ start: +s.toFixed(3), end: +(s + span).toFixed(3), text: card });
+      });
+    }
+    captions = out;
+  }
   // MrBeast-style emphasis: key numbers, prices, percentages, and big
   // figures pop in bright yellow inside otherwise white/cream captions so
   // the eye lands on the one number that matters. Applied AFTER clean()
