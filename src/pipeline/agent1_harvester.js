@@ -17,6 +17,7 @@ import { fetchKickTrending } from "../sources/kick.js";
 import { fetchDailymotionTrending } from "../sources/dailymotion.js";
 import { rankCandidates, recalibrateWeights, persistTrendSnapshot } from "../lib/trendScoring.js";
 import { llmJson, llmVision } from "../lib/llm.js";
+import { topicKey } from "../lib/utils.js";
 
 export async function harvestAllCandidates(niche, jobId = null) {
     const log = (msg, level) => (jobId ? logEvent("Agent 1", msg, { jobId, level }) : logEvent("Agent 1", msg, { level }));
@@ -190,15 +191,6 @@ export async function harvestAllCandidates(niche, jobId = null) {
 
     if (!candidates.length) return [];
     return rankCandidates(candidates, niche.niche_name);
-}
-
-function topicKey(title) {
-    return (title || "")
-        .toLowerCase()
-        .replace(/[^a-z0-9\s]/g, "")
-        .split(/\s+/)
-        .slice(0, 5)
-        .join(" ");
 }
 
 async function recentTopicKeys(nicheName, days = 14, limit = 30) {

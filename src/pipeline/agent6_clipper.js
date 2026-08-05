@@ -249,13 +249,7 @@ async function planActionClips(peaks, words, clipJobId) {
  * pickMusic degrading gracefully with no music track. Stock it yourself
  * with royalty-free one-shot SFX (Pixabay's sound-effects library is the
  * same free-commercial-use source already used for footage/music). */
-async function pickSfx(tag) {
-  const { data, error } = await supabase.from("sfx_library").select("*").contains("tags", [tag]).limit(20);
-  if (error || !data?.length) return null;
-  return data[Math.floor(Math.random() * data.length)];
-}
-
-async function renderDialogueClips(sourceBuffer, words, clipPlan, preset, clipJobId) {
+async function renderDialogueClips(sourceBuffer, words, clipPlan, clipJobId) {
   const rendered = [];
   let shotstackSeconds = 0;
   for (let i = 0; i < clipPlan.length; i++) {
@@ -380,7 +374,7 @@ export async function runClipperJob(clipJobId) {
 
     const { rendered, shotstackSeconds } = actionMode
       ? await renderActionClips(buffer, words, clips, clipJobId)
-      : await renderDialogueClips(buffer, words, clips, preset, clipJobId);
+      : await renderDialogueClips(buffer, words, clips, clipJobId);
 
     if (!rendered.length) throw new Error("No clip passed the mandatory quality and render gates");
 

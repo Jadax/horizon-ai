@@ -196,36 +196,3 @@ export function estimateRevenue(views, platform, niche) {
 
     return (views / 1000) * rpm;
 }
-
-/**
- * Get top-performing affiliate products (uses real affiliate_revenue data)
- */
-export async function getTopAffiliateProducts(niche, limit = 10) {
-    const { data, error } = await supabase
-        .from('pipeline_logs')
-        .select('affiliate_products, affiliate_revenue')
-        .eq('niche', niche)
-        .not('affiliate_products', 'is', null)
-        .order('affiliate_revenue', { ascending: false })
-        .limit(limit);
-
-    if (error || !data) return [];
-
-    const productPerformance = {};
-    for (const row of data) {
-        const products = row.affiliate_products || [];
-        for (const product of products) {
-            const key = product.name || product;
-            if (!productPerformance[key]) {
-                productPerformance[key] = { revenue: 0, count: 0 };
-            }
-            productPerformance[key].revenue += row.affiliate_revenue || 0;
-            productPerformance[key].count += 1;
-        }
-    }
-
-    return Object.entries(productPerformance)
-        .sort((a, b) => b[1].revenue - a[1].revenue)
-        .slice(0, 10)
-        .map(([name, data]) => ({ name, ...data }));
-}

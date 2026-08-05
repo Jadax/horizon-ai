@@ -10,12 +10,14 @@ import { supabase } from "../supabase.js";
 /** Promisified ffmpeg exec — use everywhere instead of re-defining. */
 export const execFileAsync = promisify(execFile);
 
-/** Normalize a topic title into a canonical dedup/grouping key. */
-export function normalizeTopicKey(title) {
+/** Normalize a topic title into a canonical dedup/grouping key (also used by
+ * trend velocity history — keep the algorithm byte-identical across callers). */
+export function topicKey(title) {
   return String(title || "")
     .toLowerCase()
     .replace(/[^a-z0-9\s]/g, "")
     .split(/\s+/)
+    .filter(Boolean)
     .slice(0, 5)
     .join(" ");
 }

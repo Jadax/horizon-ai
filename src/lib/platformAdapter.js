@@ -1,6 +1,5 @@
 import { config } from "../config.js";
 import { estimateRevenue, matchAffiliateProducts } from "./monetization.js";
-import { PLATFORM_RULES, NICHE_VIRAL_PATTERNS } from "./viralScience.js";
 
 const YOUTUBE_CATEGORIES = {
   finance: "Education",
@@ -67,7 +66,6 @@ export function buildPublishPackage({
   // into bare words (#cat #videos) — YouTube indexes the first 3 exactly as
   // written. Niche pools add platform-specific trending tags on top below.
   const hashtags = [...new Set((tags || []).map((tag) => `#${String(tag).replace(/[^a-z0-9]/gi, "")}`).filter((h) => h.length > 3))].slice(0, 8);
-  const viralPattern = NICHE_VIRAL_PATTERNS[niche] || {};
   const affiliates = monetizationEnabled && config.affiliate.trackingId ? matchAffiliateProducts(title, description, niche) : [];
   const insertionPoint = Math.max(0, Math.min(Math.round(duration * 0.65), Math.max(0, Math.round(duration) - 1)));
   const variants = {};

@@ -12,7 +12,7 @@ export const nichesRouter = express.Router();
 
 // Returns a labeled list of all configured YouTube channels (primary + any
 // in GOOGLE_CHANNELS JSON) so the dashboard can show human-readable names
-// like "YouTube — Leo" or "YouTube — MythosVibe" instead of opaque keys.
+// like "YouTube — Leo" instead of opaque keys.
 nichesRouter.get("/channels", (_req, res) => {
   const channels = [{ key: "primary", label: "Primary (default YouTube)" }];
   for (const [key, val] of Object.entries(config.google.channels || {})) {

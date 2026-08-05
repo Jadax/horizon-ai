@@ -27,9 +27,6 @@ export const config = {
   // Gemini free tier — the ONLY LLM provider. No OpenAI fallback.
   geminiKey: process.env.GEMINI_API_KEY,
 
-  // ─── OpenAI (kept for env compat, not used by pipeline) ────────────
-  openaiKey: process.env.OPENAI_API_KEY,
-  
   // ─── Free TTS ──────────────────────────────────────────────────────
   // Defaults to 'gemini' (gemini-2.5-flash-preview-tts, 12 voices, $0 on
   // the free tier) — the ONLY TTS engine used by the pipeline. 'gtts'
@@ -40,34 +37,17 @@ export const config = {
   ttsFallback: process.env.TTS_FALLBACK || 'gtts',
   
   // ─── Free Video Render ──────────────────────────────────────────────
-  // Defaults to 'ffmpeg' (any value other than 'render-api'/'shottower'
-  // falls through to the local FFmpeg renderer, which needs no separate
-  // service — ffmpeg-static ships as an npm dependency and runs in-process).
-  renderApiUrl: process.env.RENDER_API_URL || 'http://localhost:3000',
   renderEngine: process.env.RENDER_ENGINE || 'ffmpeg',
-  // render-video-api requires an API key (x-api-key header) obtained by
-  // registering + generating one through its own dashboard — this can't be
-  // auto-provisioned, see .env.example.
-  renderApiKey: process.env.RENDER_API_KEY,
 
   // ─── Free Stock Footage ─────────────────────────────────────────────
   pexelsKey: process.env.PEXELS_API_KEY?.trim() || null,
   pixabayKey: process.env.PIXABAY_API_KEY,
   visualQualityGate: (process.env.VISUAL_QUALITY_GATE || "true").toLowerCase() === "true",
-  bypassQaForSource: (process.env.BYPASS_QA_FOR_SOURCE || "true").toLowerCase() === "true",
-  // Generates a still image (OpenAI gpt-image-1) for a script beat when no
-  // real stock footage matches it, instead of forcing a mismatched clip or
-  // reaching for scraped third-party video. Real per-image cost — capped at
-  // 4/video in agent1_harvester.js (AI_CUTAWAY_MAX_PER_VIDEO).
+  // Generates a still image (FLUX via Pollinations) for a script beat when no
+  // real stock footage matches it, instead of forcing a mismatched clip.
+  // Real per-image cost — capped at 4/video in agent1_harvester.js
+  // (AI_CUTAWAY_MAX_PER_VIDEO).
   enableAiCutaway: (process.env.ENABLE_AI_CUTAWAY || "true").toLowerCase() === "true",
-  // "pollinations" (default): free FLUX-based generation, no key, $0 — used
-  // for illustrated-mode frames, with gpt-image-1 as automatic fallback.
-  // Set IMAGE_ENGINE=openai to force gpt-image-1 for everything.
-  imageEngine: (process.env.IMAGE_ENGINE || "pollinations").toLowerCase(),
-  // Minimum virality score (1-10) for a scraped video candidate to be used
-  // as a topic — restored, was dropped in the free-stack rewrite (agent1_harvester.js
-  // still reads this with a || 7.0 fallback, so it degraded silently, not a crash).
-  qualityScoreThreshold: parseFloat(process.env.QUALITY_SCORE_THRESHOLD) || 7.0,
 
   // ─── Twitch (free application registration) ──────────────────────────
   twitchClientId: process.env.TWITCH_CLIENT_ID,
@@ -172,10 +152,6 @@ export const config = {
   // YouTube channel URL for Leo (for reference analysis of top pet accounts).
   // Set to a top pet channel to analyze their strategy for your own content.
   leoReferenceChannel: process.env.LEO_REFERENCE_CHANNEL || null,
-  // Leo's own YouTube channel handle (e.g. @LeoTheCat-x6q) for publish targets.
-  leoYoutubeChannel: process.env.LEO_YOUTUBE_CHANNEL || "@LeoTheCat-x6q",
-  // Leo's Instagram handle for publish package labels.
-  leoInstagramHandle: process.env.LEO_INSTAGRAM_HANDLE || "",
 
   // ─── Telegram approval notifications (optional, free) ──────────────
   telegram: {

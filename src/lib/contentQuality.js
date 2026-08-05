@@ -81,9 +81,6 @@ function deterministicIssues(script, title) {
   const issues = [];
   const words = String(script || "").trim().split(/\s+/).filter(Boolean);
   if (words.length < 20) issues.push(`Script has only ${words.length} words — too short for engagement`);
-  if (words.length < 40 && words.length >= 20) {
-    // Short scripts are fine for some formats, but flag if suspiciously lean
-  }
   const banned = BANNED_WORDS.filter((word) => String(script).toLowerCase().includes(word.toLowerCase()));
   if (banned.length) issues.push(`Banned language: ${banned.slice(0, 5).join(", ")}`);
   if (!String(title || "").trim()) issues.push("Title is missing");

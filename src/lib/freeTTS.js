@@ -1,6 +1,6 @@
 import axios from 'axios';
 import { config } from '../config.js';
-import { exec, execFile } from 'node:child_process';
+import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { readFile, writeFile, unlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -8,11 +8,9 @@ import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import ffmpeg from 'ffmpeg-static';
 
-const execAsync = promisify(exec);
 const execFileAsync = promisify(execFile);
 const PRIMARY_ENGINE = config.ttsEngine || 'gtts';
 const TTS_API_URL = config.ttsApiUrl || 'http://localhost:5000/tts';
-const FALLBACK_ENGINE = config.ttsFallback || 'gtts';
 
 // Railway/nixpacks and most Linux distros only expose 'python3'; Windows'
 // standard installer only exposes 'python'. Resolved once and cached so
@@ -195,10 +193,6 @@ async function synthesizeGTTS(text, options) {
     await unlink(tmpText).catch(() => {});
     await unlink(tmpOut).catch(() => {});
   }
-}
-
-export function audioToBase64(audioBuffer) {
-  return audioBuffer.toString('base64');
 }
 
 /**

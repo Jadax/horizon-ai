@@ -4,10 +4,10 @@
  * Focused on YouTube only - the platform with real implementation.
  * Other platforms (Instagram, Facebook, TikTok) are stubs for future.
  */
-import { google } from "googleapis";
 import { Readable } from "node:stream";
 import { config, getChannelToken } from "../config.js";
 import { supabase, logEvent } from "../supabase.js";
+import { youtubeClient } from "../lib/youtubeClient.js";
 import { matchAffiliateProducts } from "../lib/monetization.js";
 
 const REGIONS = [
@@ -41,16 +41,6 @@ export function nextPublishSlot(fixedUtcHour = null) {
   if (slot <= now) slot.setUTCDate(slot.getUTCDate() + 1);
 
   return { region: region.name, publishAt: slot };
-}
-
-function youtubeClient(channelKey) {
-  const oauth2 = new google.auth.OAuth2(
-    config.google.clientId,
-    config.google.clientSecret,
-    config.google.redirectUri
-  );
-  oauth2.setCredentials({ refresh_token: getChannelToken(channelKey) });
-  return google.youtube({ version: "v3", auth: oauth2 });
 }
 
 /**
@@ -156,7 +146,7 @@ export async function uploadScheduled({ videoUrl, title, description, tags, comm
           requestBody: {
             snippet: {
               title: title.slice(0, 100),
-              description: `${finalDescription}${alreadyHasHashtags ? "" : nicheHashtagBlock}\n#Shorts\n\nA MythosVibe production — Tushant Sharma`.trim(),
+              description: `${finalDescription}${alreadyHasHashtags ? "" : nicheHashtagBlock}\n#Shorts\n\nTushant Sharma`.trim(),
               tags: (publishPackage?.platform_variants?.youtube?.tags || tags || []).slice(0, 60),
               categoryId: "24",
             },
@@ -402,10 +392,8 @@ async function uploadToTikTok({ videoUrl, title, accessToken }) {
     }),
   });
   const initData = await initRes.json();
-  if (initData.error?.code !== "ok" && initData.data?.upload_url !== "DIRECT_URL") {
-    // When source=URL, TikTok processes the video directly — no separate upload step needed
-    // The publish_id is returned for polling
-  }
+  // When source=URL, TikTok processes the video directly — no separate upload
+  // step needed; the publish_id is returned for polling.
   const publishId = initData.data?.publish_id;
   if (!publishId) throw new Error(`TikTok init failed: ${JSON.stringify(initData.error || initData)}`);
 

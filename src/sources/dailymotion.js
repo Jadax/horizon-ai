@@ -31,30 +31,3 @@ export async function fetchDailymotionTrending(options = {}) {
   }
   return results.sort((a, b) => b.score - a.score);
 }
-
-export async function searchDailymotion(query, options = {}) {
-  const results = [];
-  try {
-    const fields = "id,title,description,channel.name,views_total,created_time,thumbnail_720_url";
-    const res = await fetch(
-      `${DM_API}/videos?fields=${fields}&search=${encodeURIComponent(query)}&sort=relevance&limit=10`,
-      { signal: AbortSignal.timeout(15000) }
-    );
-    if (!res.ok) return [];
-    const data = await res.json();
-
-    for (const video of (data.list || [])) {
-      results.push({
-        title: video.title?.slice(0, 80) || "Dailymotion video",
-        url: `https://dailymotion.com/video/${video.id}`,
-        selftext: video.description?.slice(0, 300) || "",
-        source: "dailymotion_search",
-        score: Math.min(10, Math.log10((video.views_total || 100) + 1) * 1.7),
-        metrics: { views: video.views_total },
-      });
-    }
-  } catch (err) {
-    console.warn("[dailymotion] search failed:", err.message);
-  }
-  return results;
-}

@@ -5,8 +5,7 @@ import { randomUUID } from "node:crypto";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import ffmpeg from "ffmpeg-static";
-import { supabase } from "../supabase.js";
-import { execFileAsync, srtTime, buildSrt, uploadRenderArtifact } from "./utils.js";
+import { execFileAsync, buildSrt, uploadRenderArtifact } from "./utils.js";
 
 const execFileCb = promisify(execFile);
 

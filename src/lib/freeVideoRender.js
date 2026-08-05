@@ -1,14 +1,9 @@
-import axios from 'axios';
-import { config } from '../config.js';
 import { readFile, writeFile, unlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import ffmpeg from 'ffmpeg-static';
-import { execFileAsync, buildSrt, srtTime, uploadRenderArtifact } from './utils.js';
-
-const RENDER_API_URL = config.renderApiUrl || 'http://localhost:3000';
-const ENGINE = config.renderEngine || 'render-api';
+import { execFileAsync, buildSrt, uploadRenderArtifact } from './utils.js';
 
 function toAssTimestamp(seconds) {
   const s = Math.max(0, seconds);
@@ -242,84 +237,6 @@ export async function renderVideo(payload, jobId) {
   }
   
   return await renderWithFFmpeg(payload, jobId);
-}
-
-async function renderWithAPI(payload, jobId) {
-  try {
-    // juppfy/render-video-api's actual contract (per its README — this repo's
-    // integration was never verified against it end-to-end, so treat this as
-    // a best-effort mapping from its one documented example, not a confirmed
-    // working payload): POST /v1/render, header x-api-key, and a
-    // {backgrounds:[{type,src,fit}], audios:[{src}], output:{quality}} shape —
-    // not the /api/render + {backgrounds,audio,duration,output:{format,...}}
-    // shape this previously sent, which would 404 even with a valid API key.
-    if (!config.renderApiKey) {
-      throw new Error('RENDER_API_KEY is not configured — render-video-api requires registering and generating one through its own dashboard, see .env.example');
-    }
-    const backgroundUrl = payload.backgroundVideo || payload.backgrounds?.[0]?.url;
-    const apiPayload = {
-      canvas: { fps: 30 },
-      backgrounds: backgroundUrl ? [{ type: 'video', src: backgroundUrl, fit: 'cover' }] : [],
-      audios: payload.audioUrl ? [{ src: payload.audioUrl }] : [],
-      output: { quality: '1080p' },
-    };
-    const response = await axios.post(`${RENDER_API_URL}/v1/render`, apiPayload, {
-      headers: { 'x-api-key': config.renderApiKey },
-      timeout: 300000,
-    });
-    return {
-      renderId: response.data.id,
-      url: response.data.url,
-      status: 'done',
-    };
-  } catch (error) {
-    console.error('[Render API] Error:', error.message);
-    return await renderWithFFmpeg(payload, jobId);
-  }
-}
-
-async function renderWithShottower(payload, jobId) {
-  try {
-    const backgrounds = payload.backgrounds || (payload.backgroundVideo ? [{ url: payload.backgroundVideo, duration: payload.duration }] : []);
-    const shottowerPayload = {
-      timeline: {
-        background: '#000000',
-        tracks: [
-          {
-            clips: backgrounds.map(b => ({
-              asset: { type: 'video', src: b.url },
-              start: 0,
-              length: b.duration || 5,
-            }))
-          },
-          {
-            clips: payload.captions?.map(c => ({
-              asset: { type: 'text', text: c.text },
-              start: c.start,
-              length: c.end - c.start,
-            })) || []
-          }
-        ]
-      },
-      output: {
-        format: 'mp4',
-        resolution: 'hd',
-        aspectRatio: '9:16',
-        fps: 30,
-      }
-    };
-    const response = await axios.post(`${RENDER_API_URL}/v1/render`, shottowerPayload, {
-      timeout: 300000,
-    });
-    return {
-      renderId: response.data.response.id,
-      url: response.data.response.url,
-      status: 'done',
-    };
-  } catch (error) {
-    console.error('[shottower] Error:', error.message);
-    return await renderWithFFmpeg(payload, jobId);
-  }
 }
 
 async function renderWithFFmpeg(payload, jobId) {
@@ -577,19 +494,6 @@ async function renderWithFFmpeg(payload, jobId) {
 }
 
 export async function checkRenderEngine() {
-  // Only 'render-api'/'shottower' are external services worth an HTTP health
-  // check — the default 'ffmpeg' engine runs in-process via the bundled
-  // ffmpeg-static binary, so "is it healthy" means "does the binary run",
-  // not "does something answer on renderApiUrl" (nothing ever does, by
-  // design, and this previously reported the working default as "Down").
-  if (ENGINE === 'render-api' || ENGINE === 'shottower') {
-    try {
-      const response = await axios.get(`${RENDER_API_URL}/health`, { timeout: 5000 });
-      return response.status === 200;
-    } catch {
-      return false;
-    }
-  }
   try {
     await execFileAsync(ffmpeg, ['-version'], { timeout: 5000 });
     return true;

@@ -1,6 +1,6 @@
 {
   "name": "horizon-ai-full",
-  "version": "3.7.1",
+  "version": "3.8.0",
   "description": "Complete viral video factory with integrated TTS & render + yt-dlp for owner content",
   "author": "Tushant Sharma",
   "license": "UNLICENSED",
@@ -24,7 +24,6 @@
     "googleapis": "^173.0.0",
     "multer": "^2.2.0",
     "node-cron": "^4.6.0",
-    "openai": "^4.56.0",
     "rss-parser": "^3.13.0",
     "axios": "^1.6.0",
     "yt-dlp-wrap": "^2.3.9"

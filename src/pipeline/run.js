@@ -80,8 +80,6 @@ export async function runPipelineForNiche(niche) {
         original_views: topic.views || null,
         original_likes: topic.likes || null,
         original_comments: topic.comments || null,
-        viral_score: topic._viralScore || null,
-        viral_score_breakdown: topic._scoreBreakdown || null,
         sourced_media_urls: [],
         format_decision: decision,
         status: "Scripting",
@@ -304,7 +302,7 @@ export async function runPipelineForNiche(niche) {
         published_to: results.map((r) => ({ channel: r.channel, videoId: r.result?.videoId })),
         status: primary?.result?.success ? "Scheduled" : "Rendered",
       });
-    } else if (!config.autopilot) {
+    } else {
       await logEvent("Pipeline", `Autopilot OFF — job ${jobId} awaiting manual approval`, { jobId });
       await notifyAwaitingApproval({
         jobId,
@@ -313,13 +311,11 @@ export async function runPipelineForNiche(niche) {
         duration,
         videoUrl: renderedUrl,
       });
-    } else {
-      await logEvent("Pipeline", `No upload tokens configured — platform packages are ready for manual publish`, { jobId });
     }
 
     // A/B variant matrix (opt-in via preset.variants) — re-render cheap
     // hook/caption variants of the winner and post them for empirical testing.
-    if (preset.variants && (config.autopilot || true)) {
+    if (preset.variants) {
       await runVariantShorts({ niche, jobId, preset, payload, words, duration, syncPrecisionMs, uploadTags, scriptOut, qualityResult }).catch((e) =>
         logEvent("Pipeline", `Variant A/B run skipped (non-fatal): ${e.message}`, { jobId, level: "warn" })
       );

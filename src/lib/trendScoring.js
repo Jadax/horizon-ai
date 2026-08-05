@@ -1,44 +1,17 @@
 /**
- * TREND SCORING — the reasoning layer that decides which harvested
- * candidate is the best bet for a video, and self-adjusts its own weights
- * over time based on which signal types most often corroborate each other
- * AND (once available) how videos actually performed on YouTube.
+ * TREND SCORING — ranks harvested candidates by predicted virality and
+ * self-adjusts its source weights over time.
  *
- * HOW "VIRALITY POTENTIAL" IS ACTUALLY RANKED HERE, AND WHY:
- *   - Cross-source corroboration (the same story hitting an RSS feed AND
- *     Google Trends AND a fediverse post) stands in for "current buzz
- *     across independent signals" — the same idea as checking views/
- *     comments across platforms, but without needing paid access to any
- *     one platform's private engagement numbers.
- *   - GDELT + Google News article COUNT for a story is a real proxy for
- *     "how many outlets are covering this" — the same signal "news hits"
- *     would give you, sourced for free.
- *   - YouTube Trending is literal, current view/engagement data — the
- *     most direct "current views" signal available without paid APIs.
- *   - Twitter/X is deliberately NOT a source: X closed free API access
- *     entirely; the only way to read "Twitter comments" now is a paid
- *     enterprise tier, which isn't wired in here. Mastodon (a genuinely
- *     open, Twitter-shaped public conversation layer) is used instead as
- *     the closest free equivalent — not identical, but real and current.
- *   - Once a video is actually published, `recalibrateFromPerformance`
- *     (below) folds in REAL YouTube views/likes/comments — this is the
- *     most trustworthy signal of all, since it's ground truth rather than
- *     a proxy, but it only becomes available after a video has had time
- *     to accumulate real engagement (see performanceTracker.js).
- *
- * WHAT SELF-UPDATING MEANS TODAY vs. THE FURTHER FUTURE STEP:
- *   Two update mechanisms now exist: `recalibrateWeights` (fast, harvest-
- *   time corroboration signal) and `recalibrateFromPerformance` (slower,
- *   ground-truth signal from actual published-video stats). Both adjust
- *   the same `trend_rules` table, bounded to small nudges per run so a
- *   single noisy sample can't swing trust dramatically. The remaining gap
- *   versus a fully mature system: today's performance recalibration
- *   buckets by source HOSTNAME as a proxy, since individual jobs don't yet
- *   store which named source (of possibly several tied for top score) won
- *   the final pick. A future refinement would store that explicitly on
- *   each job for a cleaner per-source-name (not just per-hostname) signal.
+ * Ranked signal mix: cross-source corroboration (same story across independent
+ * free feeds ≈ current buzz), freshness, specificity, source reliability, and a
+ * "Rising vs Breakout" velocity multiplier (see velocityFactor). Twitter/X is
+ * deliberately absent (paid-only API); Mastodon stands in as the free
+ * Twitter-shaped signal. Weights adjust via `recalibrateWeights` (fast
+ * corroboration signal) into the `trend_rules` table, bounded to small nudges
+ * per run so a single noisy sample can't swing trust.
  */
 import { supabase, logEvent } from "../supabase.js";
+import { topicKey } from "./utils.js";
 
 const DEFAULT_WEIGHTS = {
   cross_source_corroboration: 40,
@@ -101,15 +74,7 @@ function freshnessScore(pubDate) {
 
 /** Normalize a topic title to the stable key used both for corroboration
  * grouping AND for trend_history persistence. */
-function topicKey(title) {
-  return String(title || "")
-    .toLowerCase()
-    .replace(/[^a-z0-9\s]/g, "")
-    .split(/\s+/)
-    .filter(Boolean)
-    .slice(0, 5)
-    .join(" ");
-}
+export { topicKey };
 
 /**
  * VELOCITY / RGR FACTOR (stolen from the Google Trends "Rising vs Breakout"
@@ -180,12 +145,7 @@ export async function persistTrendSnapshot(candidates) {
 function groupByTopic(candidates) {
   const groups = new Map();
   for (const c of candidates) {
-    const key = (c.title || "")
-      .toLowerCase()
-      .replace(/[^a-z0-9\s]/g, "")
-      .split(/\s+/)
-      .slice(0, 5)
-      .join(" ");
+    const key = topicKey(c.title || "");
     if (!key) continue;
     if (!groups.has(key)) groups.set(key, []);
     groups.get(key).push(c);
@@ -226,71 +186,13 @@ export async function rankCandidates(candidates, nicheName = null) {
 }
 
 /**
- * Deeper self-update using ACTUAL YouTube performance (views/likes/comments)
- * once videos have had time to accumulate real signal — see
- * src/lib/performanceTracker.js for how that data gets populated. This is
- * the "future step" flagged in this file's header comment, now partially
- * implemented: it nudges source-reliability weights based on which
- * SOURCE a video's winning topic came from and how that video actually
- * performed, not just whether it was corroborated at harvest time.
- */
-export async function recalibrateFromPerformance() {
-  const { data: jobs, error } = await supabase
-    .from("pipeline_logs")
-    .select("source_url, yt_views, yt_likes, yt_comments, stats_updated_at")
-    .not("yt_views", "is", null)
-    .not("source_url", "is", null)
-    .order("stats_updated_at", { ascending: false })
-    .limit(200);
-  if (error || !jobs?.length) return;
-
-  // We don't store which named source (RSS/Trends/etc) won per job today —
-  // only the source URL. As a practical proxy, bucket by hostname, which
-  // captures "this specific feed/source tends to produce videos that
-  // perform well" even without a dedicated source-name column.
-  const byHost = {};
-  for (const j of jobs) {
-    let host;
-    try {
-      host = new URL(j.source_url).hostname;
-    } catch {
-      continue;
-    }
-    const engagement = (j.yt_views || 0) + (j.yt_likes || 0) * 5 + (j.yt_comments || 0) * 10;
-    (byHost[host] = byHost[host] || []).push(engagement);
-  }
-
-  const weights = await loadWeights();
-  const updates = [];
-  for (const [host, engagements] of Object.entries(byHost)) {
-    if (engagements.length < 3) continue; // need real sample size before trusting this
-    const avg = engagements.reduce((a, b) => a + b, 0) / engagements.length;
-    const current = weights.sources[host] ?? 10;
-    // A source whose videos average strong engagement earns more trust;
-    // consistently weak performers get nudged down. Slow, bounded change.
-    const nudge = avg > 500 ? 1 : avg < 50 ? -1 : 0;
-    const updated = Math.max(2, Math.min(25, current + nudge));
-    if (updated !== current) updates.push({ rule_key: `source:${host}`, weight: updated });
-  }
-
-  if (updates.length) {
-    await supabase.from("trend_rules").upsert(updates, { onConflict: "rule_key" });
-    cachedWeights = null;
-    await logEvent(
-      "Trend Engine",
-      `Recalibrated ${updates.length} weight(s) from real YouTube performance: ${updates.map((u) => `${u.rule_key}→${u.weight}`).join(", ")}`
-    );
-  }
-}
-
-/**
  * TITLE-PATTERN PERFORMANCE FEEDBACK — computed live (not a cron job) since
  * Agent 2 needs it at generation time, not on a delay. Looks at this
  * niche's own published-and-measured history (title_pattern × yt_views/
  * yt_likes/yt_comments), and returns a one-line hint for the title prompt
  * naming whichever pattern has the strongest track record here — or null
  * if there isn't enough sample size yet to trust a pattern over another
- * (same >=3-per-bucket bar recalibrateFromPerformance uses, so this
+ * (same >=3-per-bucket bar recalibrateWeights uses, so this
  * doesn't start opinionated on day one and overfit on noise).
  */
 export async function getTitlePatternInsight(nicheName, minSamplesPerPattern = 3) {

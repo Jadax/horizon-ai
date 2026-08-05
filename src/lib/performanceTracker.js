@@ -1,20 +1,9 @@
 /**
  * PERFORMANCE TRACKER — now also tracks revenue
  */
-import { google } from "googleapis";
-import { config, getChannelToken } from "../config.js";
 import { supabase, logEvent } from "../supabase.js";
+import { youtubeClient } from "./youtubeClient.js";
 import { trackRevenue, estimateRevenue } from "./monetization.js";
-
-function youtubeClient(channelKey) {
-  const oauth2 = new google.auth.OAuth2(
-    config.google.clientId,
-    config.google.clientSecret,
-    config.google.redirectUri
-  );
-  oauth2.setCredentials({ refresh_token: getChannelToken(channelKey) });
-  return google.youtube({ version: "v3", auth: oauth2 });
-}
 
 export async function refreshPublishedStats(minAgeHours = 6, refreshIntervalHours = 6) {
   const cutoff = new Date(Date.now() - minAgeHours * 60 * 60 * 1000).toISOString();

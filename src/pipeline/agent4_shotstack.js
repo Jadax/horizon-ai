@@ -10,12 +10,6 @@ const STYLE_FONTS = {
   "word-clip": { family: "Montserrat ExtraBold", size: 96 },
 };
 
-const DEFAULT_CLIP_PRESET = {
-  caption: { style: "heavy-sans", color: "#FFFFFF", position: "bottom" },
-  transitions: "cross-dissolve",
-  wordClipMode: false,
-};
-
 export function captionClips(words, preset) {
   const chunkSize = preset.wordClipMode ? 1 : preset.transitions === "fast-cut" ? 2 : 3;
   const font = preset.wordClipMode

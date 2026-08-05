@@ -36,7 +36,6 @@ import {
 const execFileAsync = promisify(execFile);
 const VIDEO_EXT = /\.(mp4|mov|m4v|webm)$/i;
 const MAX_COMPILATION_SECONDS = 55;
-const MIN_VIDEOS_FOR_COMPILATION = 2;
 
 async function probeVideo(file) {
   const res = await execFileAsync(ffmpeg, ["-i", file], { timeout: 30000 })

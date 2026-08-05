@@ -10,7 +10,7 @@
  */
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { writeFile, readFile, unlink } from "node:fs/promises";
+import { readFile, unlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
@@ -253,45 +253,6 @@ export async function buildLeoCompilation(inboxVideos, options = {}) {
       sources: backgroundClips.length,
     },
   };
-}
-
-/**
- * Auto-detect key moments for zoom effects using motion analysis.
- * Returns timestamps within a clip where zoom-in would heighten impact.
- */
-export async function detectZoomPoints(file, clipStart, clipDuration) {
-  const tmpFile = path.join(tmpdir(), `leo-motion-${randomUUID()}.json`);
-  try {
-    await execFileAsync(ffmpeg, [
-      "-y", "-ss", String(clipStart), "-t", String(clipDuration),
-      "-i", file,
-      "-vf", "signalstats,metadata=print:file=" + tmpFile.replace(/\\/g, "/"),
-      "-an", "-f", "null", "-",
-    ], { timeout: 60000 }).catch(() => {});
-    return [];
-  } catch {
-    return [];
-  } finally {
-    await unlink(tmpFile).catch(() => {});
-  }
-}
-
-/**
- * Generate a color-grading LUT filter string for warm, cinematic pet vibes.
- * Applied as a ffmpeg eq/hue/colorbalance filter graph.
- */
-export function warmPetGrade() {
-  return "eq=contrast=1.06:brightness=0.03:saturation=1.10,unsharp=5:5:0.8,hue=h=-3:s=1.05";
-}
-
-/**
- * Pick sound effects for a clip based on its engagement score and content.
- * Returns SFX library query params for the rendering pipeline.
- */
-export function suggestSfx(clipScore, clipIndex) {
-  if (clipScore >= 9) return { tags: ["pop", "magic", "chime"], timing: "peak" };
-  if (clipScore >= 7) return { tags: ["boing", "swoosh", "pop"], timing: "transition" };
-  return { tags: ["soft", "ambient"], timing: "background" };
 }
 
 /**
