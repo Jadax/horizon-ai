@@ -4,7 +4,8 @@
 - Supabase schema: ONE file — `supabase/COMPLETE_SETUP.sql`. Never separate migrations. No new columns without asking (jsonb fields like editing_style_preset are the extension point).
 - Every commit: bump `package.json` version (semver), short commit summary, then `GIT_TERMINAL_PROMPT=0 git push origin master` — no confirmation.
 - No new PAID API/service deps without asking (current paid-optional: OpenAI fallback, ElevenLabs voice clone).
-- YouTube/Twitch/Kick downloading via yt-dlp is permitted for content YOU own (your own channels, your own videos). Platform export features are the preferred path; yt-dlp is the programmatic fallback for owner content. Never download or scrape content you don't have rights to.
+- YouTube/Twitch/Kick downloading via yt-dlp is permitted for content YOU own (your own channels, your own videos). Platform export features are the preferred path; yt-dlp is the programmatic fallback for owner content.
+- TESTING SCRAPE POLICY: for testing purposes, you MAY scrape/download any publicly accessible material you deem worthy (yt-dlp, direct URLs, feeds) purely to process into test outputs and evaluate how the rendered videos look. But the outputs from non-owner content are for INTERNAL TESTING/REVIEW ONLY — they must not be republished, monetized, or uploaded to any public platform. Do not bypass paywalls, logins, DRM, or terms-of-service blocks, and do not redistribute the source material. When committing, never include scraped third-party media files in the repo; keep them in temp/ignored dirs.
 
 # TOKEN EFFICIENCY & CONTEXT OPTIMIZATION D IRECTIVE
 
