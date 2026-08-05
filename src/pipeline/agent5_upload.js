@@ -143,13 +143,20 @@ export async function uploadScheduled({ videoUrl, title, description, tags, comm
       if (!videoRes.ok) throw new Error(`Could not fetch render: HTTP ${videoRes.status}`);
 
       const yt = youtubeClient(channelKey);
+      // Niche hashtags ARE the viral lever on Shorts (only the first 3 are
+      // indexed in the strip). These flow from buildPublishPackage — without
+      // them the upload would ship with a bare "#Shorts". Guarded so a niche
+      // that already writes its own hashtags (Leo) isn't double-hashtagged.
+      const pkgHashtags = (publishPackage?.metadata?.hashtags || []).slice(0, 3).join(" ");
+      const alreadyHasHashtags = /#[a-z0-9_]/i.test(String(description || "") + "\n" + String(finalDescription || ""));
+      const nicheHashtagBlock = pkgHashtags ? `\n\n${pkgHashtags}` : "";
       const { data } = await withRetry(
         () => yt.videos.insert({
           part: ["snippet", "status"],
           requestBody: {
             snippet: {
               title: title.slice(0, 100),
-              description: `${finalDescription}\n\n#Shorts\n\nA MythosVibe production — Tushant Sharma`,
+              description: `${finalDescription}${alreadyHasHashtags ? "" : nicheHashtagBlock}\n#Shorts\n\nA MythosVibe production — Tushant Sharma`.trim(),
               tags: (publishPackage?.platform_variants?.youtube?.tags || tags || []).slice(0, 60),
               categoryId: "24",
             },

@@ -62,7 +62,11 @@ export function buildPublishPackage({
     throw new Error("Cannot build publish package without subtitles synchronized to 50ms or better");
   }
 
-  const hashtags = terms(niche, ...(tags || [])).slice(0, 8).map((tag) => `#${tag.replace(/\s+/g, "")}`);
+  // Keyword-phrase hashtags from agent2's tags (stolen from clipforge's SEO
+  // kit): keeping phrases as single hashtags (#catvideos) beats splitting them
+  // into bare words (#cat #videos) — YouTube indexes the first 3 exactly as
+  // written. Niche pools add platform-specific trending tags on top below.
+  const hashtags = [...new Set((tags || []).map((tag) => `#${String(tag).replace(/[^a-z0-9]/gi, "")}`).filter((h) => h.length > 3))].slice(0, 8);
   const viralPattern = NICHE_VIRAL_PATTERNS[niche] || {};
   const affiliates = monetizationEnabled && config.affiliate.trackingId ? matchAffiliateProducts(title, description, niche) : [];
   const insertionPoint = Math.max(0, Math.min(Math.round(duration * 0.65), Math.max(0, Math.round(duration) - 1)));
@@ -133,19 +137,33 @@ export function createPublishTargets(publishPackage, platforms = config.publishP
   }));
 }
 
-// Trending hashtag pools — rotated per platform for freshness
+// Trending hashtag pools — rotated per platform for freshness. Keyed BOTH by
+// the legacy format names (Pet/Technology/...) AND the real niche_configurations
+// niche_name values (Leo, Aesthetic, ...) so per-niche hashtags actually fire.
+function nichePoolFor(niche) {
+  const alias = {
+    "Gaming/Lore": "Gaming", "Mindful/Calm": "Mindful", "News India": "News", Explained: "Education", Psychology: "Mindful",
+  };
+  return alias[niche] || niche;
+}
 function trendingHashtags(platform, niche) {
   const seasonal = currentSeasonalHashtags();
+  const key = nichePoolFor(niche);
   const nichePool = {
     Pet: { tiktok: ["#cattok", "#pettok", "#catsoftiktok", "#kittensoftiktok", "#fyp"], instagram: ["#catsofinstagram", "#petstagram", "#catlife", "#meow"] },
-    Finance: { tiktok: ["#finance", "#moneytok", "#investing", "#wealth"], instagram: ["#finance", "#investing", "#money"] },
-    Technology: { tiktok: ["#techtok", "#technology", "#gadgets", "#future"], instagram: ["#technology", "#tech", "#innovation"] },
-    Gaming: { tiktok: ["#gaming", "#gametok", "#gamer", "#gamingontiktok"], instagram: ["#gaming", "#gamer", "#videogames"] },
-    News: { tiktok: ["#news", "#breakingnews", "#explained"], instagram: ["#news", "#breakingnews"] },
-    Food: { tiktok: ["#foodtok", "#recipe", "#cooking", "#foodie"], instagram: ["#food", "#foodie", "#instafood"] },
+    Leo: { tiktok: ["#catsoftiktok", "#cattok", "#funnycats", "#catvideos", "#fyp"], instagram: ["#catsofinstagram", "#catlife", "#catlover", "#kitten", "#meow"] },
+    Finance: { tiktok: ["#finance", "#moneytok", "#investing", "#wealth", "#financialfreedom"], instagram: ["#finance", "#investing", "#money", "#wealth"] },
+    Technology: { tiktok: ["#techtok", "#technology", "#gadgets", "#future", "#ai"], instagram: ["#technology", "#tech", "#innovation", "#ai"] },
+    Gaming: { tiktok: ["#gaming", "#gametok", "#gamer", "#gamingontiktok", "#gamingclips"], instagram: ["#gaming", "#gamer", "#videogames", "#gamingcommunity"] },
+    News: { tiktok: ["#news", "#breakingnews", "#explained", "#currentevents"], instagram: ["#news", "#breakingnews", "#currentevents"] },
+    Food: { tiktok: ["#foodtok", "#recipe", "#cooking", "#foodie"], instagram: ["#food", "#foodie", "#instafood", "#recipe"] },
+    Travel: { tiktok: ["#traveltok", "#travel", "#wanderlust", "#placestovisit", "#fyp"], instagram: ["#travel", "#wanderlust", "#travelgram", "#bucketlist"] },
+    Aesthetic: { tiktok: ["#aesthetic", "#vibes", "#cinematic", "#lifestyle"], instagram: ["#aesthetic", "#aestheticfeed", "#lifestyle", "#cinematic"] },
+    Education: { tiktok: ["#learnontiktok", "#explained", "#didyouknow", "#facts", "#knowledge"], instagram: ["#education", "#didyouknow", "#learn", "#facts"] },
+    Mindful: { tiktok: ["#mindfulness", "#selfcare", "#mentalhealth", "#calm", "#wellness"], instagram: ["#mindfulness", "#selfcare", "#wellness", "#mentalhealth"] },
   };
-  const pool = nichePool[niche]?.[platform] || nichePool[niche]?.instagram || [];
-  return [...new Set([...pool, ...seasonal])].slice(0, 5).map(t => t.startsWith("#") ? t : `#${t}`);
+  const pool = nichePool[key]?.[platform] || nichePool[key]?.instagram || nichePool.Pet?.instagram || [];
+  return [...new Set([...pool, ...seasonal])].slice(0, 5).map((t) => t.startsWith("#") ? t : `#${t}`);
 }
 
 function currentSeasonalHashtags() {
