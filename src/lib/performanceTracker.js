@@ -69,3 +69,53 @@ export async function refreshPublishedStats(minAgeHours = 6, refreshIntervalHour
     }
   }
 }
+
+// ─── POSTING-TIME OPTIMIZER ────────────────────────────────────────────
+// Learns the niche's best publish UTC hour from real view data: every 6h the
+// performance tracker refreshes yt_views on pipeline_logs, and each published
+// job carries its publish_schedule, so we bucket jobs by UTC hour and return
+// the hour with the highest average views. Falls back to the region-rotation
+// defaults (agent5 nextPublishSlot) until the niche has enough samples.
+const hourCache = new Map();
+const HOUR_CACHE_TTL = 6 * 60 * 60 * 1000;
+
+export async function learnedUploadHour(nicheName, { minSamples = 3 } = {}) {
+  if (!nicheName) return null;
+  const cached = hourCache.get(nicheName);
+  if (cached && Date.now() - cached.at < HOUR_CACHE_TTL) return cached.hour;
+
+  const { data, error } = await supabase
+    .from("pipeline_logs")
+    .select("publish_schedule, yt_views")
+    .eq("niche", nicheName)
+    .not("youtube_video_id", "is", null)
+    .not("yt_views", "is", null)
+    .not("publish_schedule", "is", null)
+    .order("publish_schedule", { ascending: false })
+    .limit(60);
+
+  if (error || !data?.length || data.length < minSamples) return null;
+
+  const byHour = new Map();
+  for (const job of data) {
+    const dt = new Date(job.publish_schedule);
+    const hour = dt.getUTCHours() + dt.getUTCMinutes() / 60;
+    const views = Number(job.yt_views) || 0;
+    const entry = byHour.get(hour) || { sum: 0, n: 0 };
+    entry.sum += views;
+    entry.n += 1;
+    byHour.set(hour, entry);
+  }
+
+  let bestHour = null;
+  let bestAvg = -1;
+  for (const [hour, entry] of byHour) {
+    const avg = entry.sum / entry.n;
+    if (avg > bestAvg) {
+      bestAvg = avg;
+      bestHour = hour;
+    }
+  }
+  hourCache.set(nicheName, { hour: bestHour, at: Date.now() });
+  return bestHour;
+}

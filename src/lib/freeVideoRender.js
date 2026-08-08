@@ -386,6 +386,22 @@ async function renderWithFFmpeg(payload, jobId) {
       sfxChain = sfxFilters.length ? `;${sfxFilters.join(';')}` : '';
     }
 
+    // Purr bed (pet content, opt-in via payload.purr): a procedurally
+    // synthesized low harmonic stack (37/74/111 Hz) amplitude-modulated at a
+    // real cat-purr rate (~4.5 Hz), mixed softly under the music as "cozy
+    // warmth". Only generated when music is present — a purr bed with no
+    // music under it would read as a mechanical buzz.
+    let purrFile = null;
+    let purrLabel = '';
+    if (payload.purr && payload.musicUrl) {
+      purrFile = path.join(tmpDir, `horizon-purr-${randomUUID()}.wav`);
+      const purrExpr = "(0.11*sin(2*PI*37*t)+0.055*sin(2*PI*74*t)+0.027*sin(2*PI*111*t))*(0.7+0.3*sin(2*PI*4.5*t))";
+      await execFileAsync(ffmpeg, ['-y', '-f', 'lavfi', '-i', `aevalsrc=${purrExpr}:s=44100:d=${Number(totalDuration) + 1}`, '-c:a', 'pcm_s16le', purrFile], { timeout: 30000 });
+      args.push('-i', purrFile);
+      const purrIndex = clips.length + (payload.audioUrl ? 1 : 0) + (payload.musicUrl ? 1 : 0) + sfxFiles.length;
+      purrLabel = `[${purrIndex}:a]volume=0.55,lowpass=f=220[purr]`;
+    }
+
     // Normalize every background input to the same size/fps/timebase
     // before concatenating — concat requires matching stream properties,
     // and inputs here can be a mix of stock video and generated stills.
@@ -494,18 +510,29 @@ async function renderWithFFmpeg(payload, jobId) {
       filterComplex += `;[${audioInputIndex}:a]aresample=async=1${warmEq},asplit=2[voice_mix][voice_key];[${musicInputIndex}:a]volume=0.20,afade=t=in:d=2,afade=t=out:st=${fadeOutStart}:d=3[music];[music][voice_key]sidechaincompress=threshold=0.02:ratio=10:attack=20:release=250[ducked]`;
       filterComplex += srcAudio ? `;${srcAudio}` : '';
       filterComplex += sfxChain;
-      filterComplex += `;[voice_mix][ducked]${srcAudio ? '[srcaud]' : ''}${sfxLabels}amix=inputs=${2 + (srcAudio ? 1 : 0) + sfxCount}:duration=first:normalize=0,loudnorm=I=-14:TP=-1.5:LRA=11[aout]`;
+      if (purrLabel) filterComplex += `;${purrLabel}`;
+      filterComplex += `;[voice_mix][ducked]${srcAudio ? '[srcaud]' : ''}${sfxLabels}${purrLabel ? '[purr]' : ''}amix=inputs=${2 + (srcAudio ? 1 : 0) + sfxCount + (purrLabel ? 1 : 0)}:duration=first:normalize=0,loudnorm=I=-14:TP=-1.5:LRA=11[aout]`;
     } else if (payload.audioUrl) {
       // No music bed — voice + (optional source audio) + SFX, still normalized
       filterComplex += `;[${audioInputIndex}:a]aresample=async=1${warmEq}[voice_mix]`;
       filterComplex += srcAudio ? `;${srcAudio}` : '';
       filterComplex += sfxChain;
       filterComplex += `;[voice_mix]${srcAudio ? '[srcaud]' : ''}${sfxLabels}amix=inputs=${1 + (srcAudio ? 1 : 0) + sfxCount}:duration=first:normalize=0,loudnorm=I=-14:TP=-1.5:LRA=11[aout]`;
+    } else if (payload.musicUrl) {
+      // Music-only bed (vibes-first compilations with no voiceover): music at
+      // near-full level + optional source audio + purr bed. This case used to
+      // fall through with NO filter at all — the music input was fetched but
+      // never referenced, producing a silent render.
+      const fadeOutStart = Math.max(0, Number(totalDuration) - 3).toFixed(2);
+      filterComplex += `;[${musicInputIndex}:a]volume=0.85,afade=t=in:d=1,afade=t=out:st=${fadeOutStart}:d=3[music]`;
+      filterComplex += srcAudio ? `;${srcAudio}` : '';
+      if (purrLabel) filterComplex += `;${purrLabel}`;
+      filterComplex += `;[music]${srcAudio ? '[srcaud]' : ''}${purrLabel ? '[purr]' : ''}amix=inputs=${1 + (srcAudio ? 1 : 0) + (purrLabel ? 1 : 0)}:duration=first:normalize=0,loudnorm=I=-14:TP=-1.5:LRA=11[aout]`;
     }
     args.push('-filter_complex', filterComplex);
 
     args.push('-map', '[vout]');
-    if (payload.audioUrl) {
+    if (payload.audioUrl || payload.musicUrl) {
       args.push('-map', '[aout]');
     }
     args.push('-c:v', 'libx264', '-preset', 'fast', '-crf', '23', '-c:a', 'aac', '-b:a', '128k', '-t', String(totalDuration), '-pix_fmt', 'yuv420p', outputFile);
@@ -530,6 +557,7 @@ async function renderWithFFmpeg(payload, jobId) {
       await unlink(audioFile).catch(() => {});
     }
     if (payload.musicUrl) await unlink(musicFile).catch(() => {});
+    if (purrFile) await unlink(purrFile).catch(() => {});
     for (const f of sfxFiles) await unlink(f).catch(() => {});
     if (assFile) await unlink(assFile).catch(() => {});
 
@@ -549,6 +577,7 @@ async function renderWithFFmpeg(payload, jobId) {
       await unlink(audioFile).catch(() => {});
     }
     if (payload.musicUrl) await unlink(musicFile).catch(() => {});
+    if (purrFile) await unlink(purrFile).catch(() => {});
     for (const f of sfxFiles) await unlink(f).catch(() => {});
     if (assFile) await unlink(assFile).catch(() => {});
     await Promise.all(thumbnailFiles.map((file) => unlink(file).catch(() => {})));

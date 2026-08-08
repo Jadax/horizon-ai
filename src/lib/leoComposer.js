@@ -246,6 +246,7 @@ export async function buildLeoCompilation(inboxVideos, options = {}) {
     captions,
     overlays,
     keepSourceAudio: true,
+    purr: true,
     captionStyle: { color: "cream", fontsize: 72, style: "warm" },
     colorFilter,
     clipData: ordered,

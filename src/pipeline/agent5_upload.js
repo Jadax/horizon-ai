@@ -8,6 +8,7 @@ import { Readable } from "node:stream";
 import { config, getChannelToken } from "../config.js";
 import { supabase, logEvent } from "../supabase.js";
 import { youtubeClient } from "../lib/youtubeClient.js";
+import { learnedUploadHour } from "../lib/performanceTracker.js";
 import { matchAffiliateProducts } from "../lib/monetization.js";
 
 const REGIONS = [
@@ -18,6 +19,23 @@ const REGIONS = [
 ];
 
 let regionCursor = 0;
+
+/**
+ * Publish hour resolution order: dashboard-pinned uploadHourUtc wins, then
+ * the performance-tracker's learned best hour from real view data, then the
+ * regional-peak rotation. Learned hours need minSamples and are cached 6h;
+ * the learner never throws (returns null → rotation).
+ */
+async function resolvedUploadHour(fixedUtcHour, niche) {
+  if (Number.isFinite(Number(fixedUtcHour)) && fixedUtcHour !== null && fixedUtcHour !== "") {
+    return Number(fixedUtcHour);
+  }
+  try {
+    return await learnedUploadHour(niche);
+  } catch {
+    return null;
+  }
+}
 
 export function nextPublishSlot(fixedUtcHour = null) {
   // Dashboard-set per-niche upload hour (editing_style_preset.uploadHourUtc)
@@ -96,7 +114,7 @@ export async function uploadScheduled({ videoUrl, title, description, tags, comm
   const { data: nicheRow } = niche
     ? await supabase.from("niche_configurations").select("editing_style_preset").eq("niche_name", niche).single()
     : { data: null };
-  const { region, publishAt } = nextPublishSlot(nicheRow?.editing_style_preset?.uploadHourUtc ?? null);
+  const { region, publishAt } = nextPublishSlot(await resolvedUploadHour(nicheRow?.editing_style_preset?.uploadHourUtc ?? null, niche));
   const channelKey = targetChannel || "primary";
   
   // Add affiliate links if tracking ID is set

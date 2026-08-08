@@ -15,6 +15,36 @@ import { VOICE_BY_NICHE } from "../lib/viralScience.js";
 import { complianceScan } from "../lib/compliance.js";
 import { notifyAwaitingApproval } from "../lib/telegram.js";
 
+// ─── PER-NICHE RUNTIME DEFAULTS ─────────────────────────────────────────
+// Research-backed out-of-the-box differentiation: every niche gets its film
+// look + caption texture + vibe without waiting for a dashboard edit. These
+// fill gaps only — a value the user has set (dashboard or API) always wins.
+// color_preset is deliberately NOT set here: formatDecision already picks the
+// niche-appropriate film look per topic.
+const NICHE_FILM_DEFAULTS = [
+  { match: /pet|cat|dog|animal|kitten|puppy|leo/i, caption: { color: "cream", fontsize: 68, style: "warm" }, musicEnergy: "Chill", petMode: true },
+  { match: /tech|ai|programming|coding|science|space|gadget/i, caption: { color: "white", fontsize: 60, style: "geometric" } },
+  { match: /food|recipe|cook|baking|restaurant/i, caption: { color: "white", fontsize: 62, style: "rounded" } },
+  { match: /motivat|self.?improve|discipline|mindset|success|fitness|gym/i, caption: { color: "white", fontsize: 64, style: "impact" } },
+  { match: /finance|money|invest|stock|bitcoin|crypto|trading|business|entrepreneur/i, caption: { color: "yellow", fontsize: 60, style: "geometric" } },
+  { match: /game|gaming|esport|twitch/i, caption: { color: "sky", fontsize: 60, style: "geometric" } },
+  { match: /histor|explain|learn|education|documentary|facts|know/i, caption: { color: "cream", fontsize: 60, style: "documentary" } },
+  { match: /travel|adventure|nature|outdoor|wander/i, caption: { color: "white", fontsize: 60, style: "minimal" } },
+  { match: /entertain|funny|comedy|news|celebrity|movie|tv/i, caption: { color: "yellow", fontsize: 62, style: "impact" } },
+];
+
+function applyNicheDefaults(basePreset, nicheName) {
+  const entry = NICHE_FILM_DEFAULTS.find((d) => d.match.test(nicheName || ""));
+  if (!entry) return basePreset;
+  const out = { ...basePreset };
+  if (entry.caption) {
+    out.caption = { ...(out.caption || {}), ...entry.caption };
+  }
+  if (entry.musicEnergy && out.musicEnergy === undefined) out.musicEnergy = entry.musicEnergy;
+  if (entry.petMode && out.petMode === undefined) out.petMode = true;
+  return out;
+}
+
 export async function runPipelineForNiche(niche) {
   const { data: job, error } = await supabase
     .from("pipeline_logs")
@@ -56,7 +86,7 @@ export async function runPipelineForNiche(niche) {
       usage.openai_tokens += decision._usage?.tokens || 0;
 
       preset = {
-        ...niche.editing_style_preset,
+        ...applyNicheDefaults(niche.editing_style_preset || {}, niche.niche_name || ""),
         wordClipMode: decision.word_clip_mode,
         // Loop-mode matches agent2's rule (maxSeconds <= 70 → loop ending):
         // enables the visual soft-loop outro (tail echoes the frame-1 hook).
