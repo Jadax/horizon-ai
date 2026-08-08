@@ -58,6 +58,9 @@ export async function runPipelineForNiche(niche) {
       preset = {
         ...niche.editing_style_preset,
         wordClipMode: decision.word_clip_mode,
+        // Loop-mode matches agent2's rule (maxSeconds <= 70 → loop ending):
+        // enables the visual soft-loop outro (tail echoes the frame-1 hook).
+        loopMode: decision.target_duration_seconds + 4 <= 70,
         // A niche can pin its music energy (editing_style_preset.musicEnergy)
         // — the per-topic format decision picked "High"-energy dance tracks
         // for calm explainer videos, where the music should always sit in the

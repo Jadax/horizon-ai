@@ -90,6 +90,16 @@ export async function buildEditPayload({ cuts, voiceoverUrl, words, duration, mu
     }
   }
 
+  // SOFT-LOOP OUTRO (loop-retention steal): re-show the frame-1 hook headline
+  // across the final ~1.6s so the tail rhymes with the head. On replay the
+  // repeated hook text bridges the seam, reads as intentional, and loops count
+  // toward >100% retention. Skipped in word-clip mode (captions ARE the words)
+  // and when the tail already has its own overlay.
+  const headHook = overlays.find((o) => o.start === 0);
+  if (!preset.wordClipMode && preset.loopMode !== false && headHook && !overlays.some((o) => o.start < total && o.end > total - 1.6)) {
+    overlays.push({ text: headHook.text, start: Math.max(0, total - 1.6), end: total });
+  }
+
   // SFX layer (playbook spec: sparse one-shot sounds at -6 to -10 dB under
   // the VO, placed at key visual moments). Hook at ~0.8s, payoff on the tail.
   // Only fires if sfx_library has matching rows — an empty library is a no-op.
@@ -127,6 +137,10 @@ export async function buildEditPayload({ cuts, voiceoverUrl, words, duration, mu
     captions: captionClips(words, preset),
     captionStyle: { ...(preset.caption || {}), fontsize: Number(preset.caption?.fontsize) || defaultFontsize },
     color_preset: preset.color_preset || "classic_white",
+    // Opt-in 16:9 → 9:16 reframe (editing_style_preset.blurFill): blurred
+    // background + fitted subject instead of center-crop, so wide stock/clip
+    // subjects aren't cut off. Off by default — center-crop stays the look.
+    blurFill: !!preset.blurFill,
     // Bold comic-style text burned over each clip's first seconds (the
     // attachment-style "ONLY 10 YEARS LEFT!" look) — rendered by libass,
     // never drawn by the image model, so it can't be misspelled. First

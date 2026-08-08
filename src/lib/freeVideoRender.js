@@ -415,6 +415,13 @@ async function renderWithFFmpeg(payload, jobId) {
         ];
         return `[${i}:v]scale=2160:3840:force_original_aspect_ratio=increase,crop=2160:3840,zoompan=${motions[i % 4]}:d=${frames}:s=1080x1920:fps=30,setsar=1,setpts=PTS-STARTPTS[v${i}]`;
       }
+      // Blur-fill reframe (opt-in via payload.blurFill): blurred full-frame
+      // background with the fitted subject centered on top — keeps wide
+      // 16:9 stock/clip subjects fully visible instead of center-cropping
+      // them. Harmless for already-vertical sources (subject fills the frame).
+      if (payload.blurFill) {
+        return `[${i}:v]split[b${i}][f${i}];[b${i}]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,boxblur=20:2,eq=brightness=-0.12:saturation=1.05[bg${i}];[f${i}]scale=1080:1920:force_original_aspect_ratio=decrease[fg${i}];[bg${i}][fg${i}]overlay=(W-w)/2:(H-h)/2,setsar=1,fps=30,setpts=PTS-STARTPTS[v${i}]`;
+      }
       return `[${i}:v]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,setsar=1,fps=30,setpts=PTS-STARTPTS[v${i}]`;
     });
     let filterComplex;
