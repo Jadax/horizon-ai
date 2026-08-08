@@ -320,6 +320,8 @@ async function renderWithFFmpeg(payload, jobId) {
   let assFile = null;
   const thumbnailFiles = [];
   const sfxFiles = [];
+  let purrFile = null;
+  let purrLabel = '';
 
   try {
     if (payload.audioUrl) {
@@ -391,8 +393,6 @@ async function renderWithFFmpeg(payload, jobId) {
     // real cat-purr rate (~4.5 Hz), mixed softly under the music as "cozy
     // warmth". Only generated when music is present — a purr bed with no
     // music under it would read as a mechanical buzz.
-    let purrFile = null;
-    let purrLabel = '';
     if (payload.purr && payload.musicUrl) {
       purrFile = path.join(tmpDir, `horizon-purr-${randomUUID()}.wav`);
       const purrExpr = "(0.11*sin(2*PI*37*t)+0.055*sin(2*PI*74*t)+0.027*sin(2*PI*111*t))*(0.7+0.3*sin(2*PI*4.5*t))";
