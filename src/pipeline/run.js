@@ -104,6 +104,16 @@ export async function runPipelineForNiche(niche) {
     }
 
     const qualityResult = scriptOut.quality;
+    // LLM-selected hook headline + emphasis words flow into the render preset:
+    // hook_text becomes the frame-1 on-screen hook overlay, emphasis_words get
+    // yellow-highlighted in the captions (Submagic/OpusClip/Hormozi steal).
+    preset.hookText = scriptOut.hook_text || null;
+    preset.caption = {
+      ...(preset.caption || {}),
+      ...(Array.isArray(scriptOut.emphasis_words) && scriptOut.emphasis_words.length
+        ? { emphasis: scriptOut.emphasis_words.filter((w) => typeof w === "string" && w.trim()).slice(0, 6) }
+        : {}),
+    };
     const nicheThreshold = Number(niche.editing_style_preset?.qualityThreshold) || config.contentQualityThreshold;
     if (!qualityResult?.passed || qualityResult.score < nicheThreshold) {
       throw new Error(`Mandatory quality gate rejected script (${qualityResult?.score || 0}/100)`);

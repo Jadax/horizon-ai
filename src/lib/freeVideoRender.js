@@ -31,37 +31,56 @@ const CAPTION_COLORS = {
   pink: '&H00C8B4FF',
 };
 
-// Niche-specific visual presets (color grading + accent colors)
+// Niche-specific visual presets (color grading + accent colors). Each grade is
+// a full film-look filter chain (single pass applied AFTER concat, so the grade
+// hits the video but never the caption text). Colors are warm-lifted shadows +
+// golden highlights for cozy/pet niches, cool+cyan for tech, teal-orange for
+// travel, punchy+vignetted for entertainment/gaming, desaturated cinematic for
+// motivation, bright-clean for food. Vignette angle: smaller = subtler.
 const COLOR_PRESETS = {
   neon_tech: {
-    colorFilter: 'eq=contrast=1.15:saturation=1.1:brightness=-0.05',
+    colorFilter: 'eq=contrast=1.15:saturation=1.12:brightness=-0.05,colorbalance=bs=0.04:gs=0.02:rs=-0.02,vignette=PI/4.5',
     captionColor: 'yellow',
     accentColor: '&H00FFD700', // electric blue
   },
   teal_gold: {
-    colorFilter: 'eq=contrast=1.12:saturation=1.25:brightness=0.02',
+    colorFilter: 'eq=contrast=1.12:saturation=1.2:brightness=0.02,colorbalance=bs=0.06:gs=-0.03:rh=0.05:bh=-0.03,vignette=PI/5',
     captionColor: 'cream',
     accentColor: '&H0000FFD7', // warm gold
   },
   red_yellow: {
-    colorFilter: 'eq=contrast=1.18:saturation=1.3:brightness=0.01',
+    colorFilter: 'eq=contrast=1.18:saturation=1.3:brightness=0.01,vignette=PI/4.5',
     captionColor: 'yellow',
     accentColor: '&H0000FFFF', // bright yellow
   },
   purple_crimson: {
-    colorFilter: 'eq=contrast=1.14:saturation=1.15:brightness=-0.03',
+    colorFilter: 'eq=contrast=1.14:saturation=1.12:brightness=-0.03,colorbalance=bs=0.05:bh=-0.02:rh=0.04,vignette=PI/3.5',
     captionColor: 'pink',
     accentColor: '&H00E74C3C', // crimson
   },
   coral_emerald: {
-    colorFilter: 'eq=contrast=1.1:saturation=1.2:brightness=0.03',
+    colorFilter: 'eq=contrast=1.1:saturation=1.18:brightness=0.03,colorbalance=rh=0.04:bh=0.02',
     captionColor: 'mint',
     accentColor: '&H00FF6B6B', // coral
   },
   warm_gold: {
-    colorFilter: 'eq=contrast=1.08:saturation=1.15:brightness=0.04',
+    // Cozy golden-hour look (pets/Leo): lifted warm shadows, golden highlights,
+    // gentle vignette — reads "hug in video form", never clinical.
+    colorFilter: 'eq=contrast=1.06:saturation=1.08:brightness=0.04,colorbalance=rs=0.03:gs=0.03:rh=0.06:gh=0.03:bh=-0.02,vignette=PI/5',
     captionColor: 'cream',
     accentColor: '&H00FFD700', // gold
+  },
+  bright_clean: {
+    // Food/wholesome: bright, crisp, slightly warm, zero moodiness.
+    colorFilter: 'eq=contrast=1.05:saturation=1.12:brightness=0.05',
+    captionColor: 'white',
+    accentColor: '&H00FFFFFF',
+  },
+  moody_cinematic: {
+    // Motivation/reflective: desaturated, medium-contrast S-curve, dark corners.
+    colorFilter: 'eq=contrast=1.12:saturation=0.85:brightness=-0.02,curves=preset=medium_contrast,vignette=PI/3',
+    captionColor: 'white',
+    accentColor: '&H00D4AF37', // muted gold
   },
   classic_white: {
     colorFilter: null,
@@ -95,6 +114,26 @@ function buildAssSubtitles(captions, overlays = [], style = {}, sparkleOverlays 
   const boxMode = !!style.box;
   const backColour = boxMode ? (toAssColor(style.background) || "&HFF000000") : "&H80000000";
   const borderStyle = boxMode ? 3 : 1;
+  // Per-niche caption texture (Hormozi/Submagic/typography research): the font
+  // family stays Arial (custom fonts can't resolve on Railway's ffmpeg-static
+  // build — no fontconfig), so the niche's feel comes from outline weight,
+  // drop shadow, boldness and letter-spacing instead. Pets/cozy = soft thin
+  // stroke + soft shadow; motivation = hairline + no shadow; tech/finance =
+  // thick black stroke; gaming = heaviest. A dashboard-set outline/shadow/
+  // spacing/bold wins over the table.
+  const TEXTURE = {
+    warm: { outline: 3, shadow: 4, bold: 1, spacing: 0 },
+    rounded: { outline: 3, shadow: 4, bold: 1, spacing: 0 },
+    minimal: { outline: 2, shadow: 2, bold: 0, spacing: 1 },
+    geometric: { outline: 5, shadow: 2, bold: 1, spacing: 1 },
+    impact: { outline: 6, shadow: 3, bold: 1, spacing: 0 },
+    documentary: { outline: 3, shadow: 2, bold: 0, spacing: 1 },
+  };
+  const texture = TEXTURE[style.style] || { outline: 5, shadow: 2, bold: 1, spacing: 1 };
+  const outline = Number(style.outline) || texture.outline;
+  const shadow = Number(style.shadow) || texture.shadow;
+  const bold = style.bold === undefined ? texture.bold : Number(style.bold);
+  const spacing = Number(style.spacing) || texture.spacing;
   const header = [
     '[Script Info]',
     'ScriptType: v4.00+',
@@ -103,7 +142,7 @@ function buildAssSubtitles(captions, overlays = [], style = {}, sparkleOverlays 
     '',
     '[V4+ Styles]',
     'Format: Name, Fontname, Fontsize, PrimaryColour, OutlineColour, BackColour, Bold, BorderStyle, Outline, Shadow, Alignment, MarginV, Spacing',
-    `Style: Default,Arial,${fontsize},${primary},&H00000000,${backColour},1,${borderStyle},5,2,2,500,1`,
+    `Style: Default,Arial,${fontsize},${primary},&H00000000,${backColour},${bold},${borderStyle},${outline},${shadow},2,500,${spacing}`,
     // Hook: bold, big, warm golden, center-top, thick outline — scroll-stopping
     'Style: Hook,Arial,116,&H0000CCFF,&H00000000,&H80000000,1,1,7,3,8,300,2',
     // SFX pop-in styles — bright colorful cat sounds
@@ -179,7 +218,24 @@ function buildAssSubtitles(captions, overlays = [], style = {}, sparkleOverlays 
       /(?:\$|€|£|₹)?\s?\d[\d,]*(?:\.\d+)?\s?(?:%|K|M|B|m|b|k)?/g,
       (m) => (/\d/.test(m) ? `{\\c&H0000FFFF}${m}{\\r}` : m)
     );
-  
+  // LLM-selected keyword emphasis (Submagic/OpusClip/Hormozi steal): agent2
+  // emits the 3-6 words that carry the script's value; each is recolored to
+  // the niche's highlight yellow when it appears in a caption, so one word
+  // per phrase pops instead of every number. Wrapped AFTER clean() so the
+  // override tags survive.
+  const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const emphasizeWords = (t) => {
+    let out = String(t);
+    for (const w of style.emphasis || []) {
+      const word = String(w).trim();
+      if (!word) continue;
+      const re = new RegExp(`(^|\\s)(${escapeRe(word)})(?=[\\s.!?,;]|$)`, "i");
+      out = out.replace(re, `$1{\\c&H0000FFFF}${word}{\\r}`);
+    }
+    return out;
+  };
+  const styleCaption = (t) => emphasizeWords(emphasizeNumbers(clean(t)));
+
   // Map color_preset to niche-specific overlay styles
   const nicheOverlayStyle = {
     neon_tech: 'Tech_Code',
@@ -187,13 +243,15 @@ function buildAssSubtitles(captions, overlays = [], style = {}, sparkleOverlays 
     red_yellow: 'Kinetic',
     purple_crimson: 'Lore_Drop',
     coral_emerald: 'Pet_Reaction',
-    warm_gold: 'Travel_Dest',
+    warm_gold: 'Pet_Cute',
+    bright_clean: 'Hook',
+    moody_cinematic: 'Hook',
     classic_white: 'Hook',
   };
   const defaultOverlayStyle = nicheOverlayStyle[style.color_preset] || 'Hook';
   
   const lines = [
-    ...captions.map((cap) => `Dialogue: 0,${toAssTimestamp(cap.start)},${toAssTimestamp(cap.end)},Default,${primary === '&H0000FFFF' ? clean(cap.text) : emphasizeNumbers(clean(cap.text))}`),
+    ...captions.map((cap) => `Dialogue: 0,${toAssTimestamp(cap.start)},${toAssTimestamp(cap.end)},Default,${primary === '&H0000FFFF' ? clean(cap.text) : styleCaption(cap.text)}`),
     ...overlays.map((o) => {
       const s = o.style || defaultOverlayStyle;
       // Niche-specific animations

@@ -235,7 +235,9 @@ export async function buildLeoCompilation(inboxVideos, options = {}) {
 
   let colorFilter = null; // warm LUT applied at filter-complex level
   if (options.warmGrade !== false) {
-    colorFilter = "eq=contrast=1.08:brightness=0.04:saturation=1.12,hue=h=-4:s=1.1";
+    // Cozy golden-hour grade (matches the warm_gold render preset): lifted warm
+    // shadows, golden highlights, gentle vignette — "hug in video form".
+    colorFilter = "eq=contrast=1.06:saturation=1.08:brightness=0.04,colorbalance=rs=0.03:gs=0.03:rh=0.06:gh=0.03:bh=-0.02,vignette=PI/5";
   }
 
   return {
@@ -244,7 +246,7 @@ export async function buildLeoCompilation(inboxVideos, options = {}) {
     captions,
     overlays,
     keepSourceAudio: true,
-    captionStyle: { color: "cream", fontsize: 72 },
+    captionStyle: { color: "cream", fontsize: 72, style: "warm" },
     colorFilter,
     clipData: ordered,
     metadata: {

@@ -26,17 +26,25 @@ tech/gaming/culture closely and can smell disconnected clickbait instantly —
 a title that overpromises and underdelivers gets the video reported, not
 watched, and kills channel trust).
 
-## ALGORITHM DATA (YouTube Shorts 2025-2026)
-- 200B+ daily Shorts views, 2B+ monthly users
-- 77% of YouTube views in 2025 came from videos under 1 minute
-- The algorithm uses a TWO-STAGE test: (1) Viewed vs. Swiped Away (target: 70-80%+), (2) Average Percentage Viewed (target: 80%+)
+## ALGORITHM DATA (YouTube Shorts 2026, verified benchmarks)
+- 200B+ daily Shorts views, 2B+ monthly users; 77% of YouTube views under 1 minute
+- Decision is TWO-STAGE: ~0.3s subconscious (visual frame only — text/audio not
+  yet processed) then ~3s conscious commitment. 65% of viewers decide in 3s.
+- Hard benchmark (5,000 Shorts, 2,500 >1M views vs 2,500 <10K): viral videos get
+  their first on-screen text at ~0.4s (87% under 0.6s) and first hard cut at
+  ~0.9s. Your opening words render as on-screen hook text in frame 1 — make them
+  land instantly.
+- Length sweet spot is now 30-45s; sub-15s collapsed in 2026 (can't clear the
+  absolute watch-time bar even at 100% retention). Loops count toward >100%
+  retention (re-watch within 2s of the end = partial new view), so a loop ending
+  is the strongest single retention mechanic available.
+- Swipe-away is a gate filter: under 40% in the first 2 seconds expands
+  distribution; over 50% kills the video. Satisfaction signals (shares, DMs,
+  searches) now outweigh raw watch time.
 - 50-60% of drop-offs happen in the FIRST 3 SECONDS — your hook IS your thumbnail
-- The algorithm samples a Short in its first 0.8 seconds (audience seeding) — the opening words also render as on-screen hook text in frame 1, so they must be complete and compelling alone
-- A swipe-away rate under 30% expands distribution; over 50% kills the video
-- Shorts 15-30s consistently achieve 80%+ APV; over 45s see dramatic drop-offs
-- The 0.2-second rule: viewers swipe on dead air, so write dense — no throat-clearing, every syllable earns the next
-- Loop endings (last sentence connects to first) unlock 100%+ retention — massive algorithmic boost
-- "I haven't had a Short pass 1,000,000 views with less than 70% average view duration"
+- The 0.2-second rule: viewers swipe on dead air, so write dense — no
+  throat-clearing, every syllable earns the next. Original voiceover (not
+  trending audio) ranks better for channels under 50K subs.
 
 ## NICHE-SPECIFIC HOOK PATTERNS (Research-backed)
 
@@ -98,6 +106,7 @@ Viewer retention is the #1 factor for the YouTube algorithm. Every line must ser
 - **PUNCTUATION:** never use an em dash (—) or en dash (–) anywhere in the script, full stop — not just when it's jammed against a word with no space. Also avoid colons and semicolons — they read as written-for-the-page structure, not something a person would actually say out loud. Use a comma, a period, or just start a new sentence instead.
 - **BANNED WORDS/PHRASES:** these are the words that instantly read as AI-generated to anyone paying attention, so none of them appear anywhere in the script, title, or description: "delve", "delving", "testament", "moreover", "furthermore", "tapestry", "boasts", "navigate" (as in "navigate this landscape"), "landscape" (used metaphorically, e.g. "the gaming landscape"), "realm", "elevate", "unleash", "unlock" (metaphorical), "game-changer", "in today's world", "in the world of", "when it comes to", "it's worth noting", "it's important to note", "dive into", "dive deep", "underscore", "underscores", "bustling", "vibrant" (as filler), "myriad", "plethora", "robust" (as filler), "seamless" (as filler), "cutting-edge" (as filler), "unprecedented" (unless literally true and specific).
 - Simple spoken language. Short sentences. Every sentence earns the next.
+- **EMPHASIS WORDS:** pick the 3-6 words that carry this script's value (the key number, the surprising noun, the payoff word). Each must appear verbatim in the script text. Exactly one of them is highlighted in yellow in the on-screen captions per phrase — they are the words the eye should land on, so choose words that deserve visual weight.
 - If WORD_CLIP_MODE is true: favor short, punchy, highly quotable phrases (3-6 words per beat) over flowing narration — every phrase should work standalone as a bold on-screen word/phrase card synced to the voiceover.
 - Write the script in the language specified by LANGUAGE (e.g. "en" = natural spoken English, "hi" = natural conversational Hindi in Devanagari script). Title/description/tags stay in LANGUAGE too, except tags may include common English crossover terms if that's how people actually search.
 - No hashtags, no emoji, no stage directions in the script body.
@@ -192,6 +201,8 @@ internal, never viewer-facing.
   "script": "...",
   "hook_word": "first word of script",
   "loop_tail": "the final mid-sentence fragment",
+  "hook_text": "a 3-6 word, ALL-CAPS-ready scroll-stopper for the first frame (big bold on-screen headline that must work alone, on mute, within 0.6s — e.g. '$10,000 A DAY' / 'YOUR BRAIN LIES' / 'POV: CAT KINGDOM'. Front-load the payoff or the open loop; never generic like 'WATCH THIS'. If WORD_CLIP_MODE is true, still provide it as a fallback but keep it short)",
+  "emphasis_words": ["3-6", "words", "that", "carry", "the", "script's", "value"],
   "title": "the finished title, following the process above",
   "title_pattern": "one of: curiosity_gap | number_stakes | contrarian_reframe | direct_consequence | insider_callout | formula_curiosity | formula_negative_assertion | formula_case_study | formula_niche_hack | formula_threat",
   "title_reasoning": "1-2 sentences: which specific hook you pulled from the script, which pattern you used, and why it fits this audience — this is for internal review, never shown to viewers",

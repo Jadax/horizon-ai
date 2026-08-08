@@ -34,27 +34,27 @@ video pipeline. You receive a topic, the niche's allowed duration range,
 and whether word-clip mode is stylistically available for this niche.
 Decide, for THIS SPECIFIC TOPIC, not generically for the niche:
 
-ALGORITHM DATA (YouTube Shorts 2025-2026):
-- The algorithm samples a Short within its first 0.8 seconds to seed the
-  audience; the viewer decides in the first 3 seconds. Both windows need an
-  on-screen hook — which the render layer now adds automatically from the
-  script's opening words, so make those words land hard.
-- 15-30 second Shorts consistently achieve 80%+ APV (average percentage viewed)
-- Shorts under 10s feel incomplete; over 45s see dramatic drop-offs
-- 70% APV minimum required for 1M+ views
-- 50-60% of viewers who drop off do so in the first 3 seconds
-- A swipe-away rate under 30% expands distribution; over 50% kills it
+ALGORITHM DATA (YouTube Shorts 2026, verified benchmarks):
+- Decision is TWO-STAGE: ~0.3s subconscious (visual frame only) then ~3s
+  conscious commitment; 65% of viewers decide within 3s. The first frame must
+  have motion or on-screen text at 0.4s — the render layer burns the script's
+  opening (or LLM hook_text) as frame-1 headline text, so make those words land.
+- Viral Shorts (5,000-video study) get first on-screen text at ~0.4s and first
+  hard cut at ~0.9s; curiosity-gap closure lands by ~8s.
+- 30-45 seconds is the 2026 sweet spot — sub-15s no longer clears the watch-time
+  bar. Loops count toward >100% retention.
+- Swipe-away is a gate: under 40% in the first 2s expands distribution.
+- 50-60% of viewers who drop off do so in the first 3 seconds.
 - The 0.2-second rule: no audio gap >0.2s in the first 3s, >0.4s after —
   density is a retention lever (audio is silenced/tightened downstream)
 - Loop endings (connecting last sentence to first) unlock 100%+ retention
-- Target: 70-80%+ viewed rate (stop the scroll), 80%+ APV (hold attention)
+- Target: 70-85%+ average percentage viewed; shares >1% are top-positive.
 
 DURATION RULES:
-- DEFAULT to 15-25 seconds for most topics (the viral sweet spot)
-- Use 25-35 seconds ONLY for layered stories with clear emotional arc
-- Use 35-45 seconds ONLY for explainer content with explicit payoff
-- NEVER exceed 50 seconds — the data shows dramatic retention loss
-- A one-fact hook should target 15-18 seconds (lean, punchy)
+- DEFAULT to 30-45 seconds (the 2026 viral sweet spot; sub-15s underperforms)
+- Use 35-45 seconds for explainer content with explicit payoff
+- NEVER exceed 50 seconds — retention drops off dramatically
+- A one-fact hook should target 18-25 seconds (lean, punchy)
 - A story with twist should target 22-30 seconds (enough room to breathe)
 
 SPOKEN DENSITY:
@@ -129,7 +129,7 @@ PET:
    narration, so take this as seriously as the other choices.
 5. music_brief: 2-4 mood tags, 1-3 instrumental genres, and a BPM range that
    match the emotional arc. Prefer instrumental music beneath narration.
-6. color_preset: pick one of "neon_tech", "teal_gold", "red_yellow", "purple_crimson", "coral_emerald", "warm_gold", or "classic_white" to set the visual identity.
+6. color_preset: pick one of "neon_tech", "teal_gold", "red_yellow", "purple_crimson", "coral_emerald", "warm_gold", "bright_clean", "moody_cinematic", or "classic_white" to set the visual identity. Match the niche's registered look (see the per-niche tactics below) unless the topic's emotional register genuinely demands another: pets/cozy → warm_gold, tech → neon_tech, travel → teal_gold, entertainment/viral → red_yellow, gaming → purple_crimson, food → bright_clean, motivation/reflective → moody_cinematic.
 7. reasoning: one sentence explaining all of the above together.
 
 Respond ONLY with JSON:
@@ -189,7 +189,7 @@ export async function decideFormat(niche, topic, jobId) {
       bpm: Array.isArray(musicBrief.bpm) && musicBrief.bpm.length === 2 ? musicBrief.bpm.map(Number) : [70, 120],
     };
     // Apply niche-specific color preset (neon_tech, teal_gold, red_yellow, etc.)
-    const validPresets = ["neon_tech", "teal_gold", "red_yellow", "purple_crimson", "coral_emerald", "warm_gold", "classic_white"];
+    const validPresets = ["neon_tech", "teal_gold", "red_yellow", "purple_crimson", "coral_emerald", "warm_gold", "bright_clean", "moody_cinematic", "classic_white"];
     if (!validPresets.includes(decision.color_preset)) {
       decision.color_preset = "classic_white";
     }

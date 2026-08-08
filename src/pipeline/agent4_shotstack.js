@@ -79,11 +79,10 @@ export async function buildEditPayload({ cuts, voiceoverUrl, words, duration, mu
       end: Math.min(clip.timelineStart + 3.2, clip.timelineEnd ?? clip.timelineStart + 3.2),
     }));
   if (!preset.wordClipMode && !overlays.some((o) => o.start < 0.5)) {
-    const hookText = words
-      .slice(0, 7)
-      .map((w) => w.word)
-      .filter(Boolean)
-      .join(" ")
+    // LLM-written hook headline (agent2 hook_text) wins when present — it is
+    // a purpose-built 3-6 word scroll-stopper, stronger than slicing the
+    // opening words. Falls back to the first 7 spoken words.
+    const hookText = (preset.hookText || words.slice(0, 7).map((w) => w.word).filter(Boolean).join(" "))
       .toUpperCase()
       .slice(0, 40);
     if (hookText) {
