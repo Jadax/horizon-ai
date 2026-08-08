@@ -33,6 +33,18 @@ async function geminiJson(model, messages, temperature) {
   if (json.error) throw new Error(`Gemini ${model}: ${json.error.message?.slice(0, 160)}`);
   const text = json.candidates?.[0]?.content?.parts?.map((p) => p.text).join("") || "";
   if (!text.trim()) throw new Error(`Gemini ${model}: empty response`);
+  // responseMimeType:"application/json" is a strong hint, not a guarantee —
+  // large multi-item schemas with free-text fields occasionally come back
+  // truncated (hit the model's output cap) or with an unescaped character
+  // breaking the structure. Validating here means a bad response triggers
+  // the SAME fallback-model retry as a network/quota error, instead of every
+  // individual call site having to catch its own JSON.parse exception.
+  const finishReason = json.candidates?.[0]?.finishReason;
+  try {
+    JSON.parse(text);
+  } catch {
+    throw new Error(`Gemini ${model}: invalid JSON in response${finishReason === "MAX_TOKENS" ? " (truncated: hit output token limit)" : ""}`);
+  }
   return { content: text, tokens: json.usageMetadata?.totalTokenCount || 0, provider: `gemini/${model}` };
 }
 

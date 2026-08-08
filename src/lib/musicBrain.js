@@ -324,7 +324,11 @@ export async function syncMusicBrain() {
       const safety = verifyContentIdSafety(track);
       if (!safety.safe) continue;
 
-      const { error } = await supabase.from("music_library").upsert({
+      // music_library has no unique constraint on (title, energy_level), so
+      // .upsert(..., {onConflict}) fails with "no unique or exclusion
+      // constraint matching" — verified live. Dedupe manually instead of
+      // depending on a DB constraint that doesn't exist.
+      const row = {
         title: track.title,
         track_url: track.track_url,
         energy_level: energy,
@@ -333,7 +337,11 @@ export async function syncMusicBrain() {
         bpm: track.bpm,
         instrumental: track.instrumental,
         license: `${track.license} | attribution: ${track.attribution || safety.attribution || "none"} | content_id_safe: ${safety.safe}`,
-      }, { onConflict: "title,energy_level" });
+      };
+      const { data: existing } = await supabase.from("music_library").select("id").eq("title", track.title).eq("energy_level", energy).maybeSingle();
+      const { error } = existing
+        ? await supabase.from("music_library").update(row).eq("id", existing.id)
+        : await supabase.from("music_library").insert(row);
       if (!error) {
         added++;
         console.log(`  ✓ ${track.title} [${energy}] ← ${track.source} (${safety.reason})`);

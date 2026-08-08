@@ -401,6 +401,27 @@ export async function runFullPipeline() {
   if (error) throw new Error(`Could not load niches: ${error.message}`);
 
   for (const niche of (niches || []).slice(0, config.videosPerRun)) {
+    // Local-folder niches (Leo: `npm run leo:sync` processes leo_inbox/ on
+    // the operator's machine, not Railway) opt out of the standard
+    // RSS/Reddit topic-harvest pipeline entirely via editing_style_preset
+    // .localFolder — harvestTopic() would otherwise throw "No topic
+    // candidates found" and burn a Failed job every cadence cycle.
+    if (niche.editing_style_preset?.localFolder) {
+      await logEvent("Scheduler", `${niche.niche_name}: local-folder niche — runs via its own sync command, not the daily loop`);
+      continue;
+    }
+    // Defensive net: a niche with zero configured sources AND no reliance
+    // on the always-on global trending pool (google/wikipedia_trending/
+    // hackernews/bluesky/gdelt) can never produce a candidate either.
+    const globalOnly = new Set(["google", "wikipedia_trending", "hackernews", "bluesky", "gdelt"]);
+    const restrictedToGlobal = Array.isArray(niche.editing_style_preset?.trendSources) &&
+      niche.editing_style_preset.trendSources.every((s) => !globalOnly.has(s));
+    const hasCustomSources = niche.rss_feeds?.length || niche.target_sources?.length ||
+      niche.mastodon_tags?.length || niche.lemmy_communities?.length || niche.social_rss_feeds?.length;
+    if (!hasCustomSources && restrictedToGlobal) {
+      await logEvent("Scheduler", `${niche.niche_name}: no topic sources configured — skipping instead of a doomed run`, { level: "warn" });
+      continue;
+    }
     // Per-niche cadence (editing_style_preset.cadenceDays, dashboard-set):
     // skip a niche whose last successful job is more recent than its cadence
     // window, so e.g. Leo can post daily while a niche rests at every 3 days.

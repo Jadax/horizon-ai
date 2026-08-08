@@ -46,14 +46,16 @@ export async function syncJamendoMusic() {
       const { error: upErr } = await supabase.storage.from("renders").upload(path, buffer, { contentType: "audio/mpeg", upsert: true });
       if (upErr) { console.error(`${track.name}: upload failed — ${upErr.message}`); continue; }
       const { data } = supabase.storage.from("renders").getPublicUrl(path);
-      const { error: dbErr } = await supabase.from("music_library").upsert({
-        title: `${track.name} — ${track.artist_name} (CC, Jamendo)`,
-        energy_level: energy,
-        mood_tags: q.tags.split("+"),
-        track_url: data.publicUrl,
-        genre: q.tags.split("+")[0],
-        instrumental: true,
-      }, { onConflict: "title" });
+      const title = `${track.name} — ${track.artist_name} (CC, Jamendo)`;
+      // music_library has no unique constraint on title (or title+energy_level),
+      // so .upsert(..., {onConflict}) fails with "no unique or exclusion
+      // constraint matching" — verified live. Dedupe manually instead of
+      // depending on a DB constraint that doesn't exist.
+      const { data: existing } = await supabase.from("music_library").select("id").eq("title", title).eq("energy_level", energy).maybeSingle();
+      const row = { title, energy_level: energy, mood_tags: q.tags.split("+"), track_url: data.publicUrl, genre: q.tags.split("+")[0], instrumental: true };
+      const { error: dbErr } = existing
+        ? await supabase.from("music_library").update(row).eq("id", existing.id)
+        : await supabase.from("music_library").insert(row);
       console.log(dbErr ? `${track.name}: DB insert failed — ${dbErr.message}` : `${energy}: added "${track.name}" by ${track.artist_name}`);
     }
   }

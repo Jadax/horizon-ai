@@ -103,6 +103,11 @@ CREATE TABLE IF NOT EXISTS music_library (
   license text,
   created_at timestamptz DEFAULT now()
 );
+-- Neither music:sync nor music:brain requires this (both dedupe via a
+-- select-then-insert/update instead of ON CONFLICT, verified against a
+-- table with no unique constraint), but it's cheap, safe to re-run, and
+-- lets you dedupe by hand from the SQL editor if you ever want to.
+CREATE UNIQUE INDEX IF NOT EXISTS music_library_title_energy_key ON music_library (title, energy_level);
 
 CREATE TABLE IF NOT EXISTS sfx_library (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),

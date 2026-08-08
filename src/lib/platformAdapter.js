@@ -92,12 +92,21 @@ export function buildPublishPackage({
     };
   }
   if (platforms.includes("instagram")) {
+    // Cover generation is best-effort (freeVideoRender.js treats each of the
+    // 3 thumbnail extractions independently and skips one on failure rather
+    // than losing an otherwise-successful render) — a transient hiccup on
+    // ONE frame extraction was observed live discarding a fully-rendered,
+    // 90-scoring video over a missing THIRD cover option. Pad by repeating
+    // the last available cover instead of hard-requiring exactly three; only
+    // a total absence of any cover (extraction failed completely) is fatal.
+    const covers = (coverVariants || []).filter(Boolean).slice(0, 3);
+    if (!covers.length) throw new Error("Instagram package requires at least one cover image, but none were generated");
+    while (covers.length < 3) covers.push(covers[covers.length - 1]);
     variants.instagram = {
-      cover_variants: (coverVariants || []).slice(0, 3),
+      cover_variants: covers,
       caption: `${title}\n\n${description.slice(0, 300)}\n.\n.\n.\n${hashtags.slice(0, 10).join(" ")}`,
       altText: `${niche} short video: ${title.slice(0, 100)}`,
     };
-    if (variants.instagram.cover_variants.length !== 3) throw new Error("Instagram package requires exactly three cover variants");
   }
   if (platforms.includes("linkedin")) {
     variants.linkedin = {

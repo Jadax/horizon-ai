@@ -459,9 +459,13 @@ export async function calculateTrims(script, clips, stylePreset, jobId, words = 
     validated.push({ ...source, timelineStart: start, timelineEnd: authoritativeEnd, length: authoritativeEnd - start });
   }
   validated._usage = { tokens: res.tokens || 0 };
+  // Log the REAL grounded duration, not the LLM's total_seconds guess — cuts
+  // are stretched/trimmed to authoritativeEnd above, so total_seconds can be
+  // stale by tens of seconds on a long voiceover and misleads anyone reading
+  // the live event stream about what's actually about to render.
   await logEvent(
     "Agent 2",
-    `Cut list ready: ${validated.length} cuts, ~${Math.round(total_seconds)}s timeline`,
+    `Cut list ready: ${validated.length} cuts, ${authoritativeEnd.toFixed(1)}s timeline`,
     { jobId }
   );
   return validated;

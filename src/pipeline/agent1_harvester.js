@@ -267,7 +267,7 @@ async function rerankForProductionReadiness(candidates, niche, jobId) {
 - visualability: can a viewer see specific people, objects, actions, locations, or a truthful simple metaphor for most of the story? Broad mood-only visuals score low.
 - novelty: not an obvious repeat or generic update.
 
-Return JSON only: {"scores":[{"index":0,"total":0,"audience_pull":0,"factual_grounding":0,"visualability":0,"novelty":0,"reason":"..."}]}. Total is 4-40. Do not reward tragedy, outrage, or celebrity alone without a specific story.`,
+Return JSON only: {"scores":[{"index":0,"total":0,"audience_pull":0,"factual_grounding":0,"visualability":0,"novelty":0}]}. Total is 4-40. Do not reward tragedy, outrage, or celebrity alone without a specific story.`,
                 },
                 {
                     role: "user",
@@ -298,7 +298,6 @@ Return JSON only: {"scores":[{"index":0,"total":0,"audience_pull":0,"factual_gro
                     ...candidate,
                     _productionScore: total,
                     _productionEligible: eligible,
-                    _productionReason: String(score.reason || "").slice(0, 180),
                 };
             })
             .sort((a, b) => b._productionScore - a._productionScore);

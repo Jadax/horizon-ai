@@ -555,16 +555,36 @@ async function renderWithFFmpeg(payload, jobId) {
           Number(totalDuration) * 0.85,
         ]
       : [Number(totalDuration) * 0.15, Number(totalDuration) * 0.5, Number(totalDuration) * 0.85];
-    for (const [index, timeSec] of thumbTimes.entries()) {
+    // A cover/thumbnail is cosmetic (dashboard preview + upload thumbnail) —
+    // the video render already succeeded above, so a single failed frame
+    // extraction or a transient read hiccup (observed live: ENOENT reading a
+    // just-written temp PNG, most likely Windows AV/indexer touching the
+    // file between write and read) must never discard an otherwise-good
+    // render. Each variant is independently best-effort; only fs/promises
+    // is imported once up front instead of per-iteration.
+    const fsp = await import('node:fs/promises');
+    for (const timeSec of thumbTimes) {
       const thumbnailFile = path.join(tmpDir, `horizon-cover-${randomUUID()}.png`);
-      thumbnailFiles.push(thumbnailFile);
-      await execFileAsync(ffmpeg, ['-y', '-ss', String(timeSec), '-i', outputFile, '-frames:v', '1', '-vf', 'scale=1080:1920', thumbnailFile], { timeout: 60000 });
+      try {
+        await execFileAsync(ffmpeg, ['-y', '-ss', String(timeSec), '-i', outputFile, '-frames:v', '1', '-vf', 'scale=1080:1920', thumbnailFile], { timeout: 60000 });
+        thumbnailFiles.push(thumbnailFile);
+      } catch (err) {
+        console.error(`[FFmpeg] Cover extraction at ${timeSec}s failed (non-fatal, skipping this variant):`, err.message);
+      }
     }
-    const [url, subtitleUrl, ...coverVariants] = await Promise.all([
+    const [url, subtitleUrl, ...coverResults] = await Promise.all([
       uploadRenderArtifact(`videos/${jobId}.mp4`, video, 'video/mp4'),
       uploadRenderArtifact(`subtitles/${jobId}.srt`, subtitleBody, 'application/x-subrip'),
-      ...thumbnailFiles.map(async (file, index) => uploadRenderArtifact(`covers/${jobId}-${index + 1}.png`, await import('node:fs/promises').then(fs => fs.readFile(file)), 'image/png')),
+      ...thumbnailFiles.map(async (file, index) => {
+        try {
+          return await uploadRenderArtifact(`covers/${jobId}-${index + 1}.png`, await fsp.readFile(file), 'image/png');
+        } catch (err) {
+          console.error(`[FFmpeg] Cover upload for variant ${index + 1} failed (non-fatal):`, err.message);
+          return null;
+        }
+      }),
     ]);
+    const coverVariants = coverResults.filter(Boolean);
     await unlink(outputFile).catch(() => {});
     if (payload.audioUrl) {
       await unlink(audioFile).catch(() => {});
