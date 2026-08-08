@@ -535,17 +535,30 @@ async function renderWithFFmpeg(payload, jobId) {
     if (payload.audioUrl || payload.musicUrl) {
       args.push('-map', '[aout]');
     }
-    args.push('-c:v', 'libx264', '-preset', 'fast', '-crf', '23', '-c:a', 'aac', '-b:a', '128k', '-t', String(totalDuration), '-pix_fmt', 'yuv420p', outputFile);
+    args.push('-c:v', 'libx264', '-preset', 'fast', '-crf', '18', '-c:a', 'aac', '-b:a', '128k', '-t', String(totalDuration), '-pix_fmt', 'yuv420p', outputFile);
 
     await execFileAsync(ffmpeg, args, { timeout: 300000 });
     await execFileAsync(ffmpeg, ['-v', 'error', '-i', outputFile, '-f', 'null', '-'], { timeout: 300000 });
 
     const video = await import('node:fs/promises').then(fs => fs.readFile(outputFile));
     const subtitleBody = Buffer.from(buildSrt(payload.captions || []), 'utf8');
-    for (const [index, fraction] of [0.15, 0.5, 0.85].entries()) {
+    // The FIRST generated cover should capture the frame-1 hook headline — for
+    // a >6s video the old 0.15×duration frame landed after the hook ended, so
+    // the thumbnail (what drives CTR on the feed) was a blank in-progress shot.
+    // Anchor the first cover to the hook overlay window; keep the 50%/85% for
+    // the dashboard's alternate-preview variants.
+    const hookOverlay = (payload.overlays || []).find((o) => (o.start ?? 0) < 0.3 && Number.isFinite(o.end));
+    const thumbTimes = hookOverlay
+      ? [
+          Math.max(0.3, Math.min((hookOverlay.start + hookOverlay.end) / 2, Number(totalDuration) - 0.5)),
+          Number(totalDuration) * 0.5,
+          Number(totalDuration) * 0.85,
+        ]
+      : [Number(totalDuration) * 0.15, Number(totalDuration) * 0.5, Number(totalDuration) * 0.85];
+    for (const [index, timeSec] of thumbTimes.entries()) {
       const thumbnailFile = path.join(tmpDir, `horizon-cover-${randomUUID()}.png`);
       thumbnailFiles.push(thumbnailFile);
-      await execFileAsync(ffmpeg, ['-y', '-ss', String(totalDuration * fraction), '-i', outputFile, '-frames:v', '1', '-vf', 'scale=1080:1920', thumbnailFile], { timeout: 60000 });
+      await execFileAsync(ffmpeg, ['-y', '-ss', String(timeSec), '-i', outputFile, '-frames:v', '1', '-vf', 'scale=1080:1920', thumbnailFile], { timeout: 60000 });
     }
     const [url, subtitleUrl, ...coverVariants] = await Promise.all([
       uploadRenderArtifact(`videos/${jobId}.mp4`, video, 'video/mp4'),
