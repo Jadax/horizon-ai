@@ -15,14 +15,16 @@ with subtitle sync worse than 50ms are rejected before publish — see
 
 ## How it runs (single service, no satellites)
 
-Everything runs in one Node process at **$0 marginal cost per video** (OpenAI is optional fallback only):
+Everything runs in one Node process at **$0 marginal cost per video** — fully
+Gemini-only, no OpenAI dependency at all (the SDK isn't even in
+`package.json`):
 - **LLM**: Gemini free tier (`GEMINI_API_KEY`) for scripts, quality critic, cuts, format, topic curiosity ranking.
-- **TTS**: Gemini TTS free tier (12 natural voices) — chunked synthesis, `gtts` last-resort. ElevenLabs slot for cloned personal voices (Leo).
-- **Captions/alignment**: Gemini audio understanding (per-word timestamps); whisper-1 fallback.
-- **Vision**: Gemini (stock QA, Leo frame descriptions); gpt-4o-mini fallback.
-- **Images**: Pollinations (free, no key) for illustrated frames; `gpt-image-1` fallback.
+- **TTS**: Gemini TTS free tier (12 natural voices) — chunked synthesis, `gtts` last-resort. ElevenLabs slot for cloned personal voices (Leo, paid/optional).
+- **Captions/alignment**: Gemini audio understanding (per-word timestamps).
+- **Vision**: Gemini (stock QA, Leo frame descriptions).
+- **Images**: Pollinations (free, no key) for illustrated frames.
 - **Render**: in-process `ffmpeg-static` — ken-burns, cross-dissolves, themed captions, hook overlays, ducked music, -14 LUFS.
-- **Music**: Supabase `music_library`, auto-stockable from Jamendo's free API (`npm run music:sync`).
+- **Music**: Supabase `music_library`, auto-stockable from Jamendo's free API (`npm run music:sync`) or Pixabay/FMA/Incompetech (`npm run music:brain`).
 
 ### Niches
 - **Explained** (illustrated explainer shorts — flagship): question-driven sources, curiosity-ranked topics, consistent cartoon frames, comic hook text.
@@ -40,7 +42,7 @@ optional extra infrastructure, not required to run this.
 
 - Node.js ≥ 22
 - Python 3 + `pip` (for `gTTS`) — only needed if `TTS_ENGINE=gtts` (the default)
-- Accounts/API keys: Gemini (free), Supabase, Pexels/Pixabay, Google Cloud (YouTube OAuth); OpenAI optional
+- Accounts/API keys: Gemini (free), Supabase, Pexels/Pixabay, Google Cloud (YouTube OAuth)
 
 On Windows, make sure `python` (or `python3`) resolves to a **real** Python
 install, not the Microsoft Store stub — `python --version` should print a
@@ -60,7 +62,6 @@ Then edit `.env` and fill in real values — at minimum:
 | Variable | Required for |
 |---|---|
 | `GEMINI_API_KEY` | everything AI (free tier) — scripts, TTS, alignment, vision |
-| `OPENAI_API_KEY` | optional fallback only |
 | `SUPABASE_URL` / `SUPABASE_SERVICE_ROLE_KEY` | job storage, generated asset storage, dashboard state |
 | `PEXELS_API_KEY`, `PIXABAY_API_KEY` | stock footage sourcing |
 | `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` / `GOOGLE_REFRESH_TOKEN` | YouTube publishing |
@@ -97,12 +98,78 @@ management, and manual run/clip triggers.
 The pipeline itself runs on `PIPELINE_CRON` (default `0 3 * * *`, UTC) when
 `AUTOPILOT=true`. `VIDEOS_PER_RUN` controls how many videos it attempts per run.
 
-## Deploying (Railway)
+## Deploying (Google Cloud Run — free)
 
-`railway.json` + `nixpacks.toml` are set up for a single Railway service —
-Nixpacks installs Node, Python 3, and `gTTS` during the build, and the app
-listens on `PORT` with a `/health` check. Push to your connected repo/branch
-and set the same env vars as above in the Railway service's Variables tab.
+Recommended over Railway: Cloud Run's Always Free tier (180,000 vCPU-seconds
++ 2M requests/month, no time limit, no credit-card-triggered charges as long
+as you stay under quota) comfortably covers one video/day plus dashboard
+usage, and its "scale to zero between requests" model actually fits this
+app's shape — the pipeline is a daily batch job, not something that needs to
+sit warm 24/7. `Dockerfile` replaces Railway's `nixpacks.toml` (same Node +
+Python3 + gTTS setup, just in a portable format Cloud Run/Render/any other
+host understands).
+
+**One real gotcha, already handled in code**: Cloud Run only allocates CPU
+to a container while a request is in flight by default. The dashboard's
+"Run Full Loop" button hits `POST /api/run`, which fires the pipeline in the
+background and returns immediately — correct for a human clicking a button,
+but on Cloud Run that would leave the actual multi-minute render CPU-starved
+the instant the response goes out. `POST /api/run/scheduled` exists
+specifically for the scheduler: it *awaits* the full run before responding,
+so Cloud Run keeps CPU allocated for the whole job.
+
+```bash
+# One-time setup
+gcloud auth login
+gcloud config set project YOUR_PROJECT_ID
+gcloud services enable run.googleapis.com cloudscheduler.googleapis.com
+
+# Deploy (builds the Dockerfile via Cloud Build, no local Docker needed)
+gcloud run deploy horizon-ai \
+  --source . \
+  --region us-central1 \
+  --allow-unauthenticated \
+  --timeout 3600 \
+  --memory 2Gi \
+  --cpu 2 \
+  --min-instances 0 --max-instances 1 \
+  --set-env-vars "GEMINI_API_KEY=...,SUPABASE_URL=...,SUPABASE_SERVICE_ROLE_KEY=...,DASHBOARD_PASSWORD=...,PEXELS_API_KEY=...,PIXABAY_API_KEY=...,GOOGLE_CLIENT_ID=...,GOOGLE_CLIENT_SECRET=...,GOOGLE_REFRESH_TOKEN=...,AUTOPILOT=false"
+# (set every var from .env.example the same way — Cloud Run env vars work
+# identically to Railway's; for secrets you'd rather not put in a shell
+# history, use --set-secrets with Secret Manager instead)
+```
+
+`--allow-unauthenticated` makes the dashboard URL public — it's still
+protected by `DASHBOARD_PASSWORD` (the same auth middleware as everywhere
+else), same trust model as Railway.
+
+Then replace Railway's built-in cron with **Cloud Scheduler** calling the
+awaited endpoint on the schedule you want (matches `PIPELINE_CRON`'s default
+of 03:00 UTC daily below):
+
+```bash
+gcloud scheduler jobs create http horizon-daily-run \
+  --location us-central1 \
+  --schedule "0 3 * * *" \
+  --uri "https://YOUR-CLOUD-RUN-URL/api/run/scheduled" \
+  --http-method POST \
+  --headers "Authorization=Bearer YOUR_DASHBOARD_PASSWORD" \
+  --attempt-deadline 1800s
+```
+
+Cloud Run's own `node-cron` schedule (`PIPELINE_CRON` in `src/index.js`)
+still fires too if the container happens to be warm at that moment, but
+since Cloud Run scales to zero when idle, Cloud Scheduler is the trigger
+that's actually guaranteed to run — don't rely on the in-process cron alone
+on this host.
+
+### Alternative: Railway (still supported, costs money)
+
+`railway.json` + `nixpacks.toml` are still in the repo and work as before —
+Nixpacks installs Node, Python 3, and `gTTS` during the build. Push to your
+connected repo/branch and set the same env vars in the Railway service's
+Variables tab if you'd rather pay for Railway's simplicity than manage
+Cloud Scheduler yourself.
 
 ## Project layout
 

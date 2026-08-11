@@ -42,6 +42,28 @@ runRouter.post("/run", (_req, res) => {
   res.json({ ok: true, message: "Full pipeline started" });
 });
 
+// Scheduler-facing trigger: AWAITS the full run before responding, unlike
+// POST /run above (which is fire-and-forget, correct for the dashboard
+// button — a human clicking it shouldn't have their browser hang for
+// minutes). This one exists for hosts that only allocate CPU to a
+// container while a request is in flight (e.g. Cloud Run's default
+// request-based billing) — firing the pipeline in the background there
+// would get it silently CPU-throttled the moment this handler returns.
+// Cloud Scheduler (or any cron caller) should hit THIS route with a long
+// timeout instead. Same auth as every other /api route (Bearer
+// DASHBOARD_PASSWORD) — Cloud Scheduler supports a custom Authorization
+// header on its HTTP target.
+runRouter.post("/run/scheduled", async (req, res) => {
+  req.setTimeout(0); // no per-request timeout on our side; the host's own limit still applies
+  try {
+    await runFullPipeline();
+    res.json({ ok: true, message: "Full pipeline run complete" });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ ok: false, error: e.message });
+  }
+});
+
 // Preferred route — niche name in the request body, safe for names
 // containing a "/" (e.g. "Gaming/Lore") which broke the old URL-param route.
 runRouter.post("/run-niche", async (req, res) => {
