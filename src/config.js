@@ -27,10 +27,11 @@ export const config = {
   // Gemini free tier — the ONLY LLM provider. No OpenAI fallback.
   geminiKey: process.env.GEMINI_API_KEY,
   // Optional extra free-tier keys (separate Google accounts/projects) to
-  // rotate through when one hits its quota — e.g. GEMINI_API_KEY_2,
-  // GEMINI_API_KEY_3. Each is a full, separate free-tier quota bucket.
-  geminiKeys: [process.env.GEMINI_API_KEY, process.env.GEMINI_API_KEY_2, process.env.GEMINI_API_KEY_3]
-    .filter(Boolean),
+  // rotate through when one hits its quota — settable from the dashboard's
+  // Settings panel (routes/settings.js keeps these in sync live, so unlike
+  // a plain array snapshot they don't need a restart to pick up a new key).
+  geminiKey2: process.env.GEMINI_API_KEY_2 || null,
+  geminiKey3: process.env.GEMINI_API_KEY_3 || null,
 
   // ─── Free TTS ──────────────────────────────────────────────────────
   // Defaults to 'gemini' (gemini-2.5-flash-preview-tts, 12 voices, $0 on

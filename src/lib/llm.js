@@ -15,7 +15,7 @@ import { config } from "../config.js";
 const GEMINI_MODELS = { smart: "gemini-flash-latest", fast: "gemini-flash-lite-latest" };
 
 function apiKeys() {
-  return config.geminiKeys?.length ? config.geminiKeys : [config.geminiKey];
+  return [config.geminiKey, config.geminiKey2, config.geminiKey3].filter(Boolean);
 }
 
 function toGeminiPayload(messages, temperature) {

@@ -17,6 +17,8 @@ const SETTINGS_PATH = path.join(__dirname, "../../settings.json");
 // Keys the dashboard can read (masked) and write
 const CREDENTIALS = [
   { key: "geminiKey", label: "Gemini API Key", env: "GEMINI_API_KEY" },
+  { key: "geminiKey2", label: "Gemini API Key #2 (backup)", env: "GEMINI_API_KEY_2" },
+  { key: "geminiKey3", label: "Gemini API Key #3 (backup)", env: "GEMINI_API_KEY_3" },
   { key: "instagramAccessToken", label: "Instagram Access Token", env: "INSTAGRAM_ACCESS_TOKEN" },
   { key: "instagramBusinessId", label: "Instagram Business ID", env: "INSTAGRAM_BUSINESS_ID" },
   { key: "tiktokAccessToken", label: "TikTok Access Token", env: "TIKTOK_ACCESS_TOKEN" },
@@ -36,6 +38,8 @@ const CREDENTIALS = [
 // must set BOTH so the running process picks the value up without a restart.
 const CONFIG_PATHS = {
   geminiKey: ["geminiKey"],
+  geminiKey2: ["geminiKey2"],
+  geminiKey3: ["geminiKey3"],
   instagramAccessToken: ["instagram", "accessToken"],
   instagramBusinessId: ["instagram", "businessId"],
   tiktokAccessToken: ["tiktok", "accessToken"],
