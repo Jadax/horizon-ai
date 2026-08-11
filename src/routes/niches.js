@@ -7,29 +7,26 @@
 import express from "express";
 import { supabase, logEvent } from "../supabase.js";
 import { config } from "../config.js";
+import { mergedChannelList } from "../lib/linkedChannels.js";
 
 export const nichesRouter = express.Router();
 
-// Returns a labeled list of all configured YouTube channels (primary + any
-// in GOOGLE_CHANNELS JSON) so the dashboard can show human-readable names
-// like "YouTube — Leo" instead of opaque keys.
-nichesRouter.get("/channels", (_req, res) => {
-  const channels = [{ key: "primary", label: "Primary (default YouTube)" }];
-  for (const [key, val] of Object.entries(config.google.channels || {})) {
-    const handle = val.handle || val.label || key;
-    channels.push({ key, label: `YouTube — ${handle}` });
-  }
-  // Add Instagram handles configured for niches (package-mode cross-post)
-  const igChannels = [{ key: "__ig_primary", label: "Instagram — Primary" }];
-  for (const [key, val] of Object.entries(config.instagramChannels || {})) {
-    igChannels.push({ key, label: `Instagram — ${val.handle || val.label || key}` });
-  }
-  // Add TikTok channels configured for niches (package-mode cross-post)
-  const ttChannels = [{ key: "__tt_primary", label: "TikTok — Primary" }];
-  for (const [key, val] of Object.entries(config.tiktokChannels || {})) {
-    ttChannels.push({ key, label: `TikTok — ${val.handle || val.label || key}` });
-  }
-  res.json({ channels, instagramChannels: igChannels, tiktokChannels: ttChannels });
+// Returns a labeled list of every channel available per platform — Supabase-
+// linked (dashboard "Connect account") merged with any legacy env-configured
+// ones (GOOGLE_CHANNELS/INSTAGRAM_CHANNELS/TIKTOK_CHANNELS), so the dashboard
+// can show human-readable names like "YouTube — Leo" instead of opaque keys.
+nichesRouter.get("/channels", async (_req, res) => {
+  const [ytList, igList, ttList] = await Promise.all([
+    mergedChannelList("youtube"),
+    mergedChannelList("instagram"),
+    mergedChannelList("tiktok"),
+  ]);
+  const label = (platform) => (c) => ({ key: c.key, label: `${platform} — ${c.label}`, handle: c.handle || null, source: c.source });
+  res.json({
+    channels: ytList.map(label("YouTube")),
+    instagramChannels: igList.map(label("Instagram")),
+    tiktokChannels: ttList.map(label("TikTok")),
+  });
 });
 
 nichesRouter.get("/niches", async (_req, res) => {

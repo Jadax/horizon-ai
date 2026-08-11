@@ -18,6 +18,7 @@ import { costsRouter } from "./routes/costs.js";
 import { nichesRouter } from "./routes/niches.js";
 import { clipsRouter } from "./routes/clips.js";
 import { settingsRouter, applySettingsToConfig } from "./routes/settings.js";
+import { channelAuthRouter } from "./routes/channelAuth.js";
 
 // Apply dashboard-saved credentials (settings.json) to the running config at
 // boot so they survive process restarts, not just hot-reloads.
@@ -30,6 +31,9 @@ app.use(express.json());
 // ── Minimal auth ─────────────────────────────────────────────────────
 app.use((req, res, next) => {
   if (req.path === "/health") return next();
+  // Google's OAuth redirect lands here with no Authorization header/?key —
+  // the auth code itself is the proof of a legitimate flow (see routes/channelAuth.js).
+  if (req.path === "/api/auth/youtube/callback") return next();
   const token = req.headers.authorization?.replace("Bearer ", "") || req.query.key;
   if (req.path === "/" && !token) return next();
   if (req.path.startsWith("/api") && token !== config.dashboardPassword) {
@@ -65,6 +69,7 @@ app.use("/api", costsRouter);
 app.use("/api", nichesRouter);
 app.use("/api", clipsRouter);
 app.use("/api", settingsRouter);
+app.use("/api", channelAuthRouter);
 
 // ── Cron jobs ──────────────────────────────────────────────────────
 cron.schedule(config.pipelineCron, () => {

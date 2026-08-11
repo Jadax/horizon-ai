@@ -163,9 +163,6 @@ export const config = {
   },
 };
 
-export function getChannelToken(channelKey) {
-  if (channelKey && channelKey !== "primary" && config.google.channels[channelKey]) {
-    return config.google.channels[channelKey];
-  }
-  return config.google.refreshToken;
-}
+// YouTube token resolution now lives in lib/linkedChannels.js
+// (resolveYoutubeToken) — it checks Supabase-linked channels first, falling
+// back to this same GOOGLE_CHANNELS/GOOGLE_REFRESH_TOKEN env config.

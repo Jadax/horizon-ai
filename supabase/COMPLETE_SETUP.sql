@@ -264,6 +264,28 @@ ALTER TABLE monetization ENABLE ROW LEVEL SECURITY;
 -- in it, and which ones have already been used. The pipeline picks the
 -- best unused clip, renders it, marks it used, and enforces a minimum
 -- gap (COOLDOWN_DAYS) before posting from the same source video again.
+-- ── Linked channels ──
+-- Per-channel credentials for YouTube/Instagram/TikTok, linked from the
+-- dashboard's Channel Manager. Replaces the old env-var-only setup
+-- (GOOGLE_CHANNELS/INSTAGRAM_CHANNELS/TIKTOK_CHANNELS) so a new account can
+-- be connected without a redeploy — required on Cloud Run, whose container
+-- filesystem doesn't persist across restarts. channel_key is the stable
+-- slug niches route uploads to (e.g. "leo", "primary"); credentials holds
+-- refresh_token (YouTube) or access_token/business_id (Instagram/TikTok).
+CREATE TABLE IF NOT EXISTS linked_channels (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  platform text NOT NULL CHECK (platform IN ('youtube','instagram','tiktok')),
+  channel_key text NOT NULL,
+  label text NOT NULL,
+  handle text,
+  credentials jsonb NOT NULL DEFAULT '{}'::jsonb,
+  created_at timestamptz DEFAULT now(),
+  updated_at timestamptz DEFAULT now(),
+  UNIQUE (platform, channel_key)
+);
+CREATE INDEX IF NOT EXISTS idx_linked_channels_platform ON linked_channels (platform);
+ALTER TABLE linked_channels ENABLE ROW LEVEL SECURITY;
+
 CREATE TABLE IF NOT EXISTS leo_video_library (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   source_file text UNIQUE NOT NULL,

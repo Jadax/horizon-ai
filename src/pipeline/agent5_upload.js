@@ -5,11 +5,12 @@
  * Other platforms (Instagram, Facebook, TikTok) are stubs for future.
  */
 import { Readable } from "node:stream";
-import { config, getChannelToken } from "../config.js";
+import { config } from "../config.js";
 import { supabase, logEvent } from "../supabase.js";
 import { youtubeClient } from "../lib/youtubeClient.js";
 import { learnedUploadHour } from "../lib/performanceTracker.js";
 import { matchAffiliateProducts } from "../lib/monetization.js";
+import { resolveYoutubeToken, resolveInstagramCreds, resolveTiktokCreds } from "../lib/linkedChannels.js";
 
 const REGIONS = [
   { name: "India", tzOffset: 5.5, peakHour: 19 },
@@ -141,16 +142,16 @@ export async function uploadScheduled({ videoUrl, title, description, tags, comm
 
   // ── YouTube Upload (primary, fully implemented) ──────────────────────
   try {
-    const token = getChannelToken(channelKey);
+    const token = await resolveYoutubeToken(channelKey);
     if (!token) {
-      await logEvent("Agent 5", `No refresh token for channel "${channelKey}"`, { jobId, level: "warn" });
+      await logEvent("Agent 5", `No refresh token for channel "${channelKey}" — connect it from the dashboard's Channel Manager`, { jobId, level: "warn" });
     } else {
       await logEvent("Agent 5", `Uploading to YouTube (channel: ${channelKey})...`, { jobId });
 
       const videoRes = await withRetry(() => fetch(videoUrl), { label: "fetch render" });
       if (!videoRes.ok) throw new Error(`Could not fetch render: HTTP ${videoRes.status}`);
 
-      const yt = youtubeClient(channelKey);
+      const yt = await youtubeClient(channelKey);
       // Niche hashtags ARE the viral lever on Shorts (only the first 3 are
       // indexed in the strip). These flow from buildPublishPackage — without
       // them the upload would ship with a bare "#Shorts". Guarded so a niche
@@ -250,17 +251,20 @@ export async function uploadScheduled({ videoUrl, title, description, tags, comm
     // YouTube upload failed - don't mark as scheduled
   }
 
-  // ── Instagram Reels (Graph API — requires INSTAGRAM_ACCESS_TOKEN + INSTAGRAM_BUSINESS_ID) ──
-  if (config.instagram.accessToken && config.instagram.businessId) {
+  // ── Instagram Reels (Graph API) — per-niche channel first (dashboard-linked
+  // or legacy env), falling back to the single global account ──
+  const igChannelKey = nicheRow?.editing_style_preset?.targetInstagramChannels?.[0] || null;
+  const igCreds = await resolveInstagramCreds(igChannelKey);
+  if (igCreds?.accessToken && igCreds?.businessId) {
     try {
-      await logEvent("Agent 5", "Uploading to Instagram Reels...", { jobId });
+      await logEvent("Agent 5", `Uploading to Instagram Reels (channel: ${igChannelKey || "primary"})...`, { jobId });
       const igVariant = publishPackage?.platform_variants?.instagram || {};
       const caption = igVariant.caption || `${title}\n\n${(description || "").slice(0, 300)}`;
       const igResult = await uploadToInstagram({
         videoUrl,
         caption: caption.slice(0, 2200),
-        businessId: config.instagram.businessId,
-        accessToken: config.instagram.accessToken,
+        businessId: igCreds.businessId,
+        accessToken: igCreds.accessToken,
       });
       publishedTo.push({ platform: "instagram", mediaId: igResult.id, status: "published" });
       await supabase.from("publish_targets").upsert({
@@ -285,15 +289,18 @@ export async function uploadScheduled({ videoUrl, title, description, tags, comm
     }
   }
 
-  // ── TikTok (Content Posting API — requires TIKTOK_ACCESS_TOKEN from approved app) ──
-  if (config.tiktok.accessToken) {
+  // ── TikTok (Content Posting API) — per-niche channel first, then the
+  // single global account. Still requires an approved TikTok app either way. ──
+  const ttChannelKey = nicheRow?.editing_style_preset?.targetTiktokChannels?.[0] || null;
+  const ttCreds = await resolveTiktokCreds(ttChannelKey);
+  if (ttCreds?.accessToken) {
     try {
-      await logEvent("Agent 5", "Uploading to TikTok...", { jobId });
+      await logEvent("Agent 5", `Uploading to TikTok (channel: ${ttChannelKey || "primary"})...`, { jobId });
       const ttVariant = publishPackage?.platform_variants?.tiktok || {};
       const ttResult = await uploadToTikTok({
         videoUrl,
         title: (ttVariant.caption || title || "").slice(0, 150),
-        accessToken: config.tiktok.accessToken,
+        accessToken: ttCreds.accessToken,
       });
       publishedTo.push({ platform: "tiktok", externalId: ttResult.share_url, status: "published" });
       await supabase.from("publish_targets").upsert({

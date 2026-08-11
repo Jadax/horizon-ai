@@ -4,6 +4,14 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>HORIZON AI — Command Center</title>
+<script>
+// Applied before first paint to avoid a flash of the wrong theme.
+(function(){
+  var saved = localStorage.getItem("horizon_theme");
+  var theme = saved || (matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark");
+  document.documentElement.setAttribute("data-theme", theme);
+})();
+</script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
@@ -38,6 +46,38 @@
   --shadow-card:0 1px 0 rgba(255,255,255,.05) inset,0 24px 48px -28px rgba(0,0,0,.7);
   --ease:cubic-bezier(.16,1,.3,1);
 }
+:root[data-theme="light"]{
+  --bg:#F3F4FA;
+  --bg-grad:radial-gradient(1100px 620px at 8% -8%,rgba(124,92,252,.10),transparent 55%),
+            radial-gradient(1000px 560px at 100% -4%,rgba(14,165,196,.09),transparent 55%),
+            radial-gradient(900px 700px at 50% 115%,rgba(219,93,158,.07),transparent 60%),
+            #F3F4FA;
+  --glass:linear-gradient(160deg,rgba(255,255,255,.82),rgba(255,255,255,.55));
+  --glass-hover:linear-gradient(160deg,rgba(255,255,255,.94),rgba(255,255,255,.68));
+  --panel:rgba(18,19,26,.035);
+  --panel-2:rgba(18,19,26,.02);
+  --panel-3:rgba(18,19,26,.08);
+  --border:rgba(18,19,26,.10);
+  --border-soft:rgba(18,19,26,.18);
+  --violet:#7C5CFC; --violet-dim:#6D3FF5; --violet-soft:rgba(124,92,252,.12);
+  --cyan:#0E8FA8; --cyan-dim:#0B7488; --cyan-soft:rgba(14,143,168,.12);
+  --pink:#DB5D9E; --pink-dim:#C13F82; --pink-soft:rgba(219,93,158,.12);
+  --emerald:#0F9D6F; --emerald-dim:#0B7F59; --emerald-soft:rgba(15,157,111,.12);
+  --amber:#B7791F; --amber-dim:#9C6414; --amber-soft:rgba(183,121,31,.12);
+  --red:#DC3B57; --red-dim:#C22B45; --red-soft:rgba(220,59,87,.12);
+  --slate-soft:rgba(100,116,139,.14);
+  --text:#12131A;
+  --text-dim:#4B5568;
+  --muted:#6B7385;
+  --shadow-card:0 1px 0 rgba(255,255,255,.6) inset,0 20px 40px -26px rgba(30,30,60,.18);
+}
+/* A few rules use hardcoded colors tuned for the dark theme (gradient text,
+   header/modal chrome) — light-theme overrides for just those. */
+:root[data-theme="light"] h1{background:linear-gradient(120deg,#1a1730 6%,var(--violet) 55%,var(--cyan) 100%)}
+:root[data-theme="light"] header{background:linear-gradient(180deg,rgba(255,255,255,.94),rgba(243,244,250,.86))}
+:root[data-theme="light"] .modal{background:linear-gradient(170deg,#ffffff,#f4f5fb)}
+:root[data-theme="light"] .modal-backdrop{background:rgba(60,60,80,.35)}
+:root[data-theme="light"] ::-webkit-scrollbar-thumb{background:#D7D9E6}
 *{margin:0;padding:0;box-sizing:border-box}
 html{scroll-behavior:smooth}
 body{background:var(--bg-grad);background-attachment:fixed;color:var(--text);font-family:var(--display);min-height:100vh;
@@ -500,6 +540,7 @@ table.ch-matrix tr:hover td{background:var(--panel-2)}
   </div>
   <div class="header-right">
     <span id="clock"></span>
+    <button id="themeToggle" onclick="toggleTheme()" title="Toggle light/dark theme" style="padding:8px 11px;border-radius:20px">🌙</button>
     <div class="autopilot on" id="autopilot" onclick="toggleAutopilot()">
       <span>AUTOPILOT</span>
       <div class="track"><div class="knob"></div></div>
@@ -705,6 +746,19 @@ table.ch-matrix tr:hover td{background:var(--panel-2)}
 const KEY = localStorage.getItem("horizon_key") || prompt("Dashboard password:");
 localStorage.setItem("horizon_key", KEY);
 const H = { "Authorization": "Bearer " + KEY, "Content-Type": "application/json" };
+
+// ── Theme ──
+function applyThemeIcon(){
+  const isLight = document.documentElement.getAttribute("data-theme") === "light";
+  document.getElementById("themeToggle").textContent = isLight ? "☀️" : "🌙";
+}
+function toggleTheme(){
+  const next = document.documentElement.getAttribute("data-theme") === "light" ? "dark" : "light";
+  document.documentElement.setAttribute("data-theme", next);
+  localStorage.setItem("horizon_theme", next);
+  applyThemeIcon();
+}
+applyThemeIcon();
 
 let autopilot = true, jobs = [], currentJob = null;
 let lastCosts = null, lastPublished = [], lastNiches = [];
@@ -1454,13 +1508,17 @@ async function loadChannelManager(){
       for(const k of ttChs) nicheTtMap[k] = [...(nicheTtMap[k]||[]), n.niche_name];
     }
 
-    const renderChannelCard = (ch, nichesAssigned, platform) => {
+    const renderChannelCard = (ch, nichesAssigned, platform, platformKey) => {
       const status = nichesAssigned.length > 0 ? "ok" : "warn";
       const statusText = nichesAssigned.length > 0 ? "Active" : "No niches assigned";
+      const sourceTag = ch.source === "linked" ? `<span class="ch-niche-tag" style="border-color:var(--emerald-dim);color:var(--emerald)">🔗 Connected</span>`
+        : ch.source === "env" ? `<span class="ch-niche-tag">⚙ From env var</span>`
+        : `<span class="ch-niche-tag" style="border-color:var(--red-dim);color:var(--red)">Not connected</span>`;
+      const unlinkBtn = ch.source === "linked" ? `<button onclick="unlinkChannel('${platformKey}','${ch.key}','${escapeHtml(ch.label).replace(/'/g,"\\'")}')" style="font-size:9px;padding:3px 9px;margin-left:8px;border-color:var(--red-dim);color:var(--red)">Unlink</button>` : "";
       return `<div class="ch-mgr-card">
-        <div class="ch-name"><span class="ch-status ${status}"></span>${escapeHtml(ch.label)}</div>
+        <div class="ch-name"><span class="ch-status ${status}"></span>${escapeHtml(ch.label)}${ch.handle?` <span style="color:var(--muted);font-weight:400">(${escapeHtml(ch.handle)})</span>`:""}${unlinkBtn}</div>
         <div class="ch-meta">${platform} · ${statusText}</div>
-        ${nichesAssigned.length ? `<div class="ch-niches">${nichesAssigned.map(n=>`<span class="ch-niche-tag active">${escapeHtml(n)}</span>`).join("")}</div>` : `<div class="ch-niches"><span class="ch-niche-tag">No niches — click a niche card below to assign</span></div>`}
+        <div class="ch-niches">${sourceTag}${nichesAssigned.map(n=>`<span class="ch-niche-tag active">${escapeHtml(n)}</span>`).join("")}</div>
       </div>`;
     };
 
@@ -1469,31 +1527,39 @@ async function loadChannelManager(){
     // YouTube channels
     html += `<div class="ch-mgr-section">
       <div class="ch-mgr-header"><span class="ch-mgr-icon">📺</span><span class="ch-mgr-title">YouTube Channels</span><span class="ch-mgr-count">${ytChannels.length}</span></div>`;
-    if(ytChannels.length){
-      html += ytChannels.map(ch => renderChannelCard(ch, nicheYtMap[ch.key]||[], "YouTube")).join("");
-    } else {
-      html += `<div class="ch-mgr-empty">No YouTube channels linked. Run <code>npm run auth:youtube</code> to link one.</div>`;
-    }
+    html += ytChannels.map(ch => renderChannelCard(ch, nicheYtMap[ch.key]||[], "YouTube", "youtube")).join("");
+    html += `<div class="ch-mgr-add">
+      <input id="ytConnectKey" placeholder="slug e.g. leo" style="max-width:110px" />
+      <input id="ytConnectLabel" placeholder="Display name e.g. Leo the Cat" />
+      <button onclick="connectYoutube()" style="border-color:var(--violet-dim);color:var(--violet)">+ Connect YouTube channel</button>
+    </div>`;
     html += `</div>`;
 
     // Instagram channels
     html += `<div class="ch-mgr-section">
       <div class="ch-mgr-header"><span class="ch-mgr-icon">📸</span><span class="ch-mgr-title">Instagram Channels</span><span class="ch-mgr-count">${igChannels.length}</span></div>`;
-    if(igChannels.length){
-      html += igChannels.map(ch => renderChannelCard(ch, nicheIgMap[ch.key]||[], "Instagram")).join("");
-    } else {
-      html += `<div class="ch-mgr-empty">No Instagram channels configured. Set <code>INSTAGRAM_CHANNELS</code> env.</div>`;
-    }
+    html += igChannels.map(ch => renderChannelCard(ch, nicheIgMap[ch.key]||[], "Instagram", "instagram")).join("");
+    html += `<div class="ch-mgr-add" style="flex-wrap:wrap">
+      <input id="igConnectKey" placeholder="slug e.g. leo" style="max-width:90px" />
+      <input id="igConnectLabel" placeholder="Display name" style="max-width:130px" />
+      <input id="igConnectHandle" placeholder="@handle (optional)" style="max-width:110px" />
+      <input id="igConnectBizId" placeholder="Business ID" style="max-width:110px" />
+      <input id="igConnectToken" placeholder="Long-lived access token" type="password" style="min-width:140px" />
+      <button onclick="connectInstagram()" style="border-color:var(--pink-dim);color:var(--pink)">+ Add Instagram account</button>
+    </div>`;
     html += `</div>`;
 
     // TikTok channels
     html += `<div class="ch-mgr-section">
       <div class="ch-mgr-header"><span class="ch-mgr-icon">🎵</span><span class="ch-mgr-title">TikTok Channels</span><span class="ch-mgr-count">${ttChannels.length}</span></div>`;
-    if(ttChannels.length){
-      html += ttChannels.map(ch => renderChannelCard(ch, nicheTtMap[ch.key]||[], "TikTok")).join("");
-    } else {
-      html += `<div class="ch-mgr-empty">No TikTok channels configured. Set <code>TIKTOK_CHANNELS</code> env.</div>`;
-    }
+    html += ttChannels.map(ch => renderChannelCard(ch, nicheTtMap[ch.key]||[], "TikTok", "tiktok")).join("");
+    html += `<div class="ch-mgr-add" style="flex-wrap:wrap">
+      <input id="ttConnectKey" placeholder="slug e.g. leo" style="max-width:90px" />
+      <input id="ttConnectLabel" placeholder="Display name" style="max-width:130px" />
+      <input id="ttConnectHandle" placeholder="@handle (optional)" style="max-width:110px" />
+      <input id="ttConnectToken" placeholder="Access token (requires approved app)" type="password" style="min-width:170px" />
+      <button onclick="connectTiktok()" style="border-color:var(--cyan-dim);color:var(--cyan)">+ Add TikTok account</button>
+    </div>`;
     html += `</div>`;
 
     // Niche → Channel matrix
@@ -1518,6 +1584,57 @@ async function loadChannelManager(){
 
     panel.innerHTML = html;
   }catch(e){ panel.innerHTML = '<div class="donut-empty">Could not load channel data</div>'; }
+}
+
+// ── Connect / unlink accounts ──
+function connectYoutube(){
+  const key = document.getElementById("ytConnectKey").value.trim();
+  const label = document.getElementById("ytConnectLabel").value.trim();
+  if(!key || !label){ alert("Both a slug and a display name are required."); return; }
+  if(!/^[a-z0-9_-]+$/i.test(key)){ alert("Slug should be short and simple, e.g. \"leo\" or \"main\" (letters, numbers, - and _ only)."); return; }
+  const url = "/api/auth/youtube/start?channel_key="+encodeURIComponent(key)+"&label="+encodeURIComponent(label)+"&key="+encodeURIComponent(KEY);
+  window.open(url, "_blank", "width=520,height=680");
+  const msg=document.getElementById("runMsg");
+  msg.textContent="Opened Google sign-in — approve access, then come back and refresh Channel Manager.";
+  setTimeout(()=>msg.textContent="",8000);
+}
+
+async function connectInstagram(){
+  const channel_key = document.getElementById("igConnectKey").value.trim();
+  const label = document.getElementById("igConnectLabel").value.trim();
+  const handle = document.getElementById("igConnectHandle").value.trim();
+  const business_id = document.getElementById("igConnectBizId").value.trim();
+  const access_token = document.getElementById("igConnectToken").value.trim();
+  if(!channel_key || !label || !business_id || !access_token){ alert("Slug, display name, business ID, and access token are all required."); return; }
+  try{
+    const res = await fetch("/api/channels/instagram",{method:"POST",headers:H,body:JSON.stringify({channel_key,label,handle,business_id,access_token})});
+    const data = await res.json();
+    if(!res.ok){ alert("Failed: "+(data.error||res.status)); return; }
+    loadChannelManager();
+  }catch(e){ alert("Request failed: "+e.message); }
+}
+
+async function connectTiktok(){
+  const channel_key = document.getElementById("ttConnectKey").value.trim();
+  const label = document.getElementById("ttConnectLabel").value.trim();
+  const handle = document.getElementById("ttConnectHandle").value.trim();
+  const access_token = document.getElementById("ttConnectToken").value.trim();
+  if(!channel_key || !label || !access_token){ alert("Slug, display name, and access token are all required."); return; }
+  try{
+    const res = await fetch("/api/channels/tiktok",{method:"POST",headers:H,body:JSON.stringify({channel_key,label,handle,access_token})});
+    const data = await res.json();
+    if(!res.ok){ alert("Failed: "+(data.error||res.status)); return; }
+    loadChannelManager();
+  }catch(e){ alert("Request failed: "+e.message); }
+}
+
+async function unlinkChannel(platform, channelKey, label){
+  if(!confirm(`Unlink "${label}"? Niches routed to it will fall back to their next configured channel (or fail to publish there until reassigned).`)) return;
+  try{
+    const res = await fetch(`/api/channels/${platform}/${encodeURIComponent(channelKey)}`,{method:"DELETE",headers:H});
+    if(!res.ok){ alert("Failed to unlink: "+(await res.json()).error); return; }
+    loadChannelManager();
+  }catch(e){ alert("Request failed: "+e.message); }
 }
 
 async function toggleMatrixDot(niche, platform, channelKey, enabled){

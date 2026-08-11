@@ -27,7 +27,7 @@ export async function refreshPublishedStats(minAgeHours = 6, refreshIntervalHour
 
   for (const [channelKey, channelJobs] of Object.entries(byChannel)) {
     try {
-      const yt = youtubeClient(channelKey);
+      const yt = await youtubeClient(channelKey);
       const ids = channelJobs.map((j) => j.youtube_video_id);
       const { data } = await yt.videos.list({ part: ["statistics"], id: ids });
       const statsById = Object.fromEntries((data.items || []).map((v) => [v.id, v.statistics]));
