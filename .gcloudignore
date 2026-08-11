@@ -1,0 +1,14 @@
+# What gets uploaded to Cloud Build for `gcloud run deploy --source .` — a
+# SEPARATE exclusion step from .dockerignore (that one only controls what a
+# COPY instruction picks up once the build context already exists). Explicit
+# here rather than relying on gcloud's default gitignore-fallback behavior.
+.git
+.gitignore
+node_modules/
+leo_inbox/
+.env
+.env.bak
+.playwright-mcp/
+.claude/
+.agents/
+*.log
