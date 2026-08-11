@@ -4,10 +4,19 @@
  *
  *   1. Gemini "gemini-flash-latest" (free) — strongest, intermittently throttled.
  *   2. Gemini "gemini-flash-lite-latest" (free) — reliably available.
+ *
+ * Each model is retried across every configured key (config.geminiKeys —
+ * GEMINI_API_KEY plus optional GEMINI_API_KEY_2/_3) before falling back to
+ * the next model, so one key's free-tier quota running out mid-run doesn't
+ * fail the whole topic — it just rotates to the next key's separate quota.
  */
 import { config } from "../config.js";
 
 const GEMINI_MODELS = { smart: "gemini-flash-latest", fast: "gemini-flash-lite-latest" };
+
+function apiKeys() {
+  return config.geminiKeys?.length ? config.geminiKeys : [config.geminiKey];
+}
 
 function toGeminiPayload(messages, temperature) {
   const systemParts = messages.filter((m) => m.role === "system").map((m) => ({ text: m.content }));
@@ -21,8 +30,8 @@ function toGeminiPayload(messages, temperature) {
   };
 }
 
-async function geminiJson(model, messages, temperature) {
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${config.geminiKey}`;
+async function geminiJson(model, apiKey, messages, temperature) {
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
   const res = await fetch(url, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -66,24 +75,30 @@ export async function llmVision({ prompt, images, label = "vision", maxTokens = 
     }
   }
   if (!resolved.length) throw new Error("no fetchable images");
-  const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODELS.fast}:generateContent?key=${config.geminiKey}`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      contents: [{ parts: [{ text: prompt }, ...resolved.map((i) => ({ inlineData: { mimeType: i.mimeType, data: i.base64 } }))] }],
-      generationConfig: { temperature: 0.2, maxOutputTokens: maxTokens },
-    }),
-    signal: AbortSignal.timeout(60000),
-  });
-  const json = await res.json();
-  if (json.error) throw new Error(`[${label}] ${json.error.message?.slice(0, 160)}`);
-  const text = json.candidates?.[0]?.content?.parts?.map((p) => p.text).join("") || "";
-  if (!text.trim()) throw new Error(`[${label}] empty vision response`);
-  return {
-    content: text,
-    tokens: json.usageMetadata?.totalTokenCount || 0,
-    provider: `gemini/${GEMINI_MODELS.fast}`,
-  };
+  const keys = apiKeys();
+  let lastErr;
+  for (let i = 0; i < keys.length; i++) {
+    try {
+      const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODELS.fast}:generateContent?key=${keys[i]}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: prompt }, ...resolved.map((im) => ({ inlineData: { mimeType: im.mimeType, data: im.base64 } }))] }],
+          generationConfig: { temperature: 0.2, maxOutputTokens: maxTokens },
+        }),
+        signal: AbortSignal.timeout(60000),
+      });
+      const json = await res.json();
+      if (json.error) throw new Error(json.error.message?.slice(0, 160));
+      const text = json.candidates?.[0]?.content?.parts?.map((p) => p.text).join("") || "";
+      if (!text.trim()) throw new Error("empty vision response");
+      return { content: text, tokens: json.usageMetadata?.totalTokenCount || 0, provider: `gemini/${GEMINI_MODELS.fast}` };
+    } catch (err) {
+      lastErr = err;
+      console.warn(`[${label}] key ${i + 1}/${keys.length}: ${err.message} — trying next`);
+    }
+  }
+  throw new Error(`[${label}] ${lastErr?.message || "all keys failed"}`);
 }
 
 /**
@@ -92,12 +107,15 @@ export async function llmVision({ prompt, images, label = "vision", maxTokens = 
  */
 export async function llmJson({ messages, temperature = 0.7, tier = "smart", label = "llm" }) {
   if (!config.geminiKey) throw new Error(`[${label}] GEMINI_API_KEY not set`);
+  const keys = apiKeys();
   for (const model of [GEMINI_MODELS[tier], GEMINI_MODELS.fast]) {
-    try {
-      return await geminiJson(model, messages, temperature);
-    } catch (err) {
-      console.warn(`[${label}] ${model}: ${err.message} — trying fallback model`);
+    for (let i = 0; i < keys.length; i++) {
+      try {
+        return await geminiJson(model, keys[i], messages, temperature);
+      } catch (err) {
+        console.warn(`[${label}] ${model} (key ${i + 1}/${keys.length}): ${err.message} — trying next`);
+      }
     }
   }
-  throw new Error(`[${label}] All Gemini models failed`);
+  throw new Error(`[${label}] All Gemini models/keys failed`);
 }
