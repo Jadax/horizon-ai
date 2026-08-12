@@ -15,6 +15,7 @@ import { fetchTopReddit, searchWiki } from "../sources/reddit.js";
 import { fetchTwitchTrending } from "../sources/twitch.js";
 import { fetchKickTrending } from "../sources/kick.js";
 import { fetchDailymotionTrending } from "../sources/dailymotion.js";
+import { searchVideos } from "../sources/ytDlp.js";
 import { rankCandidates, recalibrateWeights, persistTrendSnapshot } from "../lib/trendScoring.js";
 import { llmJson, llmVision } from "../lib/llm.js";
 import { topicKey } from "../lib/utils.js";
@@ -26,7 +27,7 @@ export async function harvestAllCandidates(niche, jobId = null) {
     const candidates = [];
     const enabled = new Set(
         niche.editing_style_preset?.trendSources
-        || ["google", "reddit", "youtube", "youtube_suggest", "gdelt", "rss", "wikipedia", "hackernews", "wikipedia_trending", "bluesky", "twitch", "kick", "dailymotion"]
+        || ["google", "reddit", "youtube", "youtube_suggest", "gdelt", "rss", "wikipedia", "hackernews", "wikipedia_trending", "bluesky", "twitch", "kick", "dailymotion", "ytdlp"]
     );
     const tag = (items, source) => items.map((i) => ({ ...i, source }));
 
@@ -108,6 +109,36 @@ export async function harvestAllCandidates(niche, jobId = null) {
         }
     } catch (err) {
         await log(`YouTube Suggest fetch failed: ${err.message}`, "warn");
+    }
+
+    // yt-dlp search source: real videos (title + channel + view counts) from
+    // YouTube search over the niche's keywords. CLAUDE.md permits yt-dlp for
+    // any publicly accessible content, so this works with no API keys and no
+    // OAuth — unlike the "youtube" (OAuth trending) and "twitch"/"kick" (API)
+    // sources. Capped at 2 keywords × 6 results so the subprocess cost stays a
+    // few seconds; failures (e.g. YouTube bot-gating a datacenter IP) degrade
+    // gracefully to zero candidates.
+    if (enabled.has("ytdlp")) {
+        const ytSeeds = (niche.footage_keywords || [])
+            .filter((s) => typeof s === "string" && s.trim())
+            .slice(0, 2);
+        for (const seed of ytSeeds) {
+            try {
+                const vids = await searchVideos(seed, { maxResults: 6, source: "ytsearch" });
+                const items = vids.filter((v) => !v.error && v.title).map((v) => ({
+                    title: v.title,
+                    url: v.url,
+                    selftext: `${v.uploader || "Unknown"} · ${(v.views ?? 0).toLocaleString()} views${v.description ? ` — ${v.description.slice(0, 200)}` : ""}`,
+                    score: Math.min(100, Math.log10((v.views || 1) + 1) * 8),
+                    metrics: { views: v.views || 0, uploader: v.uploader || null, duration: v.duration || 0 },
+                    isYouTubeTrending: false,
+                }));
+                candidates.push(...tag(items, "YouTube (yt-dlp)"));
+                await log(`yt-dlp search "${seed}": ${items.length} candidates`);
+            } catch (err) {
+                await log(`yt-dlp search "${seed}" failed: ${err.message}`, "warn");
+            }
+        }
     }
 
     // Gaming/Viral niches: Twitch clips + streams

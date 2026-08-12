@@ -74,8 +74,10 @@ clipsRouter.post("/clips/from-url", async (req, res) => {
   const { url, license_note, source_label, niche } = req.body || {};
   if (!url || typeof url !== "string") return res.status(400).json({ error: "url is required" });
 
-  // Determine source type: YouTube/Twitch/Kick URLs use yt-dlp for owner content,
-  // direct file URLs (archive.org, CDN, etc.) are CC-licensed sources.
+  // Determine source type: YouTube/Twitch/Kick/etc. URLs are downloaded via
+  // yt-dlp (permitted for any publicly accessible content per CLAUDE.md's
+  // SCRAPE POLICY); direct file URLs (archive.org, CDN, etc.) are
+  // CC-licensed sources. license_note is optional attribution metadata.
   let hostname;
   try {
     hostname = new URL(url).hostname.toLowerCase();
@@ -90,11 +92,6 @@ clipsRouter.post("/clips/from-url", async (req, res) => {
     "reddit.com", "www.reddit.com",
   ].includes(hostname);
   const sourceType = isPlatformUrl ? "ytdlp_own" : "cc_licensed";
-  if (isPlatformUrl && (!license_note || !String(license_note).trim())) {
-    return res.status(400).json({
-      error: "license_note is required for platform URLs — confirm this is YOUR content: e.g. \"I own this video, posted to my own YouTube channel\"",
-    });
-  }
 
   try {
     const { data: job, error } = await supabase

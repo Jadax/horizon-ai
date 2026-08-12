@@ -20,7 +20,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       python3 python3-pip fontconfig fonts-dejavu-core fonts-liberation ffmpeg \
     && fc-cache -f \
     && rm -rf /var/lib/apt/lists/* \
-    && pip3 install --break-system-packages --no-cache-dir gTTS
+    && pip3 install --break-system-packages --no-cache-dir gTTS yt-dlp
 
 WORKDIR /app
 

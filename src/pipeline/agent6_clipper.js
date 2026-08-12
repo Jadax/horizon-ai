@@ -25,12 +25,12 @@
  * 'vimeo_own' (fetched via the Vimeo API using the OPERATOR'S OWN personal
  * access token, which Vimeo only honors for videos that token's account
  * owns/has download rights to). 'ytdlp_own' covers YouTube/Twitch/Kick/
- * Instagram/Reddit URLs for content the operator owns (license_note is
- * required by routes/clips.js) — none of those platforms expose an official
- * download API even to the video's own owner, so yt-dlp is the programmatic
- * fallback there; the platform's own "download"/export feature (YouTube
- * Studio, Twitch's VOD export) remains the preferred path, and the resulting
- * file can go through the upload path above.
+ * Instagram/Reddit URLs for publicly accessible content (per CLAUDE.md's
+ * SCRAPE POLICY; license_note in routes/clips.js is optional attribution) —
+ * none of those platforms expose an official open download API, so yt-dlp
+ * is the programmatic downloader; the platform's own "download"/export
+ * feature (YouTube Studio, Twitch's VOD export) remains the preferred path
+ * when available, and the resulting file can go through the upload path above.
  */
 import { config } from "../config.js";
 import { supabase, logEvent } from "../supabase.js";
@@ -62,7 +62,7 @@ async function updateClipJob(clipJobId, patch) {
 
 async function fetchSource(job, clipJobId) {
   if (job.source_type === "ytdlp_own") {
-    await logEvent("Agent 6", "Downloading owned video via yt-dlp (platform export is preferred; yt-dlp is the programmatic fallback)…", { jobId: clipJobId });
+    await logEvent("Agent 6", "Downloading video via yt-dlp (platform export is preferred; yt-dlp is the programmatic downloader)…", { jobId: clipJobId });
     const { downloadBestVideo } = await import("../sources/ytDlp.js");
     const { buffer } = await downloadBestVideo(job.source_url, { timeout: 300000 });
     return buffer;

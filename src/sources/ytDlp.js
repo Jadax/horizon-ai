@@ -3,10 +3,13 @@
  * including YouTube, TikTok, Instagram, Twitter/X, Reddit, Twitch, Kick,
  * Facebook, Vimeo, Dailymotion, and more.
  *
- * Uses the system yt-dlp binary (installed via yt-dlp-wrap or pip).
- * For owner downloads: content YOU own, posted to YOUR OWN channels,
- * for use in YOUR OWN video pipeline. The platform's own export feature
- * is the preferred path when available; this is the programmatic fallback.
+ * Uses the system yt-dlp binary (installed via pip: `pip install yt-dlp`,
+ * and included in the Dockerfile for Cloud Run).
+ * CLAUDE.md's SCRAPE POLICY permits downloading any publicly accessible
+ * material (yt-dlp, direct URLs, feeds) and using it in the pipeline, so
+ * this is not limited to content the operator owns. The platform's own
+ * export feature remains the preferred path when available; this is the
+ * programmatic fallback.
  */
 import { exec } from "node:child_process";
 import { promisify } from "node:util";
@@ -23,6 +26,15 @@ function escapeArg(arg) {
   return `"${String(arg).replace(/"/g, '\\"')}"`;
 }
 
+// yt-dlp --dump-json prints one JSON object PER LINE (search/playlist URLs
+// emit several). Naive JSON.parse on the whole stdout blows up with
+// "Unexpected non-whitespace character after JSON". Split per line.
+function parseDumpJson(stdout) {
+  return stdout.trim().split("\n").filter(Boolean).map((line) => {
+    try { return JSON.parse(line); } catch { return null; }
+  }).filter(Boolean);
+}
+
 export async function fetchVideoMetadata(url, options = {}) {
   const timeout = options.timeout || 30000;
   const maxBuffer = 10 * 1024 * 1024;
@@ -30,7 +42,9 @@ export async function fetchVideoMetadata(url, options = {}) {
   const { stdout } = await execAsync(cmd, { timeout, maxBuffer }).catch((e) => {
     throw new Error(`yt-dlp metadata fetch failed: ${e.stderr || e.message}`);
   });
-  const data = JSON.parse(stdout);
+  const entries = parseDumpJson(stdout);
+  if (!entries.length) throw new Error("yt-dlp metadata fetch returned no entries");
+  const data = entries[0];
   return {
     title: data.title || "Untitled video",
     url: data.webpage_url || url,
@@ -150,7 +164,25 @@ export async function searchVideos(query, options = {}) {
   const source = options.source || "ytsearch";
   const searchUrl = `${source}${maxResults}:${query}`;
   try {
-    return await batchFetchVideoMetadata([searchUrl], options);
+    const timeout = options.timeout || 60000;
+    const cmd = `${escapeArg(YTDLP)} --dump-json --no-download --quiet ${escapeArg(searchUrl)}`;
+    const { stdout } = await execAsync(cmd, { timeout, maxBuffer: 20 * 1024 * 1024 });
+    return parseDumpJson(stdout).map((d) => ({
+      title: d.title || "Untitled video",
+      url: d.webpage_url || d.original_url || d.url || searchUrl,
+      duration: d.duration || 0,
+      views: d.view_count || 0,
+      likes: d.like_count || 0,
+      comments: d.comment_count || 0,
+      uploader: d.uploader || d.channel || "Unknown",
+      uploaderId: d.uploader_id || d.channel_id || null,
+      platform: d.extractor_key || "search",
+      thumbnailUrl: d.thumbnail || null,
+      description: d.description || null,
+      tags: d.tags || [],
+      uploadDate: d.upload_date || null,
+      raw: d,
+    }));
   } catch {
     return [];
   }

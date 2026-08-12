@@ -693,31 +693,32 @@ table.ch-matrix tr:hover td{background:var(--panel-2)}
   <div class="page-head"><span class="ph-icon">✂️</span><h2>Long-form clipper</h2><span class="ph-sub">turn one video into many shorts</span></div>
   <section class="chart-card">
     <div class="sec-title">
-      <span class="sec-heading">Clip a video you own</span>
+      <span class="sec-heading">Clip a video</span>
       <button onclick="loadClips()" style="padding:3px 10px">↻</button>
     </div>
     <p class="clipper-note">
-      Turns a long-form video you have rights to into short clips — talk-heavy
-      sources get hook-scored dialogue clips with captions; gameplay/action
-      sources with little speech automatically switch to audio-peak highlight
-      detection with punch-in zooms and impact text instead. YouTube/Twitch/
-      Kick/TikTok/Instagram URLs are accepted for content YOU own (yt-dlp is
-      the programmatic downloader; the platform's own export is preferred).
-      ⚠ Action-mode clips have no original commentary — YouTube's reused-content
-      policy requires real added commentary/value to monetize compiled footage,
-      so add your own voiceover or on-screen take before publishing these.
+      Turns a long-form video into short clips — talk-heavy sources get
+      hook-scored dialogue clips with captions; gameplay/action sources with
+      little speech automatically switch to audio-peak highlight detection
+      with punch-in zooms and impact text instead. YouTube/Twitch/Kick/
+      TikTok/Instagram/Reddit URLs are downloaded via yt-dlp (publicly
+      accessible content is permitted; the platform's own export is preferred
+      when available). ⚠ Action-mode clips have no original commentary —
+      YouTube's reused-content policy requires real added commentary/value to
+      monetize compiled footage, so add your own voiceover or on-screen take
+      before publishing these.
     </p>
     <div class="clipper-forms">
       <form id="uploadForm" class="clipper-form" onsubmit="submitUpload(event)">
-        <label>Upload a video you own</label>
+        <label>Upload a video</label>
         <input type="file" id="clipFile" accept="video/*" required />
         <select id="clipUploadNiche"><option value="">Caption style: default</option></select>
         <button type="submit" class="primary">Upload &amp; clip</button>
       </form>
       <form id="urlForm" class="clipper-form" onsubmit="submitFromUrl(event)">
-        <label>Or a direct CC-licensed file URL</label>
-        <input type="url" id="clipUrl" placeholder="https://…/video.mp4" required />
-        <input type="text" id="clipLicense" placeholder="License note (e.g. CC BY 4.0, source: …)" required />
+        <label>Or from a video URL</label>
+        <input type="url" id="clipUrl" placeholder="https://youtube.com/… or direct .mp4" required />
+        <input type="text" id="clipLicense" placeholder="Source note (optional — e.g. CC BY 4.0, creator name)" />
         <input type="text" id="clipSourceLabel" placeholder="Source label (optional)" />
         <select id="clipUrlNiche"><option value="">Caption style: default</option></select>
         <button type="submit" class="primary">Fetch &amp; clip</button>
