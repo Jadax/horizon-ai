@@ -69,10 +69,16 @@ export function applySettingsToConfig(stored) {
     if (value) {
       if (path) setNested(config, path, value);
       if (env) process.env[env] = value;
-    } else if (stored[key] !== undefined) {
-      // Explicitly cleared in the dashboard — clear from config + env too
-      if (path) setNested(config, path, null);
-      if (env) delete process.env[env];
+    } else {
+      // Empty stored value = the dashboard has NO override for this key →
+      // fall back to the environment (Cloud Run/Railway env vars, .env),
+      // which are the durable source of truth. We must NOT delete
+      // process.env here: settings.json is a per-instance file (ephemeral on
+      // Cloud Run), and an empty field after a dashboard save used to wipe a
+      // correctly-configured env var for the whole process — the running
+      // service then reported "GEMINI_API_KEY not set" even though the deploy
+      // had it set.
+      if (path) setNested(config, path, env ? (process.env[env] || null) : null);
     }
   }
 }

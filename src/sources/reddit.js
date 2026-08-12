@@ -3,20 +3,27 @@ const UA = "HorizonAI/1.0 (autonomous content pipeline; contact via dashboard)";
 // Reddit rate-limits unauthenticated requests aggressively, and a single
 // pipeline run legitimately asks for the same subreddits twice (video pass +
 // topic pass) across several niches back-to-back — production runs saw every
-// subreddit 429 at once. Three mitigations, no auth needed:
+// subreddit 429 at once. Four mitigations, no auth needed:
 //   1. per-run cache (5 min TTL) so the second pass never re-fetches,
-//   2. ≥10s spacing between actual Reddit calls,
-//   3. one retry after a 15s backoff on 429.
+//   2. ≥20s global spacing between actual Reddit calls (plus jitter) — 10s
+//      still bursted past Reddit's limit on Cloud Run's shared datacenter IP,
+//   3. one retry after a 30s backoff on 429,
+//   4. 429 backoff doubles per module so a throttled box doesn't immediately
+//      re-hit the limit on the next subreddit.
 // Transport stays .rss: Reddit 403s unauthenticated .json requests from this
 // UA (verified live) while serving .rss fine, so RSS it is — scores come
 // back 0, which the trend ranker tolerates (other signals still apply).
 const redditCache = new Map();
 const REDDIT_CACHE_TTL = 5 * 60 * 1000;
+const REDDIT_PACE_MS = 20000;
 let lastRedditCall = 0;
+let redditBackoffMs = 0;
 
 async function paceRedditCall() {
-  const wait = lastRedditCall + 10000 - Date.now();
+  const jitter = Math.floor(Math.random() * 4000);
+  const wait = Math.max(lastRedditCall + REDDIT_PACE_MS + jitter - Date.now(), redditBackoffMs);
   if (wait > 0) await new Promise((r) => setTimeout(r, wait));
+  redditBackoffMs = 0;
   lastRedditCall = Date.now();
 }
 
@@ -27,11 +34,14 @@ export async function fetchTopReddit(subreddit, limit = 15, sort = 'hot') {
   if (cached && Date.now() - cached.at < REDDIT_CACHE_TTL) return cached.items.slice(0, limit);
 
   const url = `https://www.reddit.com/r/${cleanSub}/${sort}.rss`;
-  for (let attempt = 1; ; attempt++) {
+  let attempts = 0;
+  while (attempts < 2) {
+    attempts++;
     await paceRedditCall();
     const res = await fetch(url, { headers: { 'User-Agent': UA, Accept: 'application/atom+xml' } });
-    if (res.status === 429 && attempt === 1) {
-      await new Promise((r) => setTimeout(r, 15000));
+    if (res.status === 429 && attempts === 1) {
+      redditBackoffMs = 30000;
+      console.warn(`[reddit] r/${cleanSub} 429 → backing off 30s, one retry`);
       continue;
     }
     if (!res.ok) throw new Error(`Reddit r/${cleanSub} → HTTP ${res.status}`);

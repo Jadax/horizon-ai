@@ -24,6 +24,26 @@ import { channelAuthRouter } from "./routes/channelAuth.js";
 // boot so they survive process restarts, not just hot-reloads.
 applySettingsToConfig();
 
+// Boot guard: the pipeline is Gemini-only, so a missing key means every run
+// fails at the first LLM call. Fail loud and early instead of letting the
+// first pipeline silently half-die. Durable fix: set GEMINI_API_KEY in the
+// deploy env (Cloud Run/Railway) — settings.json is ephemeral per-instance.
+if (!config.geminiKey) {
+  console.error(
+    "\n========================================================\n" +
+    "GEMINI_API_KEY is NOT configured.\n" +
+    "The pipeline is Gemini-only — every niche run will fail at\n" +
+    "[writeScript] / [formatDecision] with 'GEMINI_API_KEY not set'.\n" +
+    "Fix (durable): set GEMINI_API_KEY in your deploy env vars\n" +
+    "  (Cloud Run: service -> Edit & Deploy -> Variables; Railway:\n" +
+    "  service -> Variables), then redeploy. You can also set it via\n" +
+    "  the dashboard Settings panel, but that stores it in ephemeral\n" +
+    "  settings.json which Cloud Run instances lose on churn.\n" +
+    "========================================================\n"
+  );
+  logEvent({ event: "boot_warning", status: "error", message: "GEMINI_API_KEY is not configured — pipeline will fail all LLM steps" });
+}
+
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
 app.use(express.json());
