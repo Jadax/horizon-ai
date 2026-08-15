@@ -32,7 +32,7 @@ nichesRouter.get("/channels", async (_req, res) => {
 nichesRouter.get("/niches", async (_req, res) => {
   const { data, error } = await supabase
     .from("niche_configurations")
-    .select("niche_name, active, target_channel, trend_region, language, target_duration_min_seconds, target_duration_max_seconds, editing_style_preset")
+    .select("niche_name, active, target_channel, trend_region, language, target_duration_min_seconds, target_duration_max_seconds, editing_style_preset, target_sources, footage_keywords, rss_feeds, social_rss_feeds")
     .order("niche_name");
   if (error) return res.status(500).json({ error: error.message });
   res.json(data);
@@ -52,6 +52,12 @@ const PRESET_KEYS = {
   music_energy: { key: "musicEnergy", clean: (v) => (v === null || v === "" ? null : ["High", "Chill", "Wonder", "Suspense"].includes(v) ? v : undefined) },
   caption_color: { key: "caption", clean: (v, preset) => (["white", "cream", "yellow", "mint", "sky", "pink"].includes(v) ? { ...(preset.caption || {}), color: v } : undefined) },
   persona: { key: "persona", clean: (v) => (typeof v === "string" ? v.slice(0, 300) : undefined) },
+  // Brand-voice brief (Kompozy steal): a few lines describing how the channel
+  // TALKS — tone, vocabulary, inside jokes, cadence. Agent2 injects it into
+  // the scriptwriter prompt so scripts sound like the channel, not like the
+  // default generic explainer voice; Agent 7 uses the same brief so replies
+  // match scripts. Falls back to nothing (current behavior) when unset.
+  voice_brief: { key: "voiceBrief", clean: (v) => (typeof v === "string" ? v.trim().slice(0, 1000) || null : undefined) },
   target_channels: { key: "targetChannels", clean: (v) => (Array.isArray(v) ? v.filter((c) => typeof c === "string" && c.length < 80).slice(0, 10) : undefined) },
   target_instagram_channels: { key: "targetInstagramChannels", clean: (v) => (Array.isArray(v) ? v.filter((c) => typeof c === "string" && c.length < 80).slice(0, 10) : undefined) },
   target_tiktok_channels: { key: "targetTiktokChannels", clean: (v) => (Array.isArray(v) ? v.filter((c) => typeof c === "string" && c.length < 80).slice(0, 10) : undefined) },

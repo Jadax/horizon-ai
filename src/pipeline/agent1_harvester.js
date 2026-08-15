@@ -508,6 +508,37 @@ async function searchPixabay(keyword, perPage = 10) {
 const AI_CUTAWAY_DURATION = 4; // seconds a generated still is shown for
 const AI_CUTAWAY_MAX_PER_VIDEO = 4; // caps real per-video OpenAI image cost
 
+// ─── MATERIAL SEARCH CACHE (steal from MoneyPrinterTurbo) ─────────────
+// Pexels/Pixabay return near-identical result sets for the same keyword for
+// weeks at a time, but agent1 was hitting the live API on EVERY keyword of
+// EVERY video run — burning quota + adding ~1-2s of network latency per
+// keyword for zero new information. Cache the normalized clip list in
+// material_cache for a week; the vision QA still runs fresh on the cached
+// candidates, so a rejection can never be caused by a stale cache.
+const MATERIAL_CACHE_TTL_MS = 7 * 86400000;
+
+async function cachedMaterialSearch(provider, keyword, fetcher) {
+    const cacheKey = `${provider}:${keyword.toLowerCase().trim()}`;
+    try {
+        const { data } = await supabase
+            .from("material_cache")
+            .select("payload, fetched_at")
+            .eq("cache_key", cacheKey)
+            .single();
+        if (data?.payload?.length && Date.now() - new Date(data.fetched_at).getTime() < MATERIAL_CACHE_TTL_MS) {
+            return data.payload;
+        }
+    } catch { /* cache miss → fresh fetch below */ }
+    const fresh = await fetcher();
+    if (fresh?.length) {
+        await supabase
+            .from("material_cache")
+            .upsert({ cache_key: cacheKey, provider, keyword, payload: fresh }, { onConflict: "cache_key" })
+            .catch(() => {});
+    }
+    return fresh;
+}
+
 /**
  * Real, original, licensed-by-construction fallback for a visual_plan beat
  * that no stock search turned up a genuine match for — generates a still
@@ -636,10 +667,18 @@ export async function harvestFootage(niche, jobId, minTotalSeconds = 55, priorit
     const zeroMatchBeats = [];
 
     for (const kw of keywords) {
-        if (total >= minTotalSeconds) break;
-        const found = [...(await searchPexels(kw)), ...(await searchPixabay(kw))]
+        // A script visual plan is chronological. Do not stop once the early
+        // beats happen to provide enough seconds of footage: that left later
+        // narration with no matching media and caused early b-roll to be
+        // repeated over unrelated claims.
+        if (!scriptedQueries.length && total >= minTotalSeconds) break;
+        const found = [
+            ...(await cachedMaterialSearch("pexels", kw, () => searchPexels(kw))),
+            ...(await cachedMaterialSearch("pixabay", kw, () => searchPixabay(kw))),
+        ]
             .filter((c) => c.url && c.duration >= 4);
         const matchingBrief = visualQueries.find((q) => q?.query === kw);
+        const planIndex = matchingBrief ? visualQueries.indexOf(matchingBrief) : null;
 
         const { clips: verified, tokens } = await verifyVisualMatches(
             { line: matchingBrief?.line || kw, query: kw, intent: matchingBrief?.intent },
@@ -660,10 +699,13 @@ export async function harvestFootage(niche, jobId, minTotalSeconds = 55, priorit
             zeroMatchBeats.push(matchingBrief);
         }
 
-        for (const clip of verified.slice(0, 2)) {
-            clips.push({ ...clip, keyword: kw, semanticCue: matchingBrief?.line || kw, visualIntent: matchingBrief?.intent || null });
+        // One approved source per planned beat keeps the edit visually varied
+        // and guarantees later lines have a chance to receive their own media.
+        // Generic fallback mode can still collect two clips per keyword.
+        for (const clip of verified.slice(0, scriptedQueries.length ? 1 : 2)) {
+            clips.push({ ...clip, keyword: kw, semanticCue: matchingBrief?.line || kw, visualIntent: matchingBrief?.intent || null, planIndex });
             total += Math.min(clip.duration, 8);
-            if (total >= minTotalSeconds) break;
+            if (!scriptedQueries.length && total >= minTotalSeconds) break;
         }
         await logEvent("Agent 1", `"${kw}" → ${found.length} licensed clips (${Math.round(total)}s gathered)`, { jobId });
     }
@@ -673,9 +715,21 @@ export async function harvestFootage(niche, jobId, minTotalSeconds = 55, priorit
         for (const beat of zeroMatchBeats) {
             const cutaway = await generateCutawayImage(beat, jobId);
             if (cutaway) {
-                clips.push({ ...cutaway, keyword: beat.query, semanticCue: beat.line, visualIntent: beat.intent || null });
+                clips.push({ ...cutaway, keyword: beat.query, semanticCue: beat.line, visualIntent: beat.intent || null, planIndex: visualQueries.indexOf(beat) });
                 total += cutaway.duration;
             }
+        }
+    }
+
+    // Never let a render quietly substitute generic early footage for an
+    // uncovered later sentence. A missing visual beat is a production failure
+    // to retry with a better query/source, not permission to ship mismatch.
+    if (scriptedQueries.length) {
+        const missingBeats = visualQueries
+            .slice(0, 12)
+            .filter((beat, index) => beat?.query && !clips.some((clip) => clip.planIndex === index));
+        if (missingBeats.length) {
+            throw new Error(`Visual plan coverage failed for ${missingBeats.length} narration beat(s): ${missingBeats.map((beat) => beat.query).join(", ").slice(0, 240)}`);
         }
     }
 

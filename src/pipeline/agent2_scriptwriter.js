@@ -239,6 +239,9 @@ export async function writeScript(niche, topic, loreContext, jobId) {
     `TONE: ${niche.run_tone || "casual"}`,
     `WORD_CLIP_MODE: ${wordClipMode}`,
     `LOOP_MODE: ${loopMode}`,
+    niche.editing_style_preset?.voiceBrief
+      ? `BRAND VOICE (must sound like THIS channel, not a generic explainer — match its vocabulary, humor, and cadence while staying clear and factual): ${niche.editing_style_preset.voiceBrief}`
+      : null,
     `TARGET_WORDS_MIN: ${wordsMin}`,
     `TARGET_WORDS_MAX: ${wordsMax}`,
     `SPOKEN_DENSITY: ${wpm} words per minute — write tight and dense; every dead syllable is a swipe trigger. Short punchy sentences. No filler.`,
@@ -397,6 +400,7 @@ export async function calculateTrims(script, clips, stylePreset, jobId, words = 
 
   const clipManifest = clips.map((c, i) => ({
     index: i,
+    planIndex: Number.isInteger(c.planIndex) ? c.planIndex : null,
     keyword: c.keyword,
     semanticCue: c.semanticCue,
     visualIntent: c.visualIntent,
@@ -433,8 +437,18 @@ export async function calculateTrims(script, clips, stylePreset, jobId, words = 
         reason: String(c.reason || src.semanticCue || src.keyword).slice(0, 240),
         semanticCue: src.semanticCue || src.keyword,
         overlay: src.overlay || null,
+        planIndex: Number.isInteger(src.planIndex) ? src.planIndex : null,
+        sourceIndex: c.index,
       };
     });
+
+  // Stock candidates are emitted in visual-plan order. Retain that order in
+  // the final timeline whenever the run has a script plan, rather than
+  // allowing a timing model to put an otherwise valid later-scene clip under
+  // an earlier line. This is a hard relevance guard, not a style preference.
+  if (validated.some((cut) => cut.planIndex !== null)) {
+    validated.sort((a, b) => (a.planIndex ?? Number.MAX_SAFE_INTEGER) - (b.planIndex ?? Number.MAX_SAFE_INTEGER) || a.sourceIndex - b.sourceIndex);
+  }
 
   if (!validated.length) throw new Error("Trim calculation produced no usable cuts");
   const authoritativeEnd = Number(duration) || words.at(-1)?.end;

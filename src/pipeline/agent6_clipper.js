@@ -159,8 +159,8 @@ Return at most 8 candidates, ordered by hook_score descending. Only include
 clips scoring 8.5 or higher. If nothing in this transcript clears that bar,
 return an empty list rather than forcing a mediocre clip.`;
 
-async function planDialogueClips(words, clipJobId) {
-  await logEvent("Agent 6", "Scanning transcript for standalone-worthy moments…", { jobId: clipJobId });
+async function planDialogueClips(words, clipJobId, searchIntent = null) {
+  await logEvent("Agent 6", `Scanning transcript for standalone-worthy moments${searchIntent ? ` matching: "${searchIntent}"` : ""}…`, { jobId: clipJobId });
   const sentences = toSentenceChunks(words);
   const res = await llmJson({
     tier: "smart",
@@ -168,7 +168,15 @@ async function planDialogueClips(words, clipJobId) {
     label: "clipPlanning",
     messages: [
       { role: "system", content: CLIP_SYSTEM },
-      { role: "user", content: JSON.stringify({ sentences }) },
+      {
+        role: "user",
+        content: [
+          searchIntent
+            ? `SEARCH INTENT (prioritize moments that deliver exactly this — skip near-misses even if they'd be decent generic clips): ${searchIntent}`
+            : null,
+          JSON.stringify({ sentences }),
+        ].filter(Boolean).join("\n\n"),
+      },
     ],
   });
   const { clips } = JSON.parse(res.content || "{}");
@@ -191,7 +199,7 @@ async function planDialogueClips(words, clipJobId) {
     .slice(0, 5);
 
   await logEvent("Agent 6", `Clip plan: ${validated.length} moment(s) cleared the hook-score bar`, { jobId: clipJobId });
-  return { clips: validated, tokens: res.usage?.total_tokens || 0 };
+  return { clips: validated, tokens: res.tokens || 0 };
 }
 
 /** Turns detected audio peaks into a clip plan. Tries a cheap Gemini
@@ -224,7 +232,7 @@ async function planActionClips(peaks, words, clipJobId) {
         });
         const suggestion = res.content?.trim();
         if (suggestion) callout = suggestion.slice(0, 24);
-        tokens += res.usage?.total_tokens || 0;
+        tokens += res.tokens || 0;
       } catch {
         // fall back to the generic pool silently — this is a nice-to-have, not load-bearing
       }
@@ -249,6 +257,44 @@ async function planActionClips(peaks, words, clipJobId) {
  * pickMusic degrading gracefully with no music track. Stock it yourself
  * with royalty-free one-shot SFX (Pixabay's sound-effects library is the
  * same free-commercial-use source already used for footage/music). */
+/** Honest post-render QC. Every number below is computed from the ACTUAL
+ * artifact (sourceClipRender already hard-fails corrupt output), not
+ * fabricated: resolution/sync come from the real renderer result, duration
+ * is the real rounded clip length, hook_score is the plan's real score, and
+ * retention_estimate is a labeled heuristic (a hook is a necessary but not
+ * sufficient condition — nothing here predicts views). Replaces the old
+ * Math.max(85, …) block that reported "90%, perfect, zero issues" for every
+ * clip regardless of reality. */
+function buildClipQualityReport(clip, artifact) {
+  const issues = [];
+  const duration = Number(artifact.durationSec) || 0;
+  if (duration < 15) issues.push(`Clip is ${duration}s — below the 15s Shorts floor`);
+  if (duration > 65) issues.push(`Clip is ${duration}s — above the 65s Shorts ceiling`);
+  const resW = Number(String(artifact.resolution || "").split("x")[0]);
+  const resH = Number(String(artifact.resolution || "").split("x")[1]);
+  if (!resW || !resH || resH < 720) issues.push(`Rendered below 720p vertical: ${artifact.resolution || "unknown"}`);
+  const sync = Number(artifact.syncPrecisionMs);
+  if (!Number.isFinite(sync) || sync > 150) issues.push(`Subtitle sync tolerance ${sync ?? "unknown"}ms — above the 150ms target`);
+
+  const hook = Math.max(0, Math.min(10, Number(clip.hook_score) || 0));
+  const tech = issues.length ? 60 : 100;
+  const overall = Math.round(hook * 7 + tech * 0.3);
+  const retention = Math.round(Math.max(35, Math.min(97, hook * 9.5 - issues.length * 4)));
+
+  return {
+    overall_score: overall,
+    hook_score: Math.round(hook * 10),
+    technical_pass: issues.length === 0,
+    retention_estimate: `${retention}% (heuristic — hook strength adjusted for technical issues)`,
+    issues,
+    checks: {
+      resolution: artifact.resolution || null,
+      sync_precision_ms: sync ?? null,
+      duration_sec: duration,
+    },
+  };
+}
+
 async function renderDialogueClips(sourceBuffer, words, clipPlan, clipJobId) {
   const rendered = [];
   let shotstackSeconds = 0;
@@ -271,13 +317,7 @@ async function renderDialogueClips(sourceBuffer, words, clipPlan, clipJobId) {
         resolution: artifact.resolution,
         duration_sec: artifact.durationSec,
         sync_precision_ms: artifact.syncPrecisionMs,
-        quality_report: {
-          overall_score: Math.max(85, Math.round(clip.hook_score * 10)),
-          hook_score: Math.round(clip.hook_score * 10),
-          technical_pass: true,
-          retention_prediction: `${Math.round(clip.hook_score * 10)}%`,
-          issues: [],
-        },
+        quality_report: buildClipQualityReport(clip, artifact),
       });
       shotstackSeconds += artifact.durationSec;
       await updateClipJob(clipJobId, { rendered_clips: rendered });
@@ -309,13 +349,7 @@ async function renderActionClips(sourceBuffer, words, clipPlan, clipJobId) {
         resolution: artifact.resolution,
         duration_sec: artifact.durationSec,
         sync_precision_ms: artifact.syncPrecisionMs,
-        quality_report: {
-          overall_score: Math.max(85, Math.round(clip.hook_score * 10)),
-          hook_score: Math.round(clip.hook_score * 10),
-          technical_pass: true,
-          retention_prediction: `${Math.round(clip.hook_score * 10)}%`,
-          issues: [],
-        },
+        quality_report: buildClipQualityReport(clip, artifact),
       });
       shotstackSeconds += artifact.durationSec;
       await updateClipJob(clipJobId, { rendered_clips: rendered });
@@ -359,7 +393,7 @@ export async function runClipperJob(clipJobId) {
 
     const { clips, tokens } = actionMode
       ? await planActionClips(peaks, words, clipJobId)
-      : await planDialogueClips(words, clipJobId);
+      : await planDialogueClips(words, clipJobId, job.clip_plan?.describe || null);
     await updateClipJob(clipJobId, { clip_plan: clips, openai_tokens: tokens, status: "Rendering" });
 
     if (!clips.length) {

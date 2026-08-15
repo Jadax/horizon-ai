@@ -701,9 +701,8 @@ table.ch-matrix tr:hover td{background:var(--panel-2)}
       hook-scored dialogue clips with captions; gameplay/action sources with
       little speech automatically switch to audio-peak highlight detection
       with punch-in zooms and impact text instead. YouTube/Twitch/Kick/
-      TikTok/Instagram/Reddit URLs are downloaded via yt-dlp (publicly
-      accessible content is permitted; the platform's own export is preferred
-      when available). ⚠ Action-mode clips have no original commentary —
+      TikTok/Instagram/Reddit URLs can be processed when you own them or have
+      explicit rights to clip them. ⚠ Action-mode clips have no original commentary —
       YouTube's reused-content policy requires real added commentary/value to
       monetize compiled footage, so add your own voiceover or on-screen take
       before publishing these.
@@ -721,6 +720,7 @@ table.ch-matrix tr:hover td{background:var(--panel-2)}
         <input type="text" id="clipLicense" placeholder="Source note (optional — e.g. CC BY 4.0, creator name)" />
         <input type="text" id="clipSourceLabel" placeholder="Source label (optional)" />
         <select id="clipUrlNiche"><option value="">Caption style: default</option></select>
+        <label style="display:flex;gap:7px;align-items:flex-start;font-family:var(--mono);font-size:11px;color:var(--muted);line-height:1.4"><input type="checkbox" id="clipRightsConfirmed" required style="width:auto;margin-top:2px" /> I own this video or have explicit rights to create clips from it.</label>
         <button type="submit" class="primary">Fetch &amp; clip</button>
       </form>
       <form id="vimeoForm" class="clipper-form" onsubmit="submitFromVimeo(event)">
@@ -1338,11 +1338,12 @@ async function submitFromUrl(e){
   const license_note = document.getElementById("clipLicense").value;
   const source_label = document.getElementById("clipSourceLabel").value;
   const niche = document.getElementById("clipUrlNiche").value;
+  const ownership_confirmed = document.getElementById("clipRightsConfirmed").checked;
   const msg = document.getElementById("clipperMsg");
   msg.textContent = "Starting clipper job…";
   try{
     const res = await fetch("/api/clips/from-url",{method:"POST",headers:H,
-      body:JSON.stringify({url,license_note,source_label,niche})});
+      body:JSON.stringify({url,license_note,source_label,niche,ownership_confirmed})});
     const data = await res.json();
     msg.textContent = res.ok ? "✓ "+data.message : "✗ "+(data.error||"failed to start");
     if(res.ok){ document.getElementById("urlForm").reset(); }

@@ -126,7 +126,7 @@ export async function runPipelineForNiche(niche) {
         usage.openai_tokens += clips._usage?.tokens || 0;
         break;
       } catch (err) {
-        const retryable = /quality gate|visually verified footage|visual QA|footage coverage/i.test(err.message);
+        const retryable = /quality gate|visually verified footage|visual QA|footage coverage|visual plan coverage/i.test(err.message);
         if (!retryable || i === topicQueue.length - 1) throw err;
         await logEvent(
           "Pipeline",
@@ -215,7 +215,11 @@ export async function runPipelineForNiche(niche) {
     const cuts = await calculateTrims(scriptOut.script, clips, preset, jobId, words, duration);
     usage.openai_tokens += cuts._usage?.tokens || 0;
     usage.elevenlabs_characters += scriptOut.script.length;
-    const musicTrack = await pickMusic(preset.music_energy, jobId, preset.music_brief);
+    const musicTrack = await pickMusic(preset.music_energy, jobId, {
+      ...(preset.music_brief || {}),
+      script: scriptOut.script,
+      niche: niche.niche_name,
+    });
     await updateJob(jobId, {
       voiceover_url: voiceoverUrl,
       voiceover_words: words,

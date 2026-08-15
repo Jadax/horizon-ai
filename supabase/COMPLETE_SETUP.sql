@@ -80,6 +80,7 @@ CREATE TABLE IF NOT EXISTS niche_configurations (
   mastodon_tags text[] DEFAULT '{}',
   lemmy_communities text[] DEFAULT '{}',
   lore_wiki_apis text[] DEFAULT '{}',
+  social_rss_feeds text[] DEFAULT '{}',
   voice_profile_id text,
   target_channel text DEFAULT 'primary',
   trend_region text DEFAULT 'US',
@@ -90,6 +91,9 @@ CREATE TABLE IF NOT EXISTS niche_configurations (
   editing_style_preset jsonb DEFAULT '{}'::jsonb,
   created_at timestamptz DEFAULT now()
 );
+-- Keep this in sync with the CREATE above for databases created before the
+-- social_rss_feeds column existed (the dashboard PATCHes it via niches.js).
+ALTER TABLE niche_configurations ADD COLUMN IF NOT EXISTS social_rss_feeds text[] DEFAULT '{}';
 
 CREATE TABLE IF NOT EXISTS music_library (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -154,7 +158,7 @@ ALTER TABLE trend_history ENABLE ROW LEVEL SECURITY;
 
 CREATE TABLE IF NOT EXISTS clip_jobs (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  source_type text NOT NULL CHECK (source_type IN ('upload', 'cc_licensed', 'vimeo_own')),
+  source_type text NOT NULL CHECK (source_type IN ('upload', 'cc_licensed', 'vimeo_own', 'ytdlp_own')),
   source_url text NOT NULL,
   source_label text,
   license_note text,
@@ -169,6 +173,52 @@ CREATE TABLE IF NOT EXISTS clip_jobs (
   created_at timestamptz DEFAULT now(),
   updated_at timestamptz DEFAULT now()
 );
+-- Migrate databases created before ytdlp_own joined the allowed source types
+-- (routes/clips.js POST /api/clips/from-url inserts it for YouTube/Twitch/
+-- Kick/Reddit/etc. URLs; the old CHECK would reject the insert with a
+-- constraint violation and kill the whole clip job).
+ALTER TABLE clip_jobs DROP CONSTRAINT IF EXISTS clip_jobs_source_type_check;
+ALTER TABLE clip_jobs ADD CONSTRAINT clip_jobs_source_type_check CHECK (source_type IN ('upload', 'cc_licensed', 'vimeo_own', 'ytdlp_own'));
+
+-- Stock-footage search cache (steal from MoneyPrinterTurbo's persistent
+-- material caching): Pexels/Pixabay searches for the same keyword return the
+-- same result set for weeks, so agent1 re-fetching them on every job burns
+-- API quota and adds seconds of latency for zero new information. Cached for
+-- TTL days, then re-fetched. payload jsonb holds the normalized clip list.
+CREATE TABLE IF NOT EXISTS material_cache (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  cache_key text UNIQUE NOT NULL,
+  provider text NOT NULL,
+  keyword text NOT NULL,
+  payload jsonb DEFAULT '[]'::jsonb,
+  fetched_at timestamptz NOT NULL DEFAULT now()
+);
+ALTER TABLE material_cache ENABLE ROW LEVEL SECURITY;
+
+-- Auto-engagement log (Agent 7): every comment read + reply posted per
+-- published video, so the weekly engagement pass never double-replies and
+-- the dashboard can audit what the channel said.
+CREATE TABLE IF NOT EXISTS engagement (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  pipeline_log_id uuid,
+  youtube_video_id text,
+  comment_id text UNIQUE NOT NULL,
+  comment_author text,
+  comment_text text,
+  comment_like_count bigint DEFAULT 0,
+  channel_key text,
+  niche text,
+  classification text,
+  status text NOT NULL DEFAULT 'read',
+  reply_text text,
+  reply_id text,
+  replied_at timestamptz,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_engagement_video ON engagement (youtube_video_id);
+CREATE INDEX IF NOT EXISTS idx_engagement_replied ON engagement (status, replied_at);
+ALTER TABLE engagement ENABLE ROW LEVEL SECURITY;
 
 CREATE TABLE IF NOT EXISTS publish_targets (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -234,6 +284,24 @@ CREATE TABLE IF NOT EXISTS monetization (
 
 ALTER TABLE monetization ADD COLUMN IF NOT EXISTS estimated_revenue numeric DEFAULT 0;
 ALTER TABLE monetization ADD COLUMN IF NOT EXISTS actual_revenue numeric;
+
+-- Revenue estimates are refreshed repeatedly as view counts change. Retain the
+-- newest estimate per published video and platform before enforcing that rule.
+DELETE FROM monetization
+WHERE id IN (
+  SELECT id
+  FROM (
+    SELECT id, row_number() OVER (
+      PARTITION BY pipeline_log_id, platform
+      ORDER BY recorded_at DESC, id DESC
+    ) AS duplicate_rank
+    FROM monetization
+  ) duplicates
+  WHERE duplicate_rank > 1
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_monetization_pipeline_platform
+  ON monetization (pipeline_log_id, platform);
 
 CREATE INDEX IF NOT EXISTS idx_pipeline_logs_created ON pipeline_logs (created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_pipeline_logs_quality ON pipeline_logs (content_quality_score DESC);

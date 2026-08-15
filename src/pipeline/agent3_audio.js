@@ -1,7 +1,7 @@
 import { config } from "../config.js";
 import { supabase, logEvent } from "../supabase.js";
 import { synthesizeSpeech } from "../lib/freeTTS.js";
-import { verifyContentIdSafety } from "../lib/musicBrain.js";
+import { verifyContentIdSafety, pickCopyrightFreeMusic } from "../lib/musicBrain.js";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { readFile, writeFile, unlink } from "node:fs/promises";
@@ -241,10 +241,45 @@ export async function pickMusic(energyLevel, jobId, brief = {}) {
         .select("*")
         .eq("energy_level", energyLevel);
     if (error || !data?.length) {
-        await logEvent("Agent 3", `No ${energyLevel} track in music_library — rendering without music`, {
+        await logEvent("Agent 3", `No ${energyLevel} track in music_library — querying live copyright-free sources (Pixabay/FMA/Incompetech)`, {
             jobId,
             level: "warn",
         });
+        // Music-brain fallback: when the library is empty for this energy
+        // level, go hit the multi-source engine live and bank the winner into
+        // the library so the next run is served from cache. Script + niche are
+        // threaded through so the Gemini relevance pass can actually judge
+        // emotional fit instead of falling back to its neutral 5.
+        const found = await pickCopyrightFreeMusic({
+            energy: energyLevel,
+            moods: brief.moods || [],
+            genres: brief.genres || [],
+            bpm: Array.isArray(brief.bpm) ? brief.bpm : [60, 140],
+            script: brief.script || "",
+            niche: brief.niche || "",
+            jobId,
+        }).catch((e) => {
+            logEvent("Agent 3", `Live music search failed: ${e.message}`, { jobId, level: "warn" });
+            return null;
+        });
+        if (found) {
+            await supabase
+                .from("music_library")
+                .insert({
+                    title: found.title,
+                    track_url: found.track_url,
+                    energy_level: energyLevel,
+                    mood_tags: [...(found.mood_tags || []), `source:${found.source}`],
+                    genre: found.genre,
+                    bpm: found.bpm,
+                    instrumental: true,
+                    license: `${found.license} | content_id_safe: ${found.contentIdSafe}`,
+                })
+                .then(() => {})
+                .catch(() => {});
+            return found;
+        }
+        await logEvent("Agent 3", `No ${energyLevel} music found anywhere — rendering without music`, { jobId, level: "warn" });
         return null;
     }
 

@@ -57,6 +57,13 @@ clipsRouter.post("/clips/upload", upload.single("video"), async (req, res) => {
         source_label: req.file.originalname || null,
         niche,
         transcript: req.body.transcript ? JSON.parse(req.body.transcript) : null,
+        // Natural-language clip search (OpusClip "ClipAnything" steal): e.g.
+        // "the story about the dog that learned to open the fridge". Stored
+        // inside the jsonb clip_plan as a reserved input key, consumed by
+        // runClipperJob before it overwrites clip_plan with the real plan.
+        clip_plan: typeof req.body.describe === "string" && req.body.describe.trim()
+          ? { describe: req.body.describe.trim().slice(0, 300) }
+          : null,
         status: "Transcribing",
       })
       .select()
@@ -71,13 +78,12 @@ clipsRouter.post("/clips/upload", upload.single("video"), async (req, res) => {
 });
 
 clipsRouter.post("/clips/from-url", async (req, res) => {
-  const { url, license_note, source_label, niche } = req.body || {};
+  const { url, license_note, source_label, niche, describe, ownership_confirmed } = req.body || {};
   if (!url || typeof url !== "string") return res.status(400).json({ error: "url is required" });
 
-  // Determine source type: YouTube/Twitch/Kick/etc. URLs are downloaded via
-  // yt-dlp (permitted for any publicly accessible content per CLAUDE.md's
-  // SCRAPE POLICY); direct file URLs (archive.org, CDN, etc.) are
-  // CC-licensed sources. license_note is optional attribution metadata.
+  // Platform URLs are only processed for material the operator owns or is
+  // licensed to use. Public accessibility is not a licence to republish.
+  // Direct-file sources retain their supplied licence note for auditability.
   let hostname;
   try {
     hostname = new URL(url).hostname.toLowerCase();
@@ -91,6 +97,9 @@ clipsRouter.post("/clips/from-url", async (req, res) => {
     "instagram.com", "www.instagram.com",
     "reddit.com", "www.reddit.com",
   ].includes(hostname);
+  if (isPlatformUrl && ownership_confirmed !== true) {
+    return res.status(400).json({ error: "Confirm that you own this platform video or have explicit rights to clip it before processing." });
+  }
   const sourceType = isPlatformUrl ? "ytdlp_own" : "cc_licensed";
 
   try {
@@ -102,6 +111,9 @@ clipsRouter.post("/clips/from-url", async (req, res) => {
         source_label: source_label || null,
         license_note: license_note || null,
         niche: niche || null,
+        clip_plan: typeof describe === "string" && describe.trim()
+          ? { describe: describe.trim().slice(0, 300) }
+          : null,
         status: "Transcribing",
       })
       .select()

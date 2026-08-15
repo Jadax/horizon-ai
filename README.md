@@ -41,7 +41,7 @@ optional extra infrastructure, not required to run this.
 ## Requirements
 
 - Node.js ≥ 22
-- Python 3 + `pip` (for `gTTS`) — only needed if `TTS_ENGINE=gtts` (the default)
+- Python 3 + `pip` (for `gTTS`) — only needed if you explicitly set `TTS_ENGINE=gtts` as the fallback
 - Accounts/API keys: Gemini (free), Supabase, Pexels/Pixabay, Google Cloud (YouTube OAuth)
 
 On Windows, make sure `python` (or `python3`) resolves to a **real** Python
@@ -192,7 +192,8 @@ src/
 supabase/COMPLETE_SETUP.sql  the entire DB schema (one file, by design)
 ```
 
-## Notes / current known gaps
+## Content-source notes
 
 - **Pexels**: if `PEXELS_API_KEY` is unset, stock search silently falls back to Pixabay-only — the dashboard diagnostics panel will show Pexels as "Down" until a key is set.
-- **No YouTube/TikTok/Twitch/Kick scraping or downloading**: this project intentionally does not scrape or download from those platforms (no official download API exists for any of them). Sourced footage comes from Pexels/Pixabay/AI-generated images/your own Vimeo uploads only.
+- **Social discovery**: public RSS, platform metadata, trend services, and configured feeds are used to discover topics. They are research inputs, not a licence to reuse third-party video.
+- **Long-form clipper**: platform URLs require an explicit confirmation that you own the video or have rights to clip it. For other creators' material, use the platform export or obtain written permission first.

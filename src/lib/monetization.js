@@ -141,7 +141,10 @@ function generateAffiliateLink(product) {
 export async function trackRevenue(jobId, platform, revenue, views = 0, clicks = 0, conversions = 0) {
     const { error } = await supabase
         .from('monetization')
-        .insert({
+        // Revenue is a current estimate for a job/platform, not an event ledger.
+        // Refreshing platform stats must replace the prior estimate rather than
+        // create another row and inflate revenue totals.
+        .upsert({
             pipeline_log_id: jobId,
             platform,
             estimated_revenue: revenue,
@@ -149,7 +152,7 @@ export async function trackRevenue(jobId, platform, revenue, views = 0, clicks =
             clicks,
             conversions,
             recorded_at: new Date().toISOString(),
-        });
+        }, { onConflict: 'pipeline_log_id,platform' });
 
     if (error) {
         console.error('[monetization] Failed to track revenue:', error.message);

@@ -46,7 +46,11 @@ async function searchPixabay(energy, limit = 5) {
     const json = await res.json();
     return (json.hits || []).map((h) => ({
       title: h.tags?.split(",")[0]?.trim() || h.user || "Pixabay track",
-      track_url: h.previewURL || h.largeImageURL || null,
+      // The Pixabay MUSIC API puts the playable audio file on `h.audio`
+      // (a .mp3/.wav URL); previewURL/largeImageURL are IMAGE fields and
+      // produced dead "tracks" that failed on every render fetch. Was the
+      // #1 reason musicBrain picks existed but never actually played.
+      track_url: h.audio || h.audio_url || null,
       energy_level: energy,
       mood_tags: (h.tags || "").split(",").map((t) => t.trim()).filter(Boolean).slice(0, 5),
       genre: h.type || "instrumental",

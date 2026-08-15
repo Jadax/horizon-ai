@@ -108,7 +108,11 @@ export async function llmVision({ prompt, images, label = "vision", maxTokens = 
 export async function llmJson({ messages, temperature = 0.7, tier = "smart", label = "llm" }) {
   if (!config.geminiKey) throw new Error(`[${label}] GEMINI_API_KEY not set`);
   const keys = apiKeys();
-  for (const model of [GEMINI_MODELS[tier], GEMINI_MODELS.fast]) {
+  // Dedupe: for tier "fast" both entries are gemini-flash-lite-latest, and
+  // the old list retried the SAME throttled model on every key before giving
+  // up — doubling latency on the most-used path (every classify/scoring call).
+  const models = [...new Set([GEMINI_MODELS[tier], GEMINI_MODELS.fast])];
+  for (const model of models) {
     for (let i = 0; i < keys.length; i++) {
       try {
         return await geminiJson(model, keys[i], messages, temperature);

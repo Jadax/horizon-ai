@@ -128,6 +128,15 @@ export const config = {
   pipelineCron: process.env.PIPELINE_CRON || "0 3 * * *",
   videosPerRun: parseInt(process.env.VIDEOS_PER_RUN || "6", 10),
   autopilot: (process.env.AUTOPILOT || "true").toLowerCase() === "true",
+  // Agent 7 auto-engagement: read + classify every fresh comment and reply to
+  // questions/compliments in the channel's voice. Read-only passes still run
+  // (they populate the engagement ledger for the dashboard) — this only gates
+  // POSTING replies. Settable live from the dashboard OPS toggle, which writes
+  // process.env via applySettingsToConfig so it needs no restart.
+  // Posting audience replies is an external action. Keep the engine in
+  // read/classify mode until the operator explicitly enables AUTO_ENGAGE.
+  autoEngage: (process.env.AUTO_ENGAGE ?? "false").toLowerCase() === "true",
+  autoEngageMaxRepliesPerPass: parseInt(process.env.AUTO_ENGAGE_MAX_PER_PASS || "8", 10),
   // Default 78, measured against the critic's actual score distribution
   // (Gemini flash-lite with the calibrated rubric in contentQuality.js):
   // filler-content

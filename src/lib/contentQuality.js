@@ -158,7 +158,7 @@ export async function gradeContent({ script, title, niche, platforms = ["youtube
     viralBoosters,
     revisionNotes: Array.isArray(review.revision_notes) ? review.revision_notes : [],
     breakdown: scores,
-    tokens: response.usage?.total_tokens || 0,
+    tokens: response.tokens || 0,
   };
 }
 

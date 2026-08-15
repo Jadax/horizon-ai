@@ -81,6 +81,26 @@ export function applySettingsToConfig(stored) {
       if (path) setNested(config, path, env ? (process.env[env] || null) : null);
     }
   }
+  // ── Runtime OPS flags ────────────────────────────────────────────────
+  // Live toggles the operator can flip from the dashboard without a
+  // redeploy: autopilot (auto-upload + schedule vs. Awaiting Approval) and
+  // autoEngage (Agent 7 posting replies vs. read-only). Precedence matches
+  // the rest of this file: settings.json override → env var → code default.
+  // Each write also mirrors process.env so any code path that reads the env
+  // directly (not config) sees the flip immediately.
+  const ops = stored.ops || {};
+  for (const [key, flag] of [
+    ["autopilot", "AUTOPILOT"],
+    ["autoEngage", "AUTO_ENGAGE"],
+  ]) {
+    if (ops[key] !== undefined && ops[key] !== "") {
+      const bool = String(ops[key]).toLowerCase() === "true";
+      config[key] = bool;
+      process.env[flag] = String(bool);
+    } else {
+      config[key] = (process.env[flag] ?? config[key] ?? (key === "autopilot" ? "true" : "false")).toString().toLowerCase() === "true";
+    }
+  }
 }
 
 async function loadSettings() {
@@ -139,4 +159,44 @@ settingsRouter.get("/settings/check", async (_req, res) => {
     telegram: !!(getEffectiveValue("telegramBotToken", "TELEGRAM_BOT_TOKEN") && getEffectiveValue("telegramChatId", "TELEGRAM_CHAT_ID")),
     twitch: !!getEffectiveValue("twitchClientId", "TWITCH_CLIENT_ID"),
   });
+});
+
+// GET /api/ops — live runtime flags (autopilot, auto-engagement)
+settingsRouter.get("/ops", async (_req, res) => {
+  _cachedSettings = await loadSettings();
+  const ops = _cachedSettings.ops || {};
+  res.json({
+    autopilot: ops.autopilot !== undefined && ops.autopilot !== ""
+      ? String(ops.autopilot).toLowerCase() === "true"
+      : config.autopilot,
+    autoEngage: ops.autoEngage !== undefined && ops.autoEngage !== ""
+      ? String(ops.autoEngage).toLowerCase() === "true"
+      : config.autoEngage,
+    autoEngageMaxRepliesPerPass: config.autoEngageMaxRepliesPerPass,
+    pipelineCron: config.pipelineCron,
+    stored: ops,
+  });
+});
+
+// POST /api/ops — flip a runtime flag without a redeploy
+settingsRouter.post("/ops", async (req, res) => {
+  try {
+    const stored = await loadSettings();
+    stored.ops = stored.ops || {};
+    for (const key of ["autopilot", "autoEngage"]) {
+      if (req.body[key] !== undefined) stored.ops[key] = String(Boolean(req.body[key]));
+    }
+    if (req.body.autoEngageMaxRepliesPerPass !== undefined) {
+      const n = Math.max(1, Math.min(50, Math.round(Number(req.body.autoEngageMaxRepliesPerPass)) || 8));
+      config.autoEngageMaxRepliesPerPass = n;
+      process.env.AUTO_ENGAGE_MAX_PER_PASS = String(n);
+      stored.ops.autoEngageMaxRepliesPerPass = String(n);
+    }
+    await writeFile(SETTINGS_PATH, JSON.stringify(stored, null, 2));
+    _cachedSettings = stored;
+    applySettingsToConfig(stored);
+    res.json({ ok: true, autopilot: config.autopilot, autoEngage: config.autoEngage, autoEngageMaxRepliesPerPass: config.autoEngageMaxRepliesPerPass });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });

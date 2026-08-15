@@ -17,8 +17,10 @@ import { trendingRouter } from "./routes/trending.js";
 import { costsRouter } from "./routes/costs.js";
 import { nichesRouter } from "./routes/niches.js";
 import { clipsRouter } from "./routes/clips.js";
+import { engageRouter } from "./routes/engage.js";
 import { settingsRouter, applySettingsToConfig } from "./routes/settings.js";
 import { channelAuthRouter } from "./routes/channelAuth.js";
+import { runEngagementPass } from "./pipeline/agent7_engage.js";
 
 // Apply dashboard-saved credentials (settings.json) to the running config at
 // boot so they survive process restarts, not just hot-reloads.
@@ -41,7 +43,7 @@ if (!config.geminiKey) {
     "  settings.json which Cloud Run instances lose on churn.\n" +
     "========================================================\n"
   );
-  logEvent({ event: "boot_warning", status: "error", message: "GEMINI_API_KEY is not configured — pipeline will fail all LLM steps" });
+  logEvent("System", "GEMINI_API_KEY is not configured — pipeline will fail all LLM steps", { level: "error", event: "boot_warning" });
 }
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -90,6 +92,7 @@ app.use("/api", nichesRouter);
 app.use("/api", clipsRouter);
 app.use("/api", settingsRouter);
 app.use("/api", channelAuthRouter);
+app.use("/api", engageRouter);
 
 // ── Cron jobs ──────────────────────────────────────────────────────
 cron.schedule(config.pipelineCron, () => {
@@ -106,6 +109,16 @@ cron.schedule("0 */6 * * *", async () => {
 cron.schedule("0 4 * * 1", () => {
   runWeeklyLearning().catch((e) => logEvent("Scheduler", `Weekly learning failed: ${e.message}`, { level: "error" }));
 }, { timezone: "UTC" });
+
+// Agent 7 — engagement passes twice daily so fresh comments get answered
+// within hours, not days (reply-velocity is the growth lever). Auto-skips
+// when no channels are connected or AUTO_ENGAGE=false (dashboard OPS toggle).
+cron.schedule("0 2,14 * * *", () => {
+  logEvent("Scheduler", "Engagement cron fired — running Agent 7 pass");
+  runEngagementPass().catch((e) =>
+    logEvent("Scheduler", `Engagement pass failed: ${e.message}`, { level: "error" })
+  );
+});
 
 // ── Start server ─────────────────────────────────────────────────────
 app.listen(config.port, () => {

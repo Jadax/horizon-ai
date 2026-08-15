@@ -213,7 +213,7 @@ export async function uploadScheduled({ videoUrl, title, description, tags, comm
           const pinBody = typeof commentCta === "string" && commentCta.trim() ? commentCta.trim() : null;
           if (pinBody) {
             const commentRes = await withRetry(
-              () => yt.comments.insert({
+              () => yt.commentThreads.insert({
                 part: ["snippet"],
                 requestBody: { snippet: { videoId, topLevelComment: { snippet: { textOriginal: pinBody.slice(0, 500) } } } },
               }),
