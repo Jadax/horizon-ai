@@ -530,6 +530,7 @@ table.ch-matrix tr:hover td{background:var(--panel-2)}
   <a href="#growth" title="Growth insights">📈</a>
   <a href="#ops" title="Live operations">🖥️</a>
   <a href="#clipperWrap" title="Clipper">✂️</a>
+  <a href="#engage" title="Auto-engagement">💬</a>
 </nav>
 <header>
   <div class="logo">
@@ -545,30 +546,21 @@ table.ch-matrix tr:hover td{background:var(--panel-2)}
       <span>AUTOPILOT</span>
       <div class="track"><div class="knob"></div></div>
     </div>
+    <div class="autopilot on" id="autoEngage" onclick="toggleAutoEngage()" title="Agent 7: auto-reply to comments">
+      <span>AUTO-REPLY</span>
+      <div class="track"><div class="knob"></div></div>
+    </div>
     <button onclick="runAll()" class="primary" id="runFullBtn">▶ RUN FULL LOOP</button>
   </div>
 </header>
 
 <div id="niche-bar">
-  <div class="nb-row">
+  <div class="nb-row" id="nbRow1">
     <span class="niche-bar-label nb-flagship">⭐ Flagship</span>
-    <button onclick="runNiche('Explained')" class="niche-btn niche-btn-lg" style="border-color:var(--emerald-dim);color:var(--emerald)">💡 Explained</button>
-    <button onclick="runNiche('Leo')" class="niche-btn niche-btn-lg" style="border-color:var(--amber-dim);color:var(--amber)">🐱 Leo</button>
     <span id="runMsg"></span>
     <button onclick="openTrending()" class="niche-btn trending-btn" style="margin-left:auto">🔥 Check What's Trending</button>
   </div>
-  <div class="nb-row">
-    <span class="niche-bar-label">Portfolio</span>
-    <button onclick="runNiche('Gaming/Lore')" class="niche-btn">🎮 Gaming/Lore</button>
-    <button onclick="runNiche('Aesthetic')" class="niche-btn">🌅 Aesthetic</button>
-    <button onclick="runNiche('Psychology')" class="niche-btn">🧠 Psychology</button>
-    <button onclick="runNiche('Travel')" class="niche-btn">✈️ Travel</button>
-    <button onclick="runNiche('News')" class="niche-btn">📰 News</button>
-    <button onclick="runNiche('Food')" class="niche-btn">🍜 Food</button>
-    <button onclick="runNiche('Viral')" class="niche-btn">😂 Viral</button>
-    <button onclick="runNiche('News India')" class="niche-btn">🇮🇳 News India</button>
-    <button onclick="runNiche('Mindful/Calm')" class="niche-btn">🧘 Mindful</button>
-  </div>
+  <div class="nb-row" id="nbRow2"><span class="niche-bar-label">Portfolio</span></div>
 </div>
 
 <div id="overview" class="page-section">
@@ -733,6 +725,19 @@ table.ch-matrix tr:hover td{background:var(--panel-2)}
     </div>
     <div id="clipperMsg" class="clipper-msg"></div>
     <div id="clipJobs" class="clip-jobs"></div>
+  </section>
+</div>
+
+<!-- ── AUTO-ENGAGEMENT (Agent 7) ── -->
+<div id="engage">
+  <div class="page-head"><span class="ph-icon">💬</span><h2>Auto-Engagement</h2><span class="ph-sub">Agent 7 — reads and replies to comments in your channel voice</span></div>
+  <section class="chart-card">
+    <div class="sec-title">
+      <span class="sec-heading">Recent activity</span>
+      <button onclick="loadEngage()" style="padding:3px 10px">↻</button>
+      <button class="nc-run" onclick="runEngagePass()" style="margin-left:6px" title="Run an engagement pass now">▶ Run pass</button>
+    </div>
+    <div id="engagePanel"><div class="donut-empty" style="padding:12px">Loading engagement ledger…</div></div>
   </section>
 </div>
 
@@ -1088,6 +1093,14 @@ function toggleAutopilot(){
   autopilot=!autopilot;
   document.getElementById("autopilot").classList.toggle("on",autopilot);
   applyLockState();
+  fetch("/api/ops",{method:"POST",headers:H,body:JSON.stringify({autopilot})}).catch(()=>{});
+}
+
+async function toggleAutoEngage(){
+  const el = document.getElementById("autoEngage");
+  const next = !el.classList.contains("on");
+  el.classList.toggle("on", next);
+  await fetch("/api/ops",{method:"POST",headers:H,body:JSON.stringify({autoEngage:next})}).catch(()=>{});
 }
 
 async function runAll(){
@@ -1137,6 +1150,74 @@ async function loadPublished(){
         <div class="pub-meta">${v.niche} · ${v.target_region||""} · ${(v.publish_schedule||"").slice(0,10)}</div>
       </div>
     </a>`).join("");
+}
+
+// ── DB-driven niche bar (replaces the old hardcoded buttons) ──
+function renderNicheBar(){
+  const TIER1 = ["Leo", "Explained"];
+  const t1 = lastNiches.filter(n=>TIER1.includes(n.niche_name));
+  const t2 = lastNiches.filter(n=>!TIER1.includes(n.niche_name));
+  const EMOJI = {Leo:"🐱",Explained:"💡","Gaming/Lore":"🎮",Aesthetic:"🌅",Psychology:"🧠",Travel:"✈️",News:"📰",Food:"🍜",Viral:"😂","News India":"🇮🇳","Mindful/Calm":"🧘"};
+  const btn = (n) => `<button onclick="runNiche('${n.niche_name}')" class="niche-btn${TIER1.includes(n.niche_name)?" niche-btn-lg":""}" title="${n.niche_name}${n.active?" — active":" — paused"}">${EMOJI[n.niche_name]||"📌"} ${n.niche_name}</button>`;
+  document.getElementById("nbRow1").innerHTML =
+    `<span class="niche-bar-label nb-flagship">⭐ Flagship</span>` +
+    t1.map(btn).join("") +
+    `<span id="runMsg"></span>` +
+    `<button onclick="openTrending()" class="niche-btn trending-btn" style="margin-left:auto">🔥 Check What's Trending</button>`;
+  document.getElementById("nbRow2").innerHTML =
+    `<span class="niche-bar-label">Portfolio</span>` + t2.map(btn).join("");
+}
+
+// ── Ops toggle init (sync header toggle states with server) ──
+async function loadOpsFlags(){
+  try {
+    const res = await fetch("/api/ops",{headers:H});
+    if(!res.ok) return;
+    const ops = await res.json();
+    autopilot = !!ops.autopilot;
+    document.getElementById("autopilot").classList.toggle("on", autopilot);
+    document.getElementById("autoEngage").classList.toggle("on", !!ops.autoEngage);
+  } catch {}
+}
+
+// ── Agent 7: Engagement ledger + manual trigger ──
+async function loadEngage(){
+  const box = document.getElementById("engagePanel");
+  box.innerHTML = '<div class="donut-empty" style="padding:12px">Loading…</div>';
+  try {
+    const res = await fetch("/api/engage",{headers:H});
+    if(!res.ok){ box.innerHTML = '<div class="donut-empty" style="padding:12px">Failed to load engagement data</div>'; return; }
+    const { items, autoEngage, maxPerPass } = await res.json();
+    if(!items.length){ box.innerHTML = '<div class="donut-empty" style="padding:12px">No engagement activity yet — comments will appear after published videos accumulate comments</div>'; return; }
+    box.innerHTML = items.map(e => {
+      const icon = {question:"❓",compliment:"💜",critique:"⚠️",spam:"🚫",off_topic:"📭",unclassified:"·"}[e.classification]||"·";
+      const status = e.status === "replied"
+        ? `<span style="color:var(--emerald)">✓ replied</span>`
+        : e.status === "failed"
+        ? `<span style="color:#FB7185">✗ failed</span>`
+        : `<span style="color:var(--muted)">read</span>`;
+      return `<div style="display:flex;gap:8px;align-items:flex-start;padding:8px 0;border-bottom:1px solid var(--border);font-size:12.5px">
+        <span style="flex-shrink:0">${icon}</span>
+        <div style="flex:1;min-width:0">
+          <div style="color:var(--text-dim)">@${e.comment_author || "?"} on <b>${e.niche || "?"}</b> · ${e.classification || "?"}</div>
+          <div style="margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">"${(e.comment_text||"").slice(0,100)}"</div>
+          ${e.reply_text ? `<div style="margin-top:2px;color:var(--emerald);font-style:italic">↳ "${e.reply_text.slice(0,100)}"</div>` : ""}
+        </div>
+        <div style="flex-shrink:0;text-align:right">${status}<br><span style="color:var(--muted);font-size:10px">${e.reply_like_count||0}❤</span></div>
+      </div>`;
+    }).join("");
+  } catch { box.innerHTML = '<div class="donut-empty" style="padding:12px">Error loading engagement data</div>'; }
+}
+
+async function runEngagePass(){
+  const box = document.getElementById("engagePanel");
+  box.innerHTML = '<div class="donut-empty" style="padding:12px">Running engagement pass…</div>';
+  try {
+    const res = await fetch("/api/engage",{method:"POST",headers:H});
+    const data = await res.json();
+    box.innerHTML = `<div class="donut-empty" style="padding:12px">${res.ok ? `✓ Pass complete — ${data.read||0} read, ${data.replied||0} replied` : "✗ "+(data.error||"failed")}</div>`;
+    if(res.ok) setTimeout(loadEngage, 1500);
+  } catch { box.innerHTML = '<div class="donut-empty" style="padding:12px">Request failed</div>'; }
 }
 
 // ── Trending Explorer ──
@@ -1196,6 +1277,7 @@ async function loadNiches(){
   if(!nRes.ok) return;
   const niches = await nRes.json();
   lastNiches = niches;
+  renderNicheBar();
   renderOverview();
   const card = (n, hero) => {
     const st = nicheStats[n.niche_name] || {};
@@ -1260,7 +1342,16 @@ function openNicheSettings(name){
       <div class="nset"><label>Language</label>
         <select id="ns_lang">${opt("en","English",n.language)}${opt("hi","Hindi",n.language)}</select></div>
     </div>
-    <div class="ch-section">
+    <div class="ch-section" style="margin-top:14px">
+      <label class="ch-section-label">Topic sources (comma-separated keywords / subreddit names / RSS URLs)</label>
+      <div class="nset" style="margin-bottom:6px"><label style="font-size:11px">Target sources (subreddits, keywords)</label>
+        <input id="ns_sources" type="text" value="${(n.target_sources||[]).join(", ")}" placeholder="e.g. r/technology, r/history, space, AI news" style="width:100%;font-size:12px" /></div>
+      <div class="nset" style="margin-bottom:6px"><label style="font-size:11px">RSS feeds (one per line or comma-separated)</label>
+        <input id="ns_rss" type="text" value="${(n.rss_feeds||[]).join(", ")}" placeholder="https://...rss" style="width:100%;font-size:12px" /></div>
+      <div class="nset"><label style="font-size:11px">Social RSS feeds</label>
+        <input id="ns_socialrss" type="text" value="${(n.social_rss_feeds||[]).join(", ")}" placeholder="https://...rss" style="width:100%;font-size:12px" /></div>
+    </div>
+    <div class="ch-section" style="margin-top:14px">
       <label class="ch-section-label">YouTube channels</label>
       <div class="ch-grid">${knownChannels.map(c=>chBox(c.key,c.label,ytChecked(c.key),"yt")).join("")}</div>
     </div>
@@ -1272,6 +1363,8 @@ function openNicheSettings(name){
       <label class="ch-section-label">TikTok channels</label>
       <div class="ch-grid">${knownTtChannels.map(c=>chBox(c.key,c.label,ttChecked(c.key),"tt")).join("")}</div>
     </div>
+    <div class="nset" style="margin-top:14px"><label>Brand voice (voiceBrief) — how this channel TALKS: tone, vocabulary, cadence, inside jokes. Agent2 scriptwriter + Agent7 replies both match this voice.</label>
+      <textarea id="ns_voiceBrief" rows="2" style="resize:vertical;width:100%;font-size:12px" placeholder="e.g. Casual professor energy — explains things like you're chatting over coffee, drops real numbers but never lectures. Occasional self-deprecating humor. No clickbait, no 'hey guys' intro.">${p.voiceBrief||""}</textarea></div>
     ${name==="Leo"?`<div class="nset" style="margin-top:12px"><label>Leo's persona (voice of every narration)</label>
       <textarea id="ns_persona" rows="2" style="resize:vertical">${p.persona||""}</textarea></div>`:""}
     <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:16px">
@@ -1295,8 +1388,12 @@ async function saveNicheSettings(name){
     target_channels: checkedVals("yt"),
     target_instagram_channels: checkedVals("ig"),
     target_tiktok_channels: checkedVals("tt"),
+    target_sources: (g("ns_sources")?.value || "").split(",").map(s=>s.trim()).filter(Boolean),
+    rss_feeds: (g("ns_rss")?.value || "").split(",").map(s=>s.trim()).filter(Boolean),
+    social_rss_feeds: (g("ns_socialrss")?.value || "").split(",").map(s=>s.trim()).filter(Boolean),
   };
   if(g("ns_persona")) body.persona = g("ns_persona").value;
+  if(g("ns_voiceBrief")) body.voice_brief = g("ns_voiceBrief").value;
   const res = await fetch("/api/niches/"+encodeURIComponent(name),{method:"PATCH",headers:H,body:JSON.stringify(body)});
   if(res.ok){ closeNicheSettings(); loadNiches(); }
   else { alert("Save failed: "+((await res.json()).error||res.status)); }
@@ -1677,7 +1774,7 @@ async function toggleMatrixDot(niche, platform, channelKey, enabled){
 }
 
 populateClipNicheSelects();
-loadDiag(); loadJobs(); loadCosts(); loadPublished(); loadNiches(); loadClips(); loadChannelManager(); loadViralInsights(); loadSettings();
+loadDiag(); loadJobs(); loadCosts(); loadPublished(); loadNiches(); loadClips(); loadChannelManager(); loadViralInsights(); loadSettings(); loadOpsFlags(); loadEngage();
 setInterval(loadJobs, 30_000);
 setInterval(loadClips, 20_000);
 setInterval(loadCosts, 60_000);

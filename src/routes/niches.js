@@ -64,10 +64,15 @@ const PRESET_KEYS = {
 };
 
 nichesRouter.patch("/niches/:name", async (req, res) => {
-  const allowed = ["target_channel", "active", "trend_region", "language", "social_rss_feeds"];
+  const allowed = ["target_channel", "active", "trend_region", "language", "social_rss_feeds", "target_sources", "rss_feeds", "footage_keywords"];
   const patch = Object.fromEntries(Object.entries(req.body).filter(([k]) => allowed.includes(k)));
   if (patch.social_rss_feeds !== undefined && !Array.isArray(patch.social_rss_feeds)) {
     return res.status(400).json({ error: "social_rss_feeds must be an array" });
+  }
+  for (const field of ["target_sources", "rss_feeds", "footage_keywords"]) {
+    if (patch[field] !== undefined && !Array.isArray(patch[field])) {
+      return res.status(400).json({ error: `${field} must be an array` });
+    }
   }
 
   const presetPatches = Object.entries(PRESET_KEYS).filter(([bodyKey]) => bodyKey in req.body);
