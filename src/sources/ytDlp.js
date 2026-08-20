@@ -5,13 +5,11 @@
  *
  * Uses the system yt-dlp binary (installed via pip: `pip install yt-dlp`,
  * and included in the Dockerfile for Cloud Run).
- * CLAUDE.md's SCRAPE POLICY permits downloading any publicly accessible
- * material (yt-dlp, direct URLs, feeds) and using it in the pipeline, so
- * this is not limited to content the operator owns. The platform's own
- * export feature remains the preferred path when available; this is the
- * programmatic fallback.
+ * Metadata discovery is available for public search results. Download
+ * functions are used only for operator-owned or explicitly licensed sources;
+ * the platform's own export remains preferred when available.
  */
-import { exec } from "node:child_process";
+import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { writeFile, readFile, unlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -19,11 +17,11 @@ import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { config } from "../config.js";
 
-const execAsync = promisify(exec);
+const execFileAsync = promisify(execFile);
 const YTDLP = config.ytDlpPath || "yt-dlp";
 
-function escapeArg(arg) {
-  return `"${String(arg).replace(/"/g, '\\"')}"`;
+async function runYtDlp(args, options = {}) {
+  return execFileAsync(YTDLP, args, { windowsHide: true, ...options });
 }
 
 // yt-dlp --dump-json prints one JSON object PER LINE (search/playlist URLs
@@ -38,8 +36,7 @@ function parseDumpJson(stdout) {
 export async function fetchVideoMetadata(url, options = {}) {
   const timeout = options.timeout || 30000;
   const maxBuffer = 10 * 1024 * 1024;
-  const cmd = `${escapeArg(YTDLP)} --dump-json --no-download --quiet ${escapeArg(url)}`;
-  const { stdout } = await execAsync(cmd, { timeout, maxBuffer }).catch((e) => {
+  const { stdout } = await runYtDlp(["--dump-json", "--no-download", "--quiet", String(url)], { timeout, maxBuffer }).catch((e) => {
     throw new Error(`yt-dlp metadata fetch failed: ${e.stderr || e.message}`);
   });
   const entries = parseDumpJson(stdout);
@@ -70,19 +67,10 @@ export async function downloadVideo(url, options = {}) {
   const maxDuration = options.maxDuration || null;
   const outFile = path.join(tmpdir(), `horizon-dl-${randomUUID()}.%(ext)s`);
   try {
-    const formatArgs = maxDuration
-      ? `--match-filter "duration <= ${maxDuration}"`
-      : "";
-    const cmd = [
-      escapeArg(YTDLP),
-      "-f", escapeArg(quality),
-      formatArgs,
-      "-o", escapeArg(outFile),
-      "--no-playlist",
-      "--quiet",
-      escapeArg(url),
-    ].filter(Boolean).join(" ");
-    await execAsync(cmd, { timeout: 300000, maxBuffer: 50 * 1024 * 1024 });
+    const args = ["-f", quality];
+    if (maxDuration) args.push("--match-filter", `duration <= ${maxDuration}`);
+    args.push("-o", outFile, "--no-playlist", "--quiet", String(url));
+    await runYtDlp(args, { timeout: 300000, maxBuffer: 50 * 1024 * 1024 });
     const actualFile = outFile.replace("%(ext)s", format);
     const buffer = await readFile(actualFile);
     const metadata = await fetchVideoMetadata(url).catch(() => null);
@@ -104,19 +92,15 @@ export async function downloadBestVideo(url, options = {}) {
   const maxDuration = options.maxDuration || null;
   const outFile = path.join(tmpdir(), `horizon-dl-${randomUUID()}.mp4`);
   try {
-    const formatFilter = maxDuration
-      ? `--match-filter "duration <= ${maxDuration}"`
-      : "";
-    const cmd = [
-      escapeArg(YTDLP),
+    const args = [
       '-f', 'bestvideo[ext=mp4][height<=1080]+bestaudio[ext=m4a]/best[ext=mp4][height<=1080]/best',
-      '-o', escapeArg(outFile),
+      '-o', outFile,
       '--merge-output-format', 'mp4',
       '--no-playlist',
-      formatFilter,
-      escapeArg(url),
-    ].filter(Boolean).join(' ');
-    await execAsync(cmd, { timeout, maxBuffer: 50 * 1024 * 1024 });
+    ];
+    if (maxDuration) args.push('--match-filter', `duration <= ${maxDuration}`);
+    args.push(String(url));
+    await runYtDlp(args, { timeout, maxBuffer: 50 * 1024 * 1024 });
     const buffer = await readFile(outFile);
     const metadata = await fetchVideoMetadata(url).catch(() => null);
     await unlink(outFile).catch(() => {});
@@ -131,14 +115,11 @@ export async function downloadAudioOnly(url, options = {}) {
   const timeout = options.timeout || 120000;
   const outFile = path.join(tmpdir(), `horizon-dl-${randomUUID()}.mp3`);
   try {
-    const cmd = [
-      escapeArg(YTDLP),
+    await runYtDlp([
       '-x', '--audio-format', 'mp3', '--audio-quality', '0',
-      '-o', escapeArg(outFile),
-      '--no-playlist', '--quiet',
-      escapeArg(url),
-    ].join(' ');
-    await execAsync(cmd, { timeout, maxBuffer: 10 * 1024 * 1024 });
+      '-o', outFile,
+      '--no-playlist', '--quiet', String(url),
+    ], { timeout, maxBuffer: 10 * 1024 * 1024 });
     const buffer = await readFile(outFile);
     await unlink(outFile).catch(() => {});
     return { buffer, filename: path.basename(outFile) };
@@ -150,8 +131,7 @@ export async function downloadAudioOnly(url, options = {}) {
 
 export async function getDirectUrl(url, format = "best") {
   try {
-    const cmd = `${escapeArg(YTDLP)} -g -f ${format} ${escapeArg(url)}`;
-    const { stdout } = await execAsync(cmd, { timeout: 30000 });
+    const { stdout } = await runYtDlp(['-g', '-f', String(format), String(url)], { timeout: 30000 });
     const lines = stdout.trim().split("\n");
     return lines[0] || null;
   } catch {
@@ -165,8 +145,7 @@ export async function searchVideos(query, options = {}) {
   const searchUrl = `${source}${maxResults}:${query}`;
   try {
     const timeout = options.timeout || 60000;
-    const cmd = `${escapeArg(YTDLP)} --dump-json --no-download --quiet ${escapeArg(searchUrl)}`;
-    const { stdout } = await execAsync(cmd, { timeout, maxBuffer: 20 * 1024 * 1024 });
+    const { stdout } = await runYtDlp(["--dump-json", "--no-download", "--quiet", searchUrl], { timeout, maxBuffer: 20 * 1024 * 1024 });
     return parseDumpJson(stdout).map((d) => ({
       title: d.title || "Untitled video",
       url: d.webpage_url || d.original_url || d.url || searchUrl,
@@ -204,15 +183,14 @@ export async function batchFetchVideoMetadata(urls, options = {}) {
 export async function analyzeChannel(channelUrl, options = {}) {
   const maxVideos = options.maxVideos || 20;
   try {
-    const cmd = [
-      escapeArg(YTDLP),
+    const args = [
       '--flat-playlist',
       '--dump-json',
       '--playlist-end', String(maxVideos),
       '--quiet',
-      escapeArg(channelUrl),
-    ].join(' ');
-    const { stdout } = await execAsync(cmd, { timeout: 60000, maxBuffer: 20 * 1024 * 1024 });
+      String(channelUrl),
+    ];
+    const { stdout } = await runYtDlp(args, { timeout: 60000, maxBuffer: 20 * 1024 * 1024 });
     const lines = stdout.trim().split("\n").filter(Boolean);
     return lines.map((line) => {
       try {

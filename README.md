@@ -67,7 +67,7 @@ Then edit `.env` and fill in real values — at minimum:
 | `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` / `GOOGLE_REFRESH_TOKEN` | YouTube publishing |
 | `DASHBOARD_PASSWORD` | protects `/api/*` routes and the dashboard |
 
-Defaults (`TTS_ENGINE=gemini`, `RENDER_ENGINE=ffmpeg`, `IMAGE_ENGINE=pollinations`)
+Defaults (`TTS_ENGINE=gemini`, `RENDER_ENGINE=ffmpeg`, Pollinations for generated images)
 run with zero extra infrastructure and zero marginal cost — change them only if
 you've deployed the optional external services documented in `.env.example`.
 

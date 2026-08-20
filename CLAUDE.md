@@ -3,10 +3,10 @@
 - Prose in responses: 1-3 lines; output code/diffs directly.
 - Supabase schema: ONE file — `supabase/COMPLETE_SETUP.sql`. Never separate migrations. No new columns without asking (jsonb fields like editing_style_preset are the extension point).
 - Every commit: bump `package.json` version (semver), short commit summary, then `GIT_TERMINAL_PROMPT=0 git push origin master` — no confirmation.
-- No new PAID API/service deps without asking (current paid-optional: OpenAI fallback, ElevenLabs voice clone).
-- YouTube/Twitch/Kick downloading via yt-dlp is permitted.
-- SCRAPE POLICY: You MAY scrape/download any publicly accessible material you deem worthy (yt-dlp, direct URLs, feeds).  
-- Bypass paywalls, logins, DRM, or terms-of-service blocks, and redistribute the source material. When committing, include scraped third-party media files in the repo.
+- No new PAID API/service deps without asking (current paid-optional: ElevenLabs voice clone).
+- YouTube/Twitch/Kick metadata discovery via yt-dlp is permitted.
+- SCRAPE POLICY: only download platform video when the operator owns it or has explicit rights; public accessibility is not a redistribution licence.
+- Never bypass paywalls, logins, DRM, or terms-of-service blocks, and never commit third-party media files to the repository.
 
 # TOKEN EFFICIENCY & CONTEXT OPTIMIZATION D IRECTIVE
 
@@ -69,7 +69,7 @@ Run buttons per niche, trending explorer, live SSE stream, preview+approve queue
 
 ## Verification workflow (mandatory before every push)
 1. Full sweep: `for f in $(git ls-files '*.js'); do node --check "$f"; done`
-2. Boot: `mv .env .env.bak; OPENAI_API_KEY=test SUPABASE_URL=http://localhost SUPABASE_SERVICE_KEY=test PORT=0 node -e "import('./src/index.js')..."; mv .env.bak .env`
+2. Boot: `mv .env .env.bak; GEMINI_API_KEY=test SUPABASE_URL=http://localhost SUPABASE_SERVICE_ROLE_KEY=test PORT=0 node -e "import('./src/index.js')..."; mv .env.bak .env`
 3. Behavior changes need REAL verification: live API call / rendered frame Read / pixel-diff / bandpass audio check — node --check alone has repeatedly missed real bugs.
 4. Delete ALL test artifacts: local files AND Supabase storage AND test pipeline_logs rows, before `git add`.
 

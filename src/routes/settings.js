@@ -58,13 +58,28 @@ function setNested(obj, path, value) {
   cur[path[path.length - 1]] = value;
 }
 
+function parseBoolean(value, fallback = false) {
+  if (typeof value === "boolean") return value;
+  if (typeof value === "string") {
+    const normalized = value.trim().toLowerCase();
+    if (normalized === "true" || normalized === "1" || normalized === "yes" || normalized === "on") return true;
+    if (normalized === "false" || normalized === "0" || normalized === "no" || normalized === "off" || normalized === "") return false;
+  }
+  return fallback;
+}
+
+function clampReplyLimit(value, fallback = 8) {
+  const n = Number(value);
+  return Number.isFinite(n) ? Math.max(1, Math.min(50, Math.round(n))) : fallback;
+}
+
 export function applySettingsToConfig(stored) {
   if (stored === undefined) {
     try { stored = JSON.parse(readFileSync(SETTINGS_PATH, "utf8").replace(/^\uFEFF/, "")); }
     catch { stored = {}; }
   }
   for (const { key, env } of CREDENTIALS) {
-    const value = (stored[key] ?? "").trim();
+    const value = stored[key] == null ? "" : String(stored[key]).trim();
     const path = CONFIG_PATHS[key];
     if (value) {
       if (path) setNested(config, path, value);
@@ -94,13 +109,18 @@ export function applySettingsToConfig(stored) {
     ["autoEngage", "AUTO_ENGAGE"],
   ]) {
     if (ops[key] !== undefined && ops[key] !== "") {
-      const bool = String(ops[key]).toLowerCase() === "true";
+      const bool = parseBoolean(ops[key], config[key]);
       config[key] = bool;
       process.env[flag] = String(bool);
     } else {
-      config[key] = (process.env[flag] ?? config[key] ?? (key === "autopilot" ? "true" : "false")).toString().toLowerCase() === "true";
+      config[key] = parseBoolean(process.env[flag], config[key] ?? (key === "autopilot"));
     }
   }
+  config.autoEngageMaxRepliesPerPass = clampReplyLimit(
+    ops.autoEngageMaxRepliesPerPass ?? process.env.AUTO_ENGAGE_MAX_PER_PASS,
+    config.autoEngageMaxRepliesPerPass
+  );
+  process.env.AUTO_ENGAGE_MAX_PER_PASS = String(config.autoEngageMaxRepliesPerPass);
 }
 
 async function loadSettings() {
@@ -109,8 +129,8 @@ async function loadSettings() {
 }
 
 function getEffectiveValue(key, env) {
-  const stored = _cachedSettings?.[key] || "";
-  return stored || process.env[env] || "";
+  const stored = _cachedSettings?.[key];
+  return stored != null && String(stored).trim() ? String(stored).trim() : process.env[env] || "";
 }
 
 let _cachedSettings = null;
@@ -184,10 +204,10 @@ settingsRouter.post("/ops", async (req, res) => {
     const stored = await loadSettings();
     stored.ops = stored.ops || {};
     for (const key of ["autopilot", "autoEngage"]) {
-      if (req.body[key] !== undefined) stored.ops[key] = String(Boolean(req.body[key]));
+      if (req.body[key] !== undefined) stored.ops[key] = String(parseBoolean(req.body[key], false));
     }
     if (req.body.autoEngageMaxRepliesPerPass !== undefined) {
-      const n = Math.max(1, Math.min(50, Math.round(Number(req.body.autoEngageMaxRepliesPerPass)) || 8));
+      const n = clampReplyLimit(req.body.autoEngageMaxRepliesPerPass, config.autoEngageMaxRepliesPerPass);
       config.autoEngageMaxRepliesPerPass = n;
       process.env.AUTO_ENGAGE_MAX_PER_PASS = String(n);
       stored.ops.autoEngageMaxRepliesPerPass = String(n);

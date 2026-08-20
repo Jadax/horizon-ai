@@ -161,7 +161,8 @@ export const config = {
   // ─── Leo (local cat-video niche) ────────────────────────────────────
   leoInboxDir: path.resolve(PROJECT_ROOT, process.env.LEO_INBOX_DIR || "leo_inbox"),
   // ElevenLabs cloned voice for Leo narrations (the personal-voice slot).
-  // Both unset → OpenAI "coral". Requires the voice owner's consent.
+  // When unset, Leo uses Gemini's configured prebuilt voice. A cloned voice
+  // requires the voice owner's consent and an ElevenLabs key.
   leoVoiceId: process.env.LEO_VOICE_ID || null,
   elevenlabsKey: process.env.ELEVENLABS_API_KEY || null,
   // YouTube channel URL for Leo (for reference analysis of top pet accounts).

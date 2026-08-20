@@ -204,6 +204,8 @@ async function synthesizeGTTS(text, options) {
  * checking that previously reported the working default as "Down").
  */
 export async function checkTTSEngine() {
+  if (PRIMARY_ENGINE === 'gemini') return Boolean(config.geminiKey);
+  if (PRIMARY_ENGINE === 'elevenlabs') return Boolean(config.elevenlabsKey);
   if (['chatterbox', 'fish-speech', 'coqui'].includes(PRIMARY_ENGINE)) {
     try {
       const res = await axios.get(TTS_API_URL.replace(/\/(synthesize|tts)$/, '/health'), { timeout: 5000 });

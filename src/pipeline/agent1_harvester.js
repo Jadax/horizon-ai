@@ -560,9 +560,8 @@ const ILLUSTRATION_STYLE =
 /**
  * Free image generation via Pollinations (FLUX-based, no API key, no cost —
  * verified live: the flat-cartoon output is actually closer to the target
- * explainer style than gpt-image-1's). A fixed seed per prompt keeps
- * results reproducible; gpt-image-1 remains the fallback when Pollinations
- * fails or IMAGE_ENGINE=openai is set.
+ * explainer style than paid image models. Pollinations is the sole image
+ * generator so the visual pipeline has one predictable, keyless path.
  */
 async function fetchPollinationsImage(prompt) {
     const url = `https://image.pollinations.ai/prompt/${encodeURIComponent(prompt)}?width=1024&height=1536&nologo=true&seed=${Math.floor(Math.random() * 1e6)}`;
