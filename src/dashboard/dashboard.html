@@ -1203,7 +1203,7 @@ async function loadEngage(){
           <div style="margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">"${(e.comment_text||"").slice(0,100)}"</div>
           ${e.reply_text ? `<div style="margin-top:2px;color:var(--emerald);font-style:italic">↳ "${e.reply_text.slice(0,100)}"</div>` : ""}
         </div>
-        <div style="flex-shrink:0;text-align:right">${status}<br><span style="color:var(--muted);font-size:10px">${e.reply_like_count||0}❤</span></div>
+        <div style="flex-shrink:0;text-align:right">${status}<br><span style="color:var(--muted);font-size:10px">${e.comment_like_count||0}❤</span></div>
       </div>`;
     }).join("");
   } catch { box.innerHTML = '<div class="donut-empty" style="padding:12px">Error loading engagement data</div>'; }
