@@ -2,6 +2,7 @@ import { config } from "../config.js";
 import { supabase, logEvent } from "../supabase.js";
 import { synthesizeSpeech } from "../lib/freeTTS.js";
 import { verifyContentIdSafety, pickCopyrightFreeMusic } from "../lib/musicBrain.js";
+import { transcribeAudioWords } from "../lib/llm.js";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { readFile, writeFile, unlink } from "node:fs/promises";
@@ -143,31 +144,13 @@ export async function synthesizeVoiceover(script, voiceId, jobId, expectedMaxSec
 
 /**
  * Word-level alignment via Gemini's native audio understanding.
- * Gemini-only — no Whisper/OpenAI fallback.
+ * Gemini-only — no Whisper/OpenAI fallback. Uses the shared
+ * transcribeAudioWords helper (key rotation across all configured keys —
+ * the old hand-rolled fetch died entirely when the primary key throttled,
+ * even with backups configured).
  */
 async function alignWithGemini(audioBuffer, script) {
-    if (!config.geminiKey) throw new Error("GEMINI_API_KEY not set");
-    const res = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-lite-latest:generateContent?key=${config.geminiKey}`,
-        {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-                contents: [{ parts: [
-                    { text: `Transcribe this audio with per-word timestamps. Return JSON only: {"words":[{"word":"...","start":0.0,"end":0.4},...]} with start/end in seconds, covering every spoken word in order. For reference, the intended script was: ${script.slice(0, 500)}` },
-                    { inlineData: { mimeType: "audio/mp3", data: audioBuffer.toString("base64") } },
-                ] }],
-                generationConfig: { responseMimeType: "application/json", temperature: 0 },
-            }),
-            signal: AbortSignal.timeout(120000),
-        }
-    );
-    const json = await res.json();
-    if (json.error) throw new Error(`Gemini align: ${json.error.message?.slice(0, 120)}`);
-    const parsed = JSON.parse(json.candidates?.[0]?.content?.parts?.[0]?.text || "{}");
-    const words = (parsed.words || [])
-        .map((w) => ({ word: String(w.word || "").trim(), start: Number(w.start), end: Number(w.end) }))
-        .filter((w) => w.word && Number.isFinite(w.start) && Number.isFinite(w.end) && w.end > w.start);
+    const words = await transcribeAudioWords(audioBuffer, { scriptHint: script, label: "Gemini align" });
     for (let i = 1; i < words.length; i++) {
         if (words[i].start < words[i - 1].start - 0.05) throw new Error("Gemini align: non-monotonic timestamps");
     }

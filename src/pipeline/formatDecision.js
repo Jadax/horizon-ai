@@ -31,114 +31,51 @@ import { llmJson } from "../lib/llm.js";
 
 const FORMAT_SYSTEM = `You direct the presentation format for a short-form
 video pipeline. You receive a topic, the niche's allowed duration range,
-and whether word-clip mode is stylistically available for this niche.
-Decide, for THIS SPECIFIC TOPIC, not generically for the niche:
+available footage keywords, and whether word-clip mode is stylistically
+available. Decide for THIS SPECIFIC TOPIC, not generically for the niche.
 
-ALGORITHM DATA (YouTube Shorts 2026, verified benchmarks):
-- Decision is TWO-STAGE: ~0.3s subconscious (visual frame only) then ~3s
-  conscious commitment; 65% of viewers decide within 3s. The first frame must
-  have motion or on-screen text at 0.4s — the render layer burns the script's
-  opening (or LLM hook_text) as frame-1 headline text, so make those words land.
-- Viral Shorts (5,000-video study) get first on-screen text at ~0.4s and first
-  hard cut at ~0.9s; curiosity-gap closure lands by ~8s.
-- 30-45 seconds is the 2026 sweet spot — sub-15s no longer clears the watch-time
-  bar. Loops count toward >100% retention.
-- Swipe-away is a gate: under 40% in the first 2s expands distribution.
-- 50-60% of viewers who drop off do so in the first 3 seconds.
-- The 0.2-second rule: no audio gap >0.2s in the first 3s, >0.4s after —
-  density is a retention lever (audio is silenced/tightened downstream)
-- Loop endings (connecting last sentence to first) unlock 100%+ retention
-- Target: 70-85%+ average percentage viewed; shares >1% are top-positive.
+DATA (YouTube Shorts 2026): decision is two-stage (0.3s visual, then ~3s
+conscious; 65% decide within 3s). Viral Shorts show first on-screen text at
+~0.4s and first hard cut at ~0.9s. 30-45s is the sweet spot; sub-15s no longer
+clears the watch-time bar. Swipe-away over 50% in the first 2s kills reach;
+50-60% of drop-offs happen in the first 3s. Loop endings unlock >100%
+retention. Target 70-85%+ average percentage viewed.
 
 DURATION RULES:
-- DEFAULT to 30-45 seconds (the 2026 viral sweet spot; sub-15s underperforms)
-- Use 35-45 seconds for explainer content with explicit payoff
-- NEVER exceed 50 seconds — retention drops off dramatically
-- A one-fact hook should target 18-25 seconds (lean, punchy)
-- A story with twist should target 22-30 seconds (enough room to breathe)
+- DEFAULT to 30-45 seconds; explainer with explicit payoff: 35-45s.
+- NEVER exceed 50 seconds — retention falls off sharply.
+- One-fact hook: 18-25s (lean, punchy). Story with twist: 22-30s.
 
-SPOKEN DENSITY:
-- Shorts run 160-180 wpm: dense, every syllable earns the next.
-- A 15s topic ≈ 45-55 words; 30s ≈ 75-90 words; 45s ≈ 110-130 words.
-- Dead air and throat-clearing are swipe triggers — pick short durations
-  for thin topics instead of padding them out to hit the range max.
+SPOKEN DENSITY: Shorts run 160-180 wpm. A 15s topic ≈ 45-55 words; 30s ≈
+75-90; 45s ≈ 110-130. Pick short durations for thin topics instead of padding.
 
-NICHE-SPECIFIC VISUAL TACTICS (MKBHD/Fireship/Two Minute Papers level):
-
-TECH / EXPLAINED:
-- Dark mode aesthetic: dark backgrounds with vibrant neon accents
-- Code snippet overlays (terminal-style text boxes)
-- Split-screen comparisons (before/after, old vs new)
-- Progress bars, loading animations as visual metaphors
-- Electric blue (#00D4FF) + neon green (#00FF88) accent colors
-- Puck voice for energetic delivery
-- Music: bass-heavy electronic, 110-128 BPM
-
-TRAVEL:
-- Cinematic color grading: teal shadows + warm golden highlights
-- Split-screen before/after destinations
-- Speed ramping (slow-mo → fast → slow for dramatic reveals)
-- Semi-transparent dark text boxes for readability
-- Destination name cards with flag emojis
-- Warm gold (#FFD700) + deep teal (#008080) palette
-- Music: upbeat acoustic + ambient, 100-120 BPM
-
-ENTERTAINMENT / VIRAL:
-- MrBeast-style pacing: 12-20 cuts per minute
-- Kinetic typography (words fly in, scale, bounce)
-- Bold impact colors: red (#FF0000) + yellow (#FFE600)
-- Face zoom-in on reactions (stock or generated)
-- Countdown overlays for urgency
-- Sound effects: whoosh transitions, bass drops, dings
-- Music: bass-heavy electronic, 120-130 BPM
-
-GAMING / LORE:
-- Dark moody backgrounds with dramatic lighting
-- Game UI mockups (health bars, inventories, skill trees)
-- Character silhouettes and concept art style
-- Purple (#9B59B6) + crimson (#E74C3C) accent colors
-- Fenrir voice for authoritative tone
-- Music: orchestral + electronic hybrid, 90-110 BPM
-
-PET:
-- Bright, saturated colors (high contrast)
-- Cozy warm lighting (golden hour aesthetic)
-- Emoji pop-ins and SFX text overlays
-- Before/after transformations
-- Emerald (#2ECC71) + coral (#FF6B6B) palette
-- Kore voice for friendly delivery
-- Music: playful acoustic + upbeat, 100-120 BPM
-
-1. word_clip_mode: true if the topic is a single sharp moment/stat/quote
-   that lands harder as giant on-screen words than as flowing narration.
-   false if it's a story, explanation, or anything needing cause-and-effect
-   sentences to make sense (lore, a recipe, a multi-step explanation).
-2. target_duration_seconds: a specific number within [MIN,MAX], but ALWAYS
-   prefer the LOWER end of the range. The data is clear: shorter = higher
-   retention = more algorithmic boost. Only go above 30s if the topic
-   genuinely demands it for comprehension.
-3. footage_mood: pick 4-6 keywords from the AVAILABLE_KEYWORDS list that
-   best match this specific topic's emotional register (e.g. a tense
-   gaming-drama topic wants darker/moodier keywords than a wholesome one).
-4. music_energy: pick exactly one of "High","Suspense","Chill","Wonder" —
-   whichever actually fits THIS topic's emotional register, not just the
-   niche's usual default. A somber or reflective story in an otherwise
-   high-energy niche should still get "Chill" or "Suspense" if that's what
-   actually fits; a triumphant or exciting story in a normally calm niche
-   can get "High" or "Wonder". Mismatched music undercuts otherwise good
-   narration, so take this as seriously as the other choices.
-5. music_brief: 2-4 mood tags, 1-3 instrumental genres, and a BPM range that
-   match the emotional arc. Prefer instrumental music beneath narration.
-6. color_preset: pick one of "neon_tech", "teal_gold", "red_yellow", "purple_crimson", "coral_emerald", "warm_gold", "bright_clean", "moody_cinematic", or "classic_white" to set the visual identity. Match the niche's registered look (see the per-niche tactics below) unless the topic's emotional register genuinely demands another: pets/cozy → warm_gold, tech → neon_tech, travel → teal_gold, entertainment/viral → red_yellow, gaming → purple_crimson, food → bright_clean, motivation/reflective → moody_cinematic.
-7. reasoning: one sentence explaining all of the above together.
+DECISIONS:
+1. word_clip_mode: true if the topic is a single sharp moment/stat/quote that
+   lands harder as giant on-screen words; false if it's a story or explanation
+   needing cause-and-effect sentences (lore, recipe, multi-step).
+2. target_duration_seconds: specific number in [MIN,MAX], prefer the LOWER end.
+3. footage_mood: pick 4-6 keywords from AVAILABLE_KEYWORDS matching this
+   topic's emotional register (tense gaming-drama wants darker keywords than a
+   wholesome one).
+4. music_energy: exactly one of "High","Suspense","Chill","Wonder" — whichever
+   fits THIS topic's register, even if it differs from the niche's usual mood.
+5. music_brief: 2-4 mood tags, 1-3 instrumental genres, BPM range [low,high]
+   matching the emotional arc. Prefer instrumental beneath narration.
+6. color_preset: one of "neon_tech", "teal_gold", "red_yellow",
+   "purple_crimson", "coral_emerald", "warm_gold", "bright_clean",
+   "moody_cinematic", "classic_white". Match the niche's registered look
+   (pets/cozy → warm_gold, tech → neon_tech, travel → teal_gold,
+   entertainment/viral → red_yellow, gaming → purple_crimson, food →
+   bright_clean) unless the topic genuinely demands another.
+7. reasoning: one sentence covering all of the above.
 
 Respond ONLY with JSON:
 {"word_clip_mode": true/false, "target_duration_seconds": number,
  "footage_mood": ["keyword1","keyword2",...],
-  "music_energy": "High"|"Suspense"|"Chill"|"Wonder",
-  "music_brief":{"moods":["tense"],"genres":["ambient"],"bpm":[75,95]},
-  "color_preset": "neon_tech",
-  "reasoning": "..."}`;
+ "music_energy": "High"|"Suspense"|"Chill"|"Wonder",
+ "music_brief":{"moods":["tense"],"genres":["ambient"],"bpm":[75,95]},
+ "color_preset": "neon_tech",
+ "reasoning": "..."}`;
 
 export async function decideFormat(niche, topic, jobId) {
   const minSeconds = niche.target_duration_min_seconds || 25;
@@ -180,7 +117,10 @@ export async function decideFormat(niche, topic, jobId) {
     }
     const validEnergies = ["High", "Suspense", "Chill", "Wonder"];
     if (!validEnergies.includes(decision.music_energy)) {
-      decision.music_energy = niche.editing_style_preset?.music_energy || "Chill";
+      // Preset key is camelCase musicEnergy (set via dashboard PRESET_KEYS) —
+      // the old snake_case read never matched, silently dropping the
+      // operator's pinned register on every fallback.
+      decision.music_energy = niche.editing_style_preset?.musicEnergy || "Chill";
     }
     const musicBrief = decision.music_brief || {};
     decision.music_brief = {
@@ -208,8 +148,8 @@ export async function decideFormat(niche, topic, jobId) {
       word_clip_mode: Boolean(niche.editing_style_preset?.wordClipMode),
       target_duration_seconds: Math.round((minSeconds + maxSeconds) / 2),
       footage_mood: niche.footage_keywords.slice(0, 5),
-      music_energy: niche.editing_style_preset?.music_energy || "Chill",
-      music_brief: { moods: [niche.editing_style_preset?.music_energy?.toLowerCase() || "chill"], genres: [], bpm: [70, 120] },
+      music_energy: niche.editing_style_preset?.musicEnergy || "Chill",
+      music_brief: { moods: [niche.editing_style_preset?.musicEnergy?.toLowerCase() || "chill"], genres: [], bpm: [70, 120] },
       color_preset: "classic_white",
       reasoning: "Fallback to niche defaults (format decision call failed)",
       _usage: { tokens: 0 },

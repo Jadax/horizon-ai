@@ -32,9 +32,8 @@
  * feature (YouTube Studio, Twitch's VOD export) remains the preferred path
  * when available, and the resulting file can go through the upload path above.
  */
-import { config } from "../config.js";
 import { supabase, logEvent } from "../supabase.js";
-import { llmJson } from "../lib/llm.js";
+import { llmJson, transcribeAudioWords } from "../lib/llm.js";
 import { detectAudioPeaks } from "../lib/audioPeaks.js";
 import { renderSourceClip } from "../lib/sourceClipRender.js";
 import { execFile } from "node:child_process";
@@ -90,28 +89,11 @@ async function transcribeBuffer(buffer, clipJobId) {
     }
   }
   await logEvent("Agent 6", "Transcribing with Gemini (word-level timestamps)…", { jobId: clipJobId });
-  if (!config.geminiKey) throw new Error("GEMINI_API_KEY not set — cannot transcribe");
-  const res = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-lite-latest:generateContent?key=${config.geminiKey}`,
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        contents: [{ parts: [
-          { text: 'Transcribe this audio with per-word timestamps. Return JSON only: {"words":[{"word":"...","start":0.0,"end":0.4},...]} with start/end in seconds, covering every spoken word in order.' },
-          { inlineData: { mimeType: "audio/mp3", data: audioBuffer.toString("base64") } },
-        ] }],
-        generationConfig: { responseMimeType: "application/json", temperature: 0 },
-      }),
-      signal: AbortSignal.timeout(120000),
-    }
-  );
-  const json = await res.json();
-  if (json.error) throw new Error(`Gemini transcribe: ${json.error.message?.slice(0, 120)}`);
-  const parsed = JSON.parse(json.candidates?.[0]?.content?.parts?.[0]?.text || "{}");
-  return (parsed.words || [])
-    .map((w) => ({ word: String(w.word || "").trim(), start: Number(w.start), end: Number(w.end) }))
-    .filter((w) => w.word && Number.isFinite(w.start) && Number.isFinite(w.end) && w.end > w.start);
+  // Shared helper (lib/llm.js): rotates across every configured Gemini key —
+  // the old inline fetch only ever used the primary key.
+  const words = await transcribeAudioWords(audioBuffer, { label: "Agent 6 transcribe" })
+    .catch((err) => { throw new Error(`Gemini transcribe: ${err.message}`); });
+  return words;
 }
 
 /** Groups words into pseudo-sentences on punctuation so the planning prompt

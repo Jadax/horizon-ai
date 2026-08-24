@@ -13,6 +13,12 @@ import { BANNED_WORDS } from "../lib/utils.js";
 
 const TITLE_PATTERNS = ["curiosity_gap", "number_stakes", "contrarian_reframe", "direct_consequence", "insider_callout", "formula_curiosity", "formula_negative_assertion", "formula_case_study", "formula_niche_hack", "formula_threat"];
 
+// Single source of truth: the same list lib/utils.js enforces
+// deterministically post-generation is what the prompt forbids up front.
+// Injected at module load, so the system string stays byte-stable across
+// calls (implicit prompt caching) while never drifting from the sanitizer.
+const BANNED_LIST_TEXT = BANNED_WORDS.map((w) => `"${w}"`).join(", ");
+
 function sanitizeText(text) {
   if (!text) return { text, flagged: [] };
   let clean = text.replace(/\s*[—–]\s*/g, ", ").replace(/,\s*,/g, ",");
@@ -104,7 +110,7 @@ Viewer retention is the #1 factor for the YouTube algorithm. Every line must ser
 - **SUBSCRIBE CTA (if LOOP_MODE=false):** Fold a single natural subscribe/follow nudge into the final line or the sentence just before it — phrased as part of the narration a real person would say, never a bolted-on "smash that subscribe button." Skip it entirely if the topic's tone makes any self-reference feel forced.
 - **TONE:** write like a sharp, casual friend explaining something interesting out loud, not like a press release or a textbook. Contractions are good ("it's", "you're", "that's"). Read every sentence out loud in your head before finalizing it — if it sounds stiff, formal, or like something a narrator would read off a teleprompter, rewrite it looser.
 - **PUNCTUATION:** never use an em dash (—) or en dash (–) anywhere in the script, full stop — not just when it's jammed against a word with no space. Also avoid colons and semicolons — they read as written-for-the-page structure, not something a person would actually say out loud. Use a comma, a period, or just start a new sentence instead.
-- **BANNED WORDS/PHRASES:** these are the words that instantly read as AI-generated to anyone paying attention, so none of them appear anywhere in the script, title, or description: "delve", "delving", "testament", "moreover", "furthermore", "tapestry", "boasts", "navigate" (as in "navigate this landscape"), "landscape" (used metaphorically, e.g. "the gaming landscape"), "realm", "elevate", "unleash", "unlock" (metaphorical), "game-changer", "in today's world", "in the world of", "when it comes to", "it's worth noting", "it's important to note", "dive into", "dive deep", "underscore", "underscores", "bustling", "vibrant" (as filler), "myriad", "plethora", "robust" (as filler), "seamless" (as filler), "cutting-edge" (as filler), "unprecedented" (unless literally true and specific).
+- **BANNED WORDS/PHRASES:** these are the words that instantly read as AI-generated to anyone paying attention, so none of them appear anywhere in the script, title, or description: ${BANNED_LIST_TEXT}.
 - Simple spoken language. Short sentences. Every sentence earns the next.
 - **EMPHASIS WORDS:** pick the 3-6 words that carry this script's value (the key number, the surprising noun, the payoff word). Each must appear verbatim in the script text. Exactly one of them is highlighted in yellow in the on-screen captions per phrase — they are the words the eye should land on, so choose words that deserve visual weight.
 - If WORD_CLIP_MODE is true: favor short, punchy, highly quotable phrases (3-6 words per beat) over flowing narration — every phrase should work standalone as a bold on-screen word/phrase card synced to the voiceover.
@@ -304,13 +310,21 @@ export async function writeScript(niche, topic, loreContext, jobId) {
       const weakest = review?.breakdown
         ? Object.entries(review.breakdown).sort((a, b) => a[1] - b[1]).slice(0, 2).map(([k, v]) => `${k} (${v}/100)`)
         : [];
+      // Send back only the fields the rewrite actually touches (script,
+      // title, description). Re-including tags/visual_plan/keywords re-billed
+      // hundreds of unchanged tokens per revision attempt for nothing.
+      const previousDraft = JSON.stringify({
+        script: out.script,
+        title: out.title,
+        description: out.description,
+      });
       messages.push({
         role: "user",
         content: [
           `The critic rejected the previous draft (score ${review?.score ?? "n/a"}/100).`,
           weakest.length ? `Its weakest dimensions were: ${weakest.join(", ")} — focus the rewrite on raising THOSE. Keep the lines and structure that scored well; this is a targeted revision, not a from-scratch rewrite.` : "",
-          `Apply every critic note without inventing facts.`,
-          `Previous draft: ${JSON.stringify(out)}.`,
+          `Apply every critic note without inventing facts. Return the complete JSON again.`,
+          `Previous draft: ${previousDraft}`,
           `Critic: ${JSON.stringify(review)}`,
         ].filter(Boolean).join("\n"),
       });
@@ -467,9 +481,15 @@ export async function calculateTrims(script, clips, stylePreset, jobId, words = 
   for (let i = validated.length - 1; i >= 0; i--) {
     if (!Number.isFinite(validated[i].timelineStart) || !Number.isFinite(validated[i].timelineEnd) || validated[i].length <= 0) validated.splice(i, 1);
   }
-  while (validated.at(-1)?.timelineEnd < authoritativeEnd) {
-    const source = validated[validated.length % Math.max(1, validated.length)];
-    const start = validated.at(-1).timelineEnd;
+  // Tail filler: if the cut list ends short of the voiceover, extend by
+  // reusing existing clips. The old index math (`length % max(1,length)`)
+  // always evaluated to 0, so EVERY filler segment reused clip #0 — one
+  // visual looped for the whole tail. Rotate through distinct clips instead.
+  let filler = 1;
+  while (authoritativeEnd - (validated.at(-1)?.timelineEnd || 0) > 0.3) {
+    const source = validated[filler++ % validated.length];
+    const start = Math.min(validated.at(-1).timelineEnd, authoritativeEnd);
+    if (authoritativeEnd - start <= 0.3) break;
     validated.push({ ...source, timelineStart: start, timelineEnd: authoritativeEnd, length: authoritativeEnd - start });
   }
   validated._usage = { tokens: res.tokens || 0 };

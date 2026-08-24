@@ -133,7 +133,12 @@ export async function gradeContent({ script, title, niche, platforms = ["youtube
   }
 
   const response = await llmJson({
-    tier: "smart",
+    // Fast tier, deliberately: the rubric thresholds above were calibrated
+    // against gemini-flash-lite's actual score distribution (see config.js
+    // contentQualityThreshold note), and this is a judgment/classification
+    // task — not creative writing. The old "smart" tier both throttled more
+    // and graded on a different scale than the one the pass line was tuned for.
+    tier: "fast",
     temperature: 0,
     label: "gradeContent",
     messages: [

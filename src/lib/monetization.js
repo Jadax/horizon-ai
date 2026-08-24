@@ -8,9 +8,6 @@
  */
 import { config } from "../config.js";
 import { supabase, logEvent } from "../supabase.js";
-import { BANNED_WORDS } from "./utils.js";
-
-export { BANNED_WORDS };
 
 /**
  * Match affiliate products based on keywords

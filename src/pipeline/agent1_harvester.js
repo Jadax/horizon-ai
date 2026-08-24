@@ -238,68 +238,34 @@ async function recentTopicKeys(nicheName, days = 14, limit = 30) {
 }
 
 /**
- * For explainer niches, raw engagement is the wrong ranking signal — a hot
- * post is often news/drama, while the best explainer topic is the one the
- * most people are quietly curious about. One free LLM call re-scores the
- * top candidates on mass curiosity + explainability + evergreen value and
- * re-ranks by that. Failure degrades to the engagement ranking.
+ * ONE re-ranking pass replaces what used to be TWO overlapping LLM calls
+ * (a "curiosity" scorer for explainer niches followed by a separate
+ * "production readiness" scorer for everyone else — both reading the same
+ * candidate pool and grading the same underlying qualities under different
+ * names). A trend is not automatically a producible short: this single
+ * cheap flash-lite pass scores mass curiosity, factual grounding,
+ * visual producibility, teachability, and evergreen value together, gates
+ * out factually thin/unshowable stories, and re-ranks by the mix that fits
+ * the niche (explainers weight curiosity+teachability higher). Failure
+ * degrades to the engagement/trend ranking untouched.
  */
-async function rerankByCuriosity(candidates, jobId) {
+const RERANK_SYSTEM = `You are a ruthless short-form executive producer. Score each topic candidate 0-10 on every dimension:
+- audience_pull: a concrete curiosity, stakes, or emotional hook a broad all-ages audience feels (niche in-jokes, local news, personal posts score low)
+- factual_grounding: enough verifiable detail in the headline/context to make a truthful short without inventing filler
+- visualability: can a viewer see specific people, objects, actions, locations, or a truthful simple metaphor for most of the story? Broad mood-only visuals score low
+- teachable: is there a real story/mechanism to explain in ~45 seconds with a surprising payoff?
+- evergreen: will this still be worth watching in five years? (news cycles, drama, memes score low)
+Return JSON only: {"scores":[{"index":0,"audience_pull":0,"factual_grounding":0,"visualability":0,"teachable":0,"evergreen":0},...]}. Score every candidate. Do not reward tragedy, outrage, or celebrity alone without a specific story.`;
+
+async function rerankCandidates(candidates, niche, jobId) {
     const pool = candidates.slice(0, 18);
     try {
         const res = await llmJson({
             tier: "fast",
-            temperature: 0.2,
-            label: "curiosityRerank",
+            temperature: 0.15,
+            label: "candidateRerank",
             messages: [
-                {
-                    role: "system",
-                    content: `Score each topic candidate 1-10 for a "explained for dummies" short-video channel:
-- mass_curiosity: would a broad, all-ages audience genuinely want this explained? (niche in-jokes, local news, personal posts score low)
-- explainability: is there a real story/mechanism to teach in 45 seconds with a surprising payoff?
-- evergreen: will this still be worth watching in five years? (news cycles, drama, memes score low)
-Return JSON: {"scores":[{"index":0,"total":24},...]} where total = sum of the three (max 30). Score every candidate.`,
-                },
-                { role: "user", content: JSON.stringify(pool.map((c, index) => ({ index, title: c.title.slice(0, 140) }))) },
-            ],
-        });
-        const { scores } = JSON.parse(res.content);
-        const byIndex = new Map((scores || []).map((s) => [s.index, Number(s.total) || 0]));
-        const reranked = pool
-            .map((c, index) => ({ ...c, _curiosityScore: byIndex.get(index) ?? 0 }))
-            .sort((a, b) => b._curiosityScore - a._curiosityScore);
-        await logEvent("Agent 1", `Curiosity re-rank: "${reranked[0]?.title.slice(0, 60)}" leads (${reranked[0]?._curiosityScore}/30)`, { jobId });
-        return [...reranked, ...candidates.slice(18)];
-    } catch (err) {
-        await logEvent("Agent 1", `Curiosity re-rank failed (${err.message}) — using engagement ranking`, { jobId, level: "warn" });
-        return candidates;
-    }
-}
-
-/**
- * A trend is not automatically a producible short. Before committing spend,
- * rank the best candidates by whether they have enough source substance and
- * can be shown with truthful visuals. This prevents a noisy headline from
- * outranking a story that can actually be explained and illustrated.
- */
-async function rerankForProductionReadiness(candidates, niche, jobId) {
-    const pool = candidates.slice(0, 16);
-    try {
-        const res = await llmJson({
-            tier: "fast",
-            temperature: 0.1,
-            label: "productionReadiness",
-            messages: [
-                {
-                    role: "system",
-                    content: `You are a ruthless short-form executive producer. Score each candidate 1-10 for:
-- audience_pull: a concrete curiosity, stakes, or emotional hook for this niche.
-- factual_grounding: enough verifiable detail in the headline/context to make a truthful short without filling gaps.
-- visualability: can a viewer see specific people, objects, actions, locations, or a truthful simple metaphor for most of the story? Broad mood-only visuals score low.
-- novelty: not an obvious repeat or generic update.
-
-Return JSON only: {"scores":[{"index":0,"total":0,"audience_pull":0,"factual_grounding":0,"visualability":0,"novelty":0}]}. Total is 4-40. Do not reward tragedy, outrage, or celebrity alone without a specific story.`,
-                },
+                { role: "system", content: RERANK_SYSTEM },
                 {
                     role: "user",
                     content: JSON.stringify({
@@ -308,7 +274,6 @@ Return JSON only: {"scores":[{"index":0,"total":0,"audience_pull":0,"factual_gro
                             index,
                             title: String(candidate.title || "").slice(0, 180),
                             context: String(candidate.selftext || "").slice(0, 400),
-                            source: candidate.source,
                         })),
                     }),
                 },
@@ -316,28 +281,44 @@ Return JSON only: {"scores":[{"index":0,"total":0,"audience_pull":0,"factual_gro
         });
         const parsed = JSON.parse(res.content || "{}");
         const byIndex = new Map((parsed.scores || []).map((score) => [Number(score.index), score]));
+        const explainer = !!niche.editing_style_preset?.explainerMode;
         const ranked = pool
             .map((candidate, index) => {
                 const score = byIndex.get(index) || {};
-                const grounded = Number(score.factual_grounding) || 0;
-                const visual = Number(score.visualability) || 0;
-                const total = Number(score.total) || 0;
-                // A factually thin or unshowable story cannot enter the
-                // autopilot pipeline, however attractive its raw trend score.
-                const eligible = grounded >= 7 && visual >= 7 && total >= 26;
+                const dim = (k) => Math.max(0, Math.min(10, Number(score[k]) || 0));
+                const s = {
+                    audience_pull: dim("audience_pull"),
+                    factual_grounding: dim("factual_grounding"),
+                    visualability: dim("visualability"),
+                    teachable: dim("teachable"),
+                    evergreen: dim("evergreen"),
+                };
+                // Production score = the three dimensions a video literally
+                // cannot ship without. Eligibility bar mirrors the old
+                // 26/40 gate at the same 65% ratio on the 30-point scale.
+                const prodScore = s.audience_pull + s.factual_grounding + s.visualability;
+                // Explainers additionally weight curiosity + teachability.
+                const rankScore = explainer
+                    ? prodScore * 0.6 + (s.teachable + s.evergreen + s.audience_pull) * 0.4 * 1.5
+                    : prodScore;
                 return {
                     ...candidate,
-                    _productionScore: total,
-                    _productionEligible: eligible,
+                    _productionScore: Math.round(rankScore * 10) / 10,
+                    _curiosityScore: s.audience_pull + s.teachable + s.evergreen,
+                    _productionEligible: s.factual_grounding >= 7 && s.visualability >= 7 && prodScore >= 20,
                 };
             })
             .sort((a, b) => b._productionScore - a._productionScore);
         const eligible = ranked.filter((candidate) => candidate._productionEligible);
         const output = eligible.length ? [...eligible, ...ranked.filter((candidate) => !candidate._productionEligible)] : ranked;
-        await logEvent("Agent 1", `Production-readiness re-rank: ${eligible.length}/${pool.length} candidates are factually grounded and visually producible`, { jobId });
+        await logEvent(
+            "Agent 1",
+            `Candidate re-rank: ${eligible.length}/${pool.length} factually grounded and visually producible${explainer ? " (explainer-weighted)" : ""} — "${output[0]?.title?.slice(0, 60)}" leads`,
+            { jobId }
+        );
         return [...output, ...candidates.slice(pool.length)];
     } catch (err) {
-        await logEvent("Agent 1", `Production-readiness re-rank failed (${err.message}) — using trend ranking`, { jobId, level: "warn" });
+        await logEvent("Agent 1", `Candidate re-rank failed (${err.message}) — using trend ranking`, { jobId, level: "warn" });
         return candidates;
     }
 }
@@ -345,10 +326,7 @@ Return JSON only: {"scores":[{"index":0,"total":0,"audience_pull":0,"factual_gro
 export async function harvestTopic(niche, jobId) {
     let ranked = await harvestAllCandidates(niche, jobId);
     if (!ranked.length) throw new Error("No topic candidates found from any source");
-    if (niche.editing_style_preset?.explainerMode) {
-        ranked = await rerankByCuriosity(ranked, jobId);
-    }
-    ranked = await rerankForProductionReadiness(ranked, niche, jobId);
+    ranked = await rerankCandidates(ranked, niche, jobId);
 
     const seen = await recentTopicKeys(niche.niche_name);
     const fresh = ranked.filter((c) => !seen.has(topicKey(c.title)));
