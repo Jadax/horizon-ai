@@ -89,24 +89,53 @@ export { topicKey };
 export async function velocityFactor(topic, source = null) {
   const key = topicKey(topic);
   if (!key) return 1;
+  const factors = await velocityFactors([key]);
+  return factors.get(key) ?? 1;
+}
+
+/**
+ * Batched velocity lookup: ONE trend_history query per run (an .in() over
+ * all unique topic keys, newest-two rows each) instead of one query per
+ * candidate — a 100-candidate harvest used to fire ~100 identical Supabase
+ * requests inside rankCandidates' Promise.all.
+ * Returns Map(topicKey → multiplier, default 1).
+ */
+export async function velocityFactors(keys) {
+  const out = new Map(keys.map((k) => [k, 1]));
+  const unique = [...new Set(keys.filter(Boolean))];
+  if (!unique.length) return out;
   try {
+    // Fetch the last two rows per key. PostgREST has no per-group LIMIT, so
+    // pull recent rows for all keys once and reduce locally — bounded by an
+    // overall recency filter to keep the payload small.
     const { data, error } = await supabase
       .from("trend_history")
-      .select("count, observed_at")
-      .eq("topic_key", key)
+      .select("topic_key, count, observed_at")
+      .in("topic_key", unique)
+      .gte("observed_at", new Date(Date.now() - 14 * 86400000).toISOString())
       .order("observed_at", { ascending: false })
-      .limit(2);
-    if (error || !data || data.length < 2) return 1;
-    const [nowRow, prevRow] = data;
-    const now = Number(nowRow.count);
-    const prev = Number(prevRow.count);
-    if (!prev || !Number.isFinite(now)) return 1;
-    const rgr = (now - prev) / prev;
-    const clamped = Math.max(-0.5, Math.min(0.5, rgr));
-    return +(1 + 1.5 * clamped).toFixed(3);
+      .limit(unique.length * 8);
+    if (error || !data?.length) return out;
+
+    const byKey = new Map();
+    for (const row of data) {
+      const list = byKey.get(row.topic_key) || [];
+      if (list.length < 2) list.push(row);
+      byKey.set(row.topic_key, list);
+    }
+    for (const [key, rows] of byKey) {
+      if (rows.length < 2) continue;
+      const now = Number(rows[0].count);
+      const prev = Number(rows[1].count);
+      if (!prev || !Number.isFinite(now)) continue;
+      const rgr = (now - prev) / prev;
+      const clamped = Math.max(-0.5, Math.min(0.5, rgr));
+      out.set(key, +(1 + 1.5 * clamped).toFixed(3));
+    }
   } catch {
-    return 1;
+    // best-effort: neutral multiplier on any failure
   }
+  return out;
 }
 
 /**
@@ -117,24 +146,25 @@ export async function velocityFactor(topic, source = null) {
  */
 export async function persistTrendSnapshot(candidates) {
   const MAX_SNAPSHOTS = 40;
-  const seen = {};
+  const seen = new Set();
+  const rows = [];
   for (const c of candidates) {
     const key = topicKey(c.title || "");
-    if (!key || seen[key]) continue;
-    seen[key] = true;
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
     const count = ((c._corroborationCount || 1) + 1) / 2; // 1..n -> 1..(n+1)/2 for a single row per key
-    try {
-      await supabase.from("trend_history").insert({
-        topic_key: key,
-        source: c.source || null,
-        count: Math.max(1, Math.round(count)),
-        proxy_score: c._trendScore || 0,
-      });
-    } catch {
-      // ignore per-row write failures — velocity is best-effort
-    }
-    if (Object.keys(seen).length >= MAX_SNAPSHOTS) break;
+    rows.push({
+      topic_key: key,
+      source: c.source || null,
+      count: Math.max(1, Math.round(count)),
+      proxy_score: c._trendScore || 0,
+    });
+    if (rows.length >= MAX_SNAPSHOTS) break;
   }
+  if (!rows.length) return;
+  // One batched insert — up to 40 sequential awaits per niche-run before.
+  const { error } = await supabase.from("trend_history").insert(rows);
+  if (error) console.warn("[trendScoring] snapshot insert failed:", error.message);
 }
 
 /**
@@ -162,6 +192,10 @@ export async function rankCandidates(candidates, nicheName = null) {
   const weights = await loadWeights(nicheName);
   const groups = groupByTopic(candidates);
 
+  // ONE batched velocity lookup for all unique topic keys (was one Supabase
+  // query per candidate inside the Promise.all below).
+  const velocityByKey = await velocityFactors([...groups.keys()]);
+
   return Promise.all(
     candidates.map(async (c) => {
       const key = topicKey(c.title);
@@ -172,7 +206,7 @@ export async function rankCandidates(candidates, nicheName = null) {
       // Rising/velocity boost (Google Trends "Rising vs Breakout" steal): a
       // topic whose corroboration count is climbing pre-peak outranks one that
       // already peaked. Multiplies the corroboration+freshness spine.
-      const velocity = await velocityFactor(c.title, c.source);
+      const velocity = velocityByKey.get(key) ?? 1;
 
       const score =
         (corroboration * weights.cross_source_corroboration +

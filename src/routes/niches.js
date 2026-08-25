@@ -95,7 +95,9 @@ nichesRouter.patch("/niches/:name", async (req, res) => {
     .eq("niche_name", req.params.name);
   if (error) return res.status(500).json({ error: error.message });
 
-  await logEvent("Operator", `Updated ${req.params.name}: ${JSON.stringify(req.body)}`);
+  // Log field NAMES only — the body carries the full preset (persona,
+  // voiceBrief, source lists), which bloated pipeline_logs rows for no value.
+  await logEvent("Operator", `Updated ${req.params.name}: ${Object.keys(req.body).join(", ")}`);
   res.json({ ok: true });
 });
 

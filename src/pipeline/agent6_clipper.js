@@ -32,19 +32,20 @@
  * feature (YouTube Studio, Twitch's VOD export) remains the preferred path
  * when available, and the resulting file can go through the upload path above.
  */
+import { config } from "../config.js";
 import { supabase, logEvent } from "../supabase.js";
-import { llmJson, transcribeAudioWords } from "../lib/llm.js";
+import { llmJson } from "../lib/llm.js";
 import { detectAudioPeaks } from "../lib/audioPeaks.js";
 import { renderSourceClip } from "../lib/sourceClipRender.js";
-import { execFile } from "node:child_process";
-import { promisify } from "node:util";
-import { readFile, writeFile, unlink } from "node:fs/promises";
+import { execFileAsync as sharedExec } from "../lib/utils.js";
+import { transcribeWords, toTranscribableMp3 } from "../lib/geminiTranscribe.js";
+import { writeFile, unlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 import ffmpeg from "ffmpeg-static";
 
-const execFileAsync = promisify(execFile);
+const execFileAsync = sharedExec;
 
 // If less than this fraction of the source is actually spoken words,
 // there's not enough dialogue for the hook-scoring prompt to work with —
@@ -72,27 +73,36 @@ async function fetchSource(job, clipJobId) {
   return Buffer.from(await res.arrayBuffer());
 }
 
-async function transcribeBuffer(buffer, clipJobId) {
-  let audioBuffer = buffer;
-  let tempInput = null;
-  let tempAudio = null;
-  if (buffer.byteLength > 20 * 1024 * 1024) {
-    tempInput = path.join(tmpdir(), `horizon-transcribe-${randomUUID()}.mp4`);
-    tempAudio = path.join(tmpdir(), `horizon-transcribe-${randomUUID()}.mp3`);
-    try {
-      await writeFile(tempInput, buffer);
-      await execFileAsync(ffmpeg, ["-y", "-i", tempInput, "-vn", "-ac", "1", "-ar", "16000", "-b:a", "32k", tempAudio], { timeout: 300000 });
-      audioBuffer = await readFile(tempAudio);
-    } finally {
-      await unlink(tempInput).catch(() => {});
-      await unlink(tempAudio).catch(() => {});
-    }
+/** Cheap container duration probe via ffmpeg metadata (no decode). Lets the
+ * dialogue/action decision run BEFORE paying for a full-length PCM extract
+ * — talky sources used to always pay the audio-peaks decode just to learn
+ * their own duration. */
+async function probeMediaDuration(buffer, clipJobId) {
+  const inFile = path.join(tmpdir(), `horizon-probe-${randomUUID()}`);
+  try {
+    await writeFile(inFile, buffer);
+    const text = await execFileAsync(ffmpeg, ["-i", inFile], { timeout: 30000 })
+      .then((r) => String(r.stderr || ""))
+      .catch((e) => String(e.stderr || ""));
+    const m = /Duration:\s*(\d+):(\d+):(\d+\.\d+)/.exec(text);
+    if (!m) return 0;
+    return Number(m[1]) * 3600 + Number(m[2]) * 60 + Number(m[3]);
+  } catch {
+    return 0;
+  } finally {
+    await unlink(inFile).catch(() => {});
   }
-  await logEvent("Agent 6", "Transcribing with Gemini (word-level timestamps)…", { jobId: clipJobId });
-  // Shared helper (lib/llm.js): rotates across every configured Gemini key —
-  // the old inline fetch only ever used the primary key.
-  const words = await transcribeAudioWords(audioBuffer, { label: "Agent 6 transcribe" })
-    .catch((err) => { throw new Error(`Gemini transcribe: ${err.message}`); });
+}
+
+async function transcribeBuffer(buffer, clipJobId) {
+  // ALWAYS extract mono mp3 before sending to Gemini. The old size branch
+  // sent small buffers raw but still labeled them "audio/mp3" — an uploaded
+  // .mp4/.webm ≤20MB went to the model as mislabeled container data and
+  // silently mistranscribed.
+  await logEvent("Agent 6", "Extracting audio + transcribing with Gemini (word-level timestamps)…", { jobId: clipJobId });
+  const audioBuffer = await toTranscribableMp3(buffer, ffmpeg);
+  const words = await transcribeWords(audioBuffer);
+  if (!words.length) throw new Error("Gemini transcription returned no words");
   return words;
 }
 
@@ -184,51 +194,61 @@ async function planDialogueClips(words, clipJobId, searchIntent = null) {
   return { clips: validated, tokens: res.tokens || 0 };
 }
 
-/** Turns detected audio peaks into a clip plan. Tries a cheap Gemini
- * flash-lite pass for a punchier call-out word using any nearby speech;
- * falls back to a generic impact-word pool (no extra API cost) when there's
- * nothing useful nearby, which is the common case for pure gameplay audio. */
+/** Turns detected audio peaks into a clip plan. ONE batched Gemini pass
+ * assigns punchier call-out words for every peak that has nearby speech —
+ * the old loop fired up to 8 sequential LLM calls for the same job. Peaks
+ * with no usable nearby speech (the common case for pure gameplay audio)
+ * fall back to a generic impact-word pool at zero API cost. */
 async function planActionClips(peaks, words, clipJobId) {
   await logEvent("Agent 6", `Scanning audio for highlight-worthy peaks (no dialogue to hook-score, using loudness instead)…`, { jobId: clipJobId });
   let tokens = 0;
-  const clips = [];
-  for (const peak of peaks) {
-    const nearbyWords = words
+
+  const snippets = peaks.map((peak) => ({
+    peak,
+    text: words
       .filter((w) => w.start >= peak.start && w.end <= peak.end)
       .map((w) => w.word)
-      .join(" ");
-    let callout = IMPACT_WORDS[Math.floor(Math.random() * IMPACT_WORDS.length)];
-    if (nearbyWords.trim().length > 3) {
-      try {
-        const res = await llmJson({
-          tier: "fast",
-          temperature: 0.6,
-          label: "clipCallout",
-          messages: [
-            {
-              role: "system",
-              content: "Given a short snippet of speech from a loud/exciting moment in a video, reply with ONE punchy 1-4 word on-screen call-out for the clip (e.g. CLUTCH, NO WAY, HE HIT THAT). Reply with just the words, no punctuation, no quotes.",
-            },
-            { role: "user", content: nearbyWords.slice(0, 200) },
-          ],
-        });
-        const suggestion = res.content?.trim();
-        if (suggestion) callout = suggestion.slice(0, 24);
-        tokens += res.tokens || 0;
-      } catch {
-        // fall back to the generic pool silently — this is a nice-to-have, not load-bearing
+      .join(" "),
+  }));
+  const speakable = snippets.filter((s) => s.text.trim().length > 3);
+  const suggestions = new Map();
+  if (speakable.length) {
+    try {
+      const res = await llmJson({
+        tier: "fast",
+        temperature: 0.6,
+        label: "clipCallout",
+        maxTokens: 400,
+        messages: [
+          {
+            role: "system",
+            content:
+              'You write on-screen call-outs for loud/exciting moments in a video. For EACH input snippet, reply with ONE punchy 1-4 word ALL-CAPS call-out (e.g. CLUTCH, NO WAY, HE HIT THAT). ' +
+              'Return JSON only: {"callouts":[{"index":0,"text":"..."}]} — one entry per input snippet, same order.',
+          },
+          { role: "user", content: JSON.stringify(speakable.map((s, i) => ({ index: i, snippet: s.text.slice(0, 200) }))) },
+        ],
+      });
+      tokens += res.tokens || 0;
+      const parsed = JSON.parse(res.content || "{}");
+      for (const c of parsed.callouts || []) {
+        const s = speakable[Number(c.index)];
+        if (s && c.text) suggestions.set(s.peak, String(c.text).slice(0, 24));
       }
+    } catch {
+      // fall back to the generic pool silently — this is a nice-to-have, not load-bearing
     }
-    clips.push({
-      mode: "action",
-      start: peak.start,
-      end: peak.end,
-      peakOffset: Number((peak.peakTime - peak.start).toFixed(2)),
-      title: callout,
-      hook_score: Math.min(10, Math.round(peak.intensity * 3)), // relative loudness vs. baseline, scaled for display only
-      reason: `Audio peak ${peak.intensity}x baseline loudness at ${peak.peakTime.toFixed(1)}s`,
-    });
   }
+
+  const clips = snippets.map(({ peak }) => ({
+    mode: "action",
+    start: peak.start,
+    end: peak.end,
+    peakOffset: Number((peak.peakTime - peak.start).toFixed(2)),
+    title: suggestions.get(peak) || IMPACT_WORDS[Math.floor(Math.random() * IMPACT_WORDS.length)],
+    hook_score: Math.min(10, Math.round(peak.intensity * 3)), // relative loudness vs. baseline, scaled for display only
+    reason: `Audio peak ${peak.intensity}x baseline loudness at ${peak.peakTime.toFixed(1)}s`,
+  }));
   clips.sort((a, b) => b.hook_score - a.hook_score);
   await logEvent("Agent 6", `Clip plan: ${clips.length} audio-peak highlight(s) found`, { jobId: clipJobId });
   return { clips, tokens };
@@ -362,10 +382,17 @@ export async function runClipperJob(clipJobId) {
     await updateClipJob(clipJobId, { transcript: words, status: "Analyzing" });
 
     const spokenSeconds = words.reduce((s, w) => s + Math.max(0, w.end - w.start), 0);
-    const { peaks, duration } = await detectAudioPeaks(buffer);
-    const totalDuration = duration || (words.length ? words[words.length - 1].end : 0);
+    // Decide dialogue vs action from a cheap metadata probe FIRST — the old
+    // flow always ran the full-length PCM decode (detectAudioPeaks) even for
+    // pure-talk sources that never use its peaks, just to learn the duration.
+    let totalDuration = await probeMediaDuration(buffer, clipJobId);
+    if (!totalDuration && words.length) totalDuration = words[words.length - 1].end;
     const speechCoverage = totalDuration ? spokenSeconds / totalDuration : 0;
     const actionMode = speechCoverage < MIN_SPEECH_COVERAGE;
+    let peaks = [];
+    if (actionMode) {
+      peaks = (await detectAudioPeaks(buffer)).peaks || [];
+    }
 
     await logEvent(
       "Agent 6",

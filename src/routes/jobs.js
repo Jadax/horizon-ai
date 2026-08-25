@@ -39,6 +39,13 @@ jobsRouter.get("/jobs/published", async (_req, res) => {
 // video's script must never be edited in place: its voiceover, captions and
 // rendered timeline are already derived from the old script. Accepting that
 // edit would show one story in the dashboard and publish another one.
+// Valid pipeline_logs.status values — an arbitrary status string used to be
+// writable via PATCH, corrupting niche stats and learner cohorts.
+const VALID_STATUSES = new Set([
+  "Queued", "Scripting", "Rendering", "Rendered", "Awaiting Approval",
+  "Scheduled", "Published", "Failed",
+]);
+
 jobsRouter.patch("/jobs/:id", async (req, res) => {
   const allowed = ["script", "title", "description", "tags", "status"];
   const patch = Object.fromEntries(
@@ -46,6 +53,9 @@ jobsRouter.patch("/jobs/:id", async (req, res) => {
   );
   if (!Object.keys(patch).length) {
     return res.status(400).json({ error: "No editable fields were supplied" });
+  }
+  if (patch.status !== undefined && !VALID_STATUSES.has(patch.status)) {
+    return res.status(400).json({ error: `Invalid status — must be one of: ${[...VALID_STATUSES].join(", ")}` });
   }
 
   const { data: job, error: lookupError } = await supabase

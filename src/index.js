@@ -51,14 +51,24 @@ const app = express();
 app.use(express.json());
 
 // ── Minimal auth ─────────────────────────────────────────────────────
+import { timingSafeEqual } from "node:crypto";
+function passwordMatches(candidate) {
+  const a = Buffer.from(String(candidate || ""));
+  const b = Buffer.from(String(config.dashboardPassword));
+  // Same-length requirement of timingSafeEqual leaks only the length (which
+  // is also leaked by every naive comparison) — but the byte comparison
+  // itself becomes constant-time.
+  return a.length === b.length && timingSafeEqual(a, b);
+}
 app.use((req, res, next) => {
   if (req.path === "/health") return next();
   // Google's OAuth redirect lands here with no Authorization header/?key —
-  // the auth code itself is the proof of a legitimate flow (see routes/channelAuth.js).
+  // the OAuth code + single-use server-side state nonce are the proof of a
+  // legitimate flow (see routes/channelAuth.js).
   if (req.path === "/api/auth/youtube/callback") return next();
   const token = req.headers.authorization?.replace("Bearer ", "") || req.query.key;
   if (req.path === "/" && !token) return next();
-  if (req.path.startsWith("/api") && token !== config.dashboardPassword) {
+  if (req.path.startsWith("/api") && !passwordMatches(token)) {
     return res.status(401).json({ error: "Unauthorized" });
   }
   next();

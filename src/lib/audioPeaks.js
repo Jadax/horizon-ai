@@ -35,7 +35,9 @@ export async function detectAudioPeaks(videoBuffer, { maxClips = 8, preRoll = 4,
     const { stdout } = await execFileAsync(
       ffmpegPath,
       ["-i", tmpIn, "-vn", "-ac", "1", "-ar", String(SAMPLE_RATE), "-f", "s16le", "-"],
-      { encoding: "buffer", maxBuffer: 200 * 1024 * 1024 }
+      // The only unbounded ffmpeg exec in the stack — a hung decode used to
+      // stall Agent 6 indefinitely. 3 minutes covers any realistic source.
+      { encoding: "buffer", maxBuffer: 200 * 1024 * 1024, timeout: 180000 }
     );
     pcm = stdout;
   } finally {

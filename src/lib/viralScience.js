@@ -1,12 +1,16 @@
 /**
- * VIRAL SCIENCE — distilled, RESEARCH-BACKED constants actually consumed by
- * the pipeline. Only four exports survive review (everything else in this
- * file's history — retention arcs, platform rules, posting windows,
- * thumbnail strategies... — had zero importers and was deleted in v3.16.0;
- * the reference research now lives in docs/creator-ops-playbook.md):
+ * VIRAL SCIENCE — distilled patterns from top-performing short-form content
+ * across YouTube Shorts, TikTok, and Instagram Reels.
  *
- *   agent2_scriptwriter.js → HOOK_TEMPLATES, NICHE_VIRAL_PATTERNS, WPM_BY_NICHE
- *   run.js                 → VOICE_BY_NICHE
+ * This module holds ONLY the tables with live consumers:
+ *   - HOOK_TEMPLATES / NICHE_VIRAL_PATTERNS  → agent2_scriptwriter prompts
+ *   - VOICE_BY_NICHE / WPM_BY_NICHE          → run.js voice + pacing math
+ *
+ * The ~250 lines of reference tables that had zero importers for months
+ * (RETENTION_ARCS, PLATFORM_RULES, CAPTION_SPEC, predictRetention,
+ * POSTING_WINDOWS, growthStrategy, ...) were removed — they were static
+ * documentation pretending to be code. If a future feature needs them,
+ * recover from git history (pre-3.16.0).
  */
 
 // ─── HOOK TEMPLATES BY NICHE ─────────────────────────────────────────
@@ -58,7 +62,7 @@ export const HOOK_TEMPLATES = {
 // Which Gemini voice matches each niche's proven voice style. The Vāṇī
 // 30-video field test: Horror=deep/breathy (+22% AVD), Facts=fast/neutral
 // (+18%), Motivation=authoritative/bold (+30%), News=news-neutral (+12%).
-// Map from niche_name to one of the 12 Gemini prebuilt voices (see
+// Map from niche_name to one of the Gemini prebuilt voices (see
 // freeTTS.js GEMINI_VOICES); falls back to the niche's voice_profile_id.
 export const VOICE_BY_NICHE = {
   Aesthetic: "Zephyr",           // soft cinematic wonder

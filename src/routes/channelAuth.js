@@ -12,6 +12,7 @@
  * operational blockers for why that's the honest option today.
  */
 import express from "express";
+import { randomBytes } from "node:crypto";
 import { google } from "googleapis";
 import { config } from "../config.js";
 import { logEvent } from "../supabase.js";
@@ -23,6 +24,38 @@ function callbackUrl(req) {
   return `${req.protocol}://${req.get("host")}/api/auth/youtube/callback`;
 }
 
+// Escape every interpolated value in the callback page — this route is
+// auth-exempt (Google's redirect carries no header), so reflected input
+// (?error=, state payload, provider error messages) was raw HTML injection.
+function esc(s) {
+  return String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+
+// OAuth linking-state nonces: the old state was plain base64(JSON), fully
+// client-craftable — an attacker could complete the consent flow with THEIR
+// Google account and hand back a state that stored their refresh token as a
+// linked channel (upload hijack). Server-issued single-use nonces close it.
+const PENDING_STATES = new Map(); // nonce → { channelKey, label, expiresAt }
+const STATE_TTL_MS = 10 * 60 * 1000;
+
+function issueState(channelKey, label) {
+  // Opportunistic cleanup of expired entries.
+  for (const [k, v] of PENDING_STATES) {
+    if (v.expiresAt < Date.now()) PENDING_STATES.delete(k);
+  }
+  const nonce = randomBytes(16).toString("hex");
+  PENDING_STATES.set(nonce, { channelKey, label, expiresAt: Date.now() + STATE_TTL_MS });
+  return nonce;
+}
+
+function consumeState(nonce) {
+  const entry = PENDING_STATES.get(String(nonce || ""));
+  if (!entry) return null;
+  PENDING_STATES.delete(String(nonce));
+  if (entry.expiresAt < Date.now()) return null;
+  return entry;
+}
+
 // GET /api/auth/youtube/start — kicks off the Google consent screen. Called
 // via a plain link/window.open from the dashboard (carries ?key= for auth
 // since it's a full navigation, not a fetch with an Authorization header).
@@ -32,37 +65,36 @@ channelAuthRouter.get("/auth/youtube/start", (req, res) => {
   if (!channelKey || !label) return res.status(400).send("channel_key and label are required");
 
   const oauth2 = new google.auth.OAuth2(config.google.clientId, config.google.clientSecret, callbackUrl(req));
-  const state = Buffer.from(JSON.stringify({ channelKey, label })).toString("base64url");
   const url = oauth2.generateAuthUrl({
     access_type: "offline",
     prompt: "consent",
     scope: ["https://www.googleapis.com/auth/youtube.upload", "https://www.googleapis.com/auth/youtube.readonly"],
-    state,
+    state: issueState(channelKey, label),
   });
   res.redirect(url);
 });
 
 // GET /api/auth/youtube/callback — Google redirects here with ?code=&state=.
-// Exempted from the dashboard-password auth middleware (see index.js) since
-// Google's redirect carries no Authorization header; the OAuth code itself
-// is the proof of a legitimate flow.
+// Exempted from the dashboard-password auth middleware (see index.js); the
+// proof of legitimacy is the code PLUS a server-issued, unspent state nonce.
 channelAuthRouter.get("/auth/youtube/callback", async (req, res) => {
   const { code, state, error: oauthError } = req.query;
-  const page = (title, body) => res.send(`<!doctype html><html><head><title>${title}</title>
+  const page = (title, body) => res.send(`<!doctype html><html><head><title>${esc(title)}</title>
     <style>body{font-family:system-ui,sans-serif;background:#0a0a12;color:#f1f5f9;display:flex;align-items:center;
     justify-content:center;height:100vh;margin:0}.box{text-align:center;max-width:420px;padding:32px}
     h1{font-size:18px}p{color:#9ba8c0;font-size:14px;line-height:1.6}</style></head>
-    <body><div class="box"><h1>${title}</h1><p>${body}</p></div></body></html>`);
+    <body><div class="box"><h1>${esc(title)}</h1><p>${esc(body)}</p></div></body></html>`);
 
   if (oauthError) return page("Connection cancelled", `Google reported: ${oauthError}. You can close this tab.`);
   if (!code || !state) return page("Missing authorization", "No code/state received from Google. Close this tab and try again.");
 
-  let channelKey, label;
-  try {
-    ({ channelKey, label } = JSON.parse(Buffer.from(String(state), "base64url").toString("utf8")));
-  } catch {
-    return page("Invalid request", "Could not read the linking request. Close this tab and try again.");
+  // Single-use consume happens BEFORE any token exchange so a replayed or
+  // crafted state can never link anything.
+  const pending = consumeState(state);
+  if (!pending) {
+    return page("Expired linking request", "This linking attempt is invalid, already used, or older than 10 minutes. Close this tab and start again from the dashboard.");
   }
+  const { channelKey, label } = pending;
 
   try {
     const oauth2 = new google.auth.OAuth2(config.google.clientId, config.google.clientSecret, callbackUrl(req));

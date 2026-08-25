@@ -6,12 +6,18 @@
  * Uses the system yt-dlp binary (installed via pip: `pip install yt-dlp`,
  * and included in the Dockerfile for Cloud Run).
  * Metadata discovery is available for public search results. Download
- * functions are used only for operator-owned or explicitly licensed sources;
- * the platform's own export remains preferred when available.
+ * functions are used only for operator-owned or explicitly licensed sources
+ * (Agent 6 clipper, per CLAUDE.md's SCRAPE POLICY); the platform's own
+ * export remains preferred when available.
+ *
+ * Pruned in 3.16.0: downloadVideo/downloadAudioOnly/getDirectUrl/
+ * batchFetchVideoMetadata/analyzeChannel had zero callers (the Leo reference-
+ * channel analyzer that used analyzeChannel was removed with the dead v2
+ * compilation path). Recover from git history if ever needed.
  */
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { writeFile, readFile, unlink } from "node:fs/promises";
+import { readFile, unlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
@@ -61,32 +67,6 @@ export async function fetchVideoMetadata(url, options = {}) {
   };
 }
 
-export async function downloadVideo(url, options = {}) {
-  const format = options.format || "mp4";
-  const quality = options.quality || "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best";
-  const maxDuration = options.maxDuration || null;
-  const outFile = path.join(tmpdir(), `horizon-dl-${randomUUID()}.%(ext)s`);
-  try {
-    const args = ["-f", quality];
-    if (maxDuration) args.push("--match-filter", `duration <= ${maxDuration}`);
-    args.push("-o", outFile, "--no-playlist", "--quiet", String(url));
-    await runYtDlp(args, { timeout: 300000, maxBuffer: 50 * 1024 * 1024 });
-    const actualFile = outFile.replace("%(ext)s", format);
-    const buffer = await readFile(actualFile);
-    const metadata = await fetchVideoMetadata(url).catch(() => null);
-    await unlink(actualFile).catch(() => {});
-    return {
-      buffer,
-      filename: path.basename(actualFile),
-      metadata,
-    };
-  } catch (error) {
-    const actualFile = outFile.replace("%(ext)s", format);
-    await unlink(actualFile).catch(() => {});
-    throw new Error(`yt-dlp download failed: ${error.stderr || error.message}`);
-  }
-}
-
 export async function downloadBestVideo(url, options = {}) {
   const timeout = options.timeout || 120000;
   const maxDuration = options.maxDuration || null;
@@ -108,34 +88,6 @@ export async function downloadBestVideo(url, options = {}) {
   } catch (error) {
     await unlink(outFile).catch(() => {});
     throw new Error(`yt-dlp best-video download failed: ${error.stderr || error.message}`);
-  }
-}
-
-export async function downloadAudioOnly(url, options = {}) {
-  const timeout = options.timeout || 120000;
-  const outFile = path.join(tmpdir(), `horizon-dl-${randomUUID()}.mp3`);
-  try {
-    await runYtDlp([
-      '-x', '--audio-format', 'mp3', '--audio-quality', '0',
-      '-o', outFile,
-      '--no-playlist', '--quiet', String(url),
-    ], { timeout, maxBuffer: 10 * 1024 * 1024 });
-    const buffer = await readFile(outFile);
-    await unlink(outFile).catch(() => {});
-    return { buffer, filename: path.basename(outFile) };
-  } catch (error) {
-    await unlink(outFile).catch(() => {});
-    throw new Error(`yt-dlp audio download failed: ${error.stderr || error.message}`);
-  }
-}
-
-export async function getDirectUrl(url, format = "best") {
-  try {
-    const { stdout } = await runYtDlp(['-g', '-f', String(format), String(url)], { timeout: 30000 });
-    const lines = stdout.trim().split("\n");
-    return lines[0] || null;
-  } catch {
-    return null;
   }
 }
 
@@ -163,52 +115,6 @@ export async function searchVideos(query, options = {}) {
       raw: d,
     }));
   } catch {
-    return [];
-  }
-}
-
-export async function batchFetchVideoMetadata(urls, options = {}) {
-  const results = [];
-  for (const url of urls) {
-    try {
-      const meta = await fetchVideoMetadata(url, options);
-      results.push(meta);
-    } catch (error) {
-      results.push({ url, error: error.message });
-    }
-  }
-  return results;
-}
-
-export async function analyzeChannel(channelUrl, options = {}) {
-  const maxVideos = options.maxVideos || 20;
-  try {
-    const args = [
-      '--flat-playlist',
-      '--dump-json',
-      '--playlist-end', String(maxVideos),
-      '--quiet',
-      String(channelUrl),
-    ];
-    const { stdout } = await runYtDlp(args, { timeout: 60000, maxBuffer: 20 * 1024 * 1024 });
-    const lines = stdout.trim().split("\n").filter(Boolean);
-    return lines.map((line) => {
-      try {
-        const data = JSON.parse(line);
-        return {
-          id: data.id || null,
-          title: data.title || "Untitled",
-          url: data.url || data.webpage_url || null,
-          duration: data.duration || 0,
-          views: data.view_count || 0,
-          uploadDate: data.upload_date || null,
-        };
-      } catch {
-        return null;
-      }
-    }).filter(Boolean);
-  } catch (error) {
-    console.warn("[yt-dlp] Channel analysis failed:", error.message);
     return [];
   }
 }

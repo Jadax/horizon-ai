@@ -238,42 +238,50 @@ async function recentTopicKeys(nicheName, days = 14, limit = 30) {
 }
 
 /**
- * ONE re-ranking pass replaces what used to be TWO overlapping LLM calls
- * (a "curiosity" scorer for explainer niches followed by a separate
- * "production readiness" scorer for everyone else — both reading the same
- * candidate pool and grading the same underlying qualities under different
- * names). A trend is not automatically a producible short: this single
- * cheap flash-lite pass scores mass curiosity, factual grounding,
- * visual producibility, teachability, and evergreen value together, gates
- * out factually thin/unshowable stories, and re-ranks by the mix that fits
- * the niche (explainers weight curiosity+teachability higher). Failure
- * degrades to the engagement/trend ranking untouched.
+ * Combined candidate re-rank — ONE batched LLM call scoring every dimension
+ * the two previous passes measured separately (curiosity/explainability/
+ * evergreen + audience_pull/factual_grounding/visualability/novelty).
+ * Running them as two sequential calls doubled harvest latency and input
+ * tokens for overlapping rubrics over nearly identical pools.
+ *
+ * Output semantics preserved from both predecessors:
+ *   - eligible candidates (grounded + showable) float to the front
+ *   - within each band, order is by blended score — explainer niches weigh
+ *     curiosity higher, everything else weighs production readiness higher
  */
-const RERANK_SYSTEM = `You are a ruthless short-form executive producer. Score each topic candidate 0-10 on every dimension:
-- audience_pull: a concrete curiosity, stakes, or emotional hook a broad all-ages audience feels (niche in-jokes, local news, personal posts score low)
-- factual_grounding: enough verifiable detail in the headline/context to make a truthful short without inventing filler
-- visualability: can a viewer see specific people, objects, actions, locations, or a truthful simple metaphor for most of the story? Broad mood-only visuals score low
-- teachable: is there a real story/mechanism to explain in ~45 seconds with a surprising payoff?
-- evergreen: will this still be worth watching in five years? (news cycles, drama, memes score low)
-Return JSON only: {"scores":[{"index":0,"audience_pull":0,"factual_grounding":0,"visualability":0,"teachable":0,"evergreen":0},...]}. Score every candidate. Do not reward tragedy, outrage, or celebrity alone without a specific story.`;
-
 async function rerankCandidates(candidates, niche, jobId) {
     const pool = candidates.slice(0, 18);
+    const explainer = !!niche.editing_style_preset?.explainerMode;
     try {
         const res = await llmJson({
             tier: "fast",
             temperature: 0.15,
             label: "candidateRerank",
+            maxTokens: 900,
             messages: [
-                { role: "system", content: RERANK_SYSTEM },
+                {
+                    role: "system",
+                    content: `You are a ruthless short-form executive producer scoring topic candidates for a short-video channel. Score EVERY candidate on seven dimensions, each 1-10:
+- mass_curiosity: would a broad, all-ages audience genuinely want this explained? (niche in-jokes, local news, personal posts score low)
+- explainability: is there a real story/mechanism to teach in 45 seconds with a surprising payoff?
+- evergreen: will this still be worth watching in five years? (news cycles, drama, memes score low)
+- audience_pull: a concrete curiosity, stakes, or emotional hook for this niche.
+- factual_grounding: enough verifiable detail to make a truthful short without filling gaps.
+- visualability: can a viewer SEE specific people, objects, actions, locations, or a truthful simple metaphor for most of the story? Broad mood-only visuals score low.
+- novelty: not an obvious repeat or generic update.
+Do not reward tragedy, outrage, or celebrity alone without a specific story.
+Return JSON only: {"scores":[{"index":0,"mass_curiosity":5,"explainability":5,"evergreen":5,"audience_pull":5,"factual_grounding":5,"visualability":5,"novelty":5}]}` ,
+                },
                 {
                     role: "user",
                     content: JSON.stringify({
                         niche: niche.niche_name,
+                        explainer_channel: explainer,
                         candidates: pool.map((candidate, index) => ({
                             index,
-                            title: String(candidate.title || "").slice(0, 180),
-                            context: String(candidate.selftext || "").slice(0, 400),
+                            title: String(candidate.title || "").slice(0, 160),
+                            context: String(candidate.selftext || "").slice(0, 300),
+                            source: candidate.source,
                         })),
                     }),
                 },
@@ -281,44 +289,29 @@ async function rerankCandidates(candidates, niche, jobId) {
         });
         const parsed = JSON.parse(res.content || "{}");
         const byIndex = new Map((parsed.scores || []).map((score) => [Number(score.index), score]));
-        const explainer = !!niche.editing_style_preset?.explainerMode;
-        const ranked = pool
-            .map((candidate, index) => {
-                const score = byIndex.get(index) || {};
-                const dim = (k) => Math.max(0, Math.min(10, Number(score[k]) || 0));
-                const s = {
-                    audience_pull: dim("audience_pull"),
-                    factual_grounding: dim("factual_grounding"),
-                    visualability: dim("visualability"),
-                    teachable: dim("teachable"),
-                    evergreen: dim("evergreen"),
-                };
-                // Production score = the three dimensions a video literally
-                // cannot ship without. Eligibility bar mirrors the old
-                // 26/40 gate at the same 65% ratio on the 30-point scale.
-                const prodScore = s.audience_pull + s.factual_grounding + s.visualability;
-                // Explainers additionally weight curiosity + teachability.
-                const rankScore = explainer
-                    ? prodScore * 0.6 + (s.teachable + s.evergreen + s.audience_pull) * 0.4 * 1.5
-                    : prodScore;
-                return {
-                    ...candidate,
-                    _productionScore: Math.round(rankScore * 10) / 10,
-                    _curiosityScore: s.audience_pull + s.teachable + s.evergreen,
-                    _productionEligible: s.factual_grounding >= 7 && s.visualability >= 7 && prodScore >= 20,
-                };
-            })
-            .sort((a, b) => b._productionScore - a._productionScore);
-        const eligible = ranked.filter((candidate) => candidate._productionEligible);
-        const output = eligible.length ? [...eligible, ...ranked.filter((candidate) => !candidate._productionEligible)] : ranked;
+        const num = (v) => Math.max(0, Math.min(10, Number(v) || 0));
+        const scored = pool.map((candidate, index) => {
+            const score = byIndex.get(index) || {};
+            const curiosity = num(score.mass_curiosity) + num(score.explainability) + num(score.evergreen);
+            const grounded = num(score.factual_grounding);
+            const visual = num(score.visualability);
+            const production = num(score.audience_pull) + grounded + visual + num(score.novelty);
+            // A factually thin or unshowable story cannot enter the autopilot
+            // pipeline, however attractive its raw trend score.
+            const eligible = grounded >= 7 && visual >= 7 && production >= 26;
+            const blend = (curiosity / 30) * (explainer ? 0.55 : 0.25) + (production / 40) * (explainer ? 0.45 : 0.75);
+            return { ...candidate, _curiosityScore: curiosity, _productionScore: production, _productionEligible: eligible, _blendScore: blend };
+        });
+        scored.sort((a, b) => Number(b._productionEligible) - Number(a._productionEligible) || b._blendScore - a._blendScore);
+        const eligibleCount = scored.filter((c) => c._productionEligible).length;
         await logEvent(
             "Agent 1",
-            `Candidate re-rank: ${eligible.length}/${pool.length} factually grounded and visually producible${explainer ? " (explainer-weighted)" : ""} — "${output[0]?.title?.slice(0, 60)}" leads`,
+            "Re-rank: " + eligibleCount + "/" + pool.length + ' producible, leader "' + String(scored[0]?.title).slice(0, 60) + '" (blend ' + scored[0]?._blendScore.toFixed(2) + ")",
             { jobId }
         );
-        return [...output, ...candidates.slice(pool.length)];
+        return [...scored, ...candidates.slice(pool.length)];
     } catch (err) {
-        await logEvent("Agent 1", `Candidate re-rank failed (${err.message}) — using trend ranking`, { jobId, level: "warn" });
+        await logEvent("Agent 1", "Candidate re-rank failed (" + err.message + ") — using trend ranking", { jobId, level: "warn" });
         return candidates;
     }
 }

@@ -126,7 +126,10 @@ export async function runPipelineForNiche(niche) {
         usage.openai_tokens += clips._usage?.tokens || 0;
         break;
       } catch (err) {
-        const retryable = /quality gate|visually verified footage|visual QA|footage coverage|visual plan coverage/i.test(err.message);
+        // Retryable = topic-level failures where the NEXT candidate can do
+        // better. Visual-plan errors from writeScript belong in this class —
+        // they used to abort the whole run instead of advancing the queue.
+        const retryable = /quality gate|visually verified footage|visual QA|footage coverage|visual plan coverage|no usable visual plan|did not contain four valid beats/i.test(err.message);
         if (!retryable || i === topicQueue.length - 1) throw err;
         await logEvent(
           "Pipeline",
@@ -210,7 +213,8 @@ export async function runPipelineForNiche(niche) {
       scriptOut.script,
       geminiVoice,
       jobId,
-      decision.target_duration_seconds + 15
+      decision.target_duration_seconds + 15,
+      { lang: niche.language === "hi" ? "hi" : "en" }
     );
     const cuts = await calculateTrims(scriptOut.script, clips, preset, jobId, words, duration);
     usage.openai_tokens += cuts._usage?.tokens || 0;
@@ -246,24 +250,6 @@ export async function runPipelineForNiche(niche) {
     const renderResult = await render(payload, jobId);
     const { renderId, url: renderedUrl } = renderResult;
     usage.shotstack_render_seconds += Number(duration.toFixed(1));
-    await updateJob(jobId, {
-      shotstack_render_id: renderId,
-      rendered_video_url: renderedUrl,
-      subtitles_url: renderResult.subtitleUrl,
-      thumbnail_url: renderResult.thumbnailUrl,
-      cover_variants: renderResult.coverVariants,
-      quality_report: {
-        overall_score: qualityResult.score,
-        hook_score: qualityResult.hookScore,
-        technical_pass: true,
-        retention_prediction: `${qualityResult.score}%`,
-        issues: [],
-        breakdown: qualityResult.breakdown,
-      },
-      status: config.autopilot ? "Rendered" : "Awaiting Approval",
-      ...usage,
-    });
-
     const qualityReport = {
       overall_score: qualityResult.score,
       hook_score: qualityResult.hookScore,
@@ -272,6 +258,17 @@ export async function runPipelineForNiche(niche) {
       issues: [],
       breakdown: qualityResult.breakdown,
     };
+    await updateJob(jobId, {
+      shotstack_render_id: renderId,
+      rendered_video_url: renderedUrl,
+      subtitles_url: renderResult.subtitleUrl,
+      thumbnail_url: renderResult.thumbnailUrl,
+      cover_variants: renderResult.coverVariants,
+      quality_report: qualityReport,
+      status: config.autopilot ? "Rendered" : "Awaiting Approval",
+      ...usage,
+    });
+
     const publishPackage = buildPublishPackage({
       jobId,
       niche: niche.niche_name,
@@ -304,9 +301,12 @@ export async function runPipelineForNiche(niche) {
 
       // YouTube: multi-channel fan-out
       if (hasYt) {
-        const preset = niche.editing_style_preset || {};
-        const channels = Array.isArray(preset.targetChannels) && preset.targetChannels.length
-          ? preset.targetChannels
+        // (nichePreset, not `preset` — that name is the render preset built
+        // above; shadowing it here once made channel routing read the wrong
+        // object depending on declaration order.)
+        const nichePreset = niche.editing_style_preset || {};
+        const channels = Array.isArray(nichePreset.targetChannels) && nichePreset.targetChannels.length
+          ? nichePreset.targetChannels
           : [niche.target_channel || "primary"];
         for (const channel of channels) {
           const result = await uploadScheduled({
@@ -499,6 +499,7 @@ async function runVariantShorts({ niche, jobId, preset, payload, words, duration
 
   for (let i = 0; i < variants.length; i++) {
     const variant = variants[i];
+    let vJobId = null;
     try {
       const vPayload = structuredClone(payload);
       if (variant.style) vPayload.captionStyle = { ...(vPayload.captionStyle || {}), style: variant.style };
@@ -513,7 +514,7 @@ async function runVariantShorts({ niche, jobId, preset, payload, words, duration
         .select()
         .single();
       if (cErr || !child) throw new Error(`Variant row creation failed: ${cErr?.message || "no row"}`);
-      const vJobId = child.id;
+      vJobId = child.id;
 
       const renderResult = await render(vPayload, vJobId);
       const vTitle = variant.title || `${scriptOut.title} #${i + 2}`;
@@ -569,6 +570,9 @@ async function runVariantShorts({ niche, jobId, preset, payload, words, duration
       await logEvent("Pipeline", `✓ A/B variant ${i + 2}/${variants.length + 1} rendered${config.autopilot ? " + scheduled" : ""}: "${vTitle}"`, { jobId });
     } catch (err) {
       await logEvent("Pipeline", `A/B variant ${i + 2} skipped (non-fatal): ${err.message}`, { jobId, level: "warn" });
+      // If the child row was created before the failure, flip it out of
+      // "Rendering" — stuck rows used to pulse forever on the dashboard.
+      if (vJobId) await updateJob(vJobId, { status: "Failed", error: `Variant failed: ${err.message}` }).catch(() => {});
     }
   }
 }

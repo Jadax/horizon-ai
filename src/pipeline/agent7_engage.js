@@ -101,12 +101,15 @@ async function freshCommentIds(videoIds) {
 }
 
 export async function runEngagementPass({ maxRepliesPerChannel = 8, maxCommentsPerVideo = 40 } = {}) {
+  // Recent window: published WITHIN the last 21 days. (The old `.lte`
+  // selected only videos older than that — the exact opposite of the
+  // "reply while the thread is fresh" intent.)
   const cutoff = new Date(Date.now() - 21 * 86400000).toISOString();
   const { data: jobs, error } = await supabase
     .from("pipeline_logs")
     .select("id, youtube_video_id, target_channel, niche, publish_schedule")
     .not("youtube_video_id", "is", null)
-    .lte("publish_schedule", cutoff)
+    .gte("publish_schedule", cutoff)
     .order("publish_schedule", { ascending: false })
     .limit(15);
   if (error) throw new Error(`Engagement: could not load published jobs — ${error.message}`);
@@ -132,6 +135,9 @@ export async function runEngagementPass({ maxRepliesPerChannel = 8, maxCommentsP
       continue;
     }
     let replyBudget = maxRepliesPerChannel;
+    // One dedupe query per channel, not per video — the old loop re-fetched
+    // the identical comment_id set for every job in the channel.
+    const seen = await freshCommentIds(channelJobs.map((j) => j.youtube_video_id));
 
     for (const job of channelJobs) {
       if (replyBudget <= 0) break;
@@ -163,7 +169,6 @@ export async function runEngagementPass({ maxRepliesPerChannel = 8, maxCommentsP
         continue;
       }
 
-      const seen = await freshCommentIds(channelJobs.map((j) => j.youtube_video_id));
       const newComments = threads
         .map((t) => ({
           // replies.insert needs the *comment* id, not the enclosing thread
@@ -205,7 +210,7 @@ export async function runEngagementPass({ maxRepliesPerChannel = 8, maxCommentsP
           classification: verdict?.classification || "unclassified",
         };
 
-        const shouldReply = config.autoEngage && verdict?.should_reply && verdict?.draft && replyBudget > 0 && comment.likes >= 0;
+        const shouldReply = config.autoEngage && verdict?.should_reply && verdict?.draft && replyBudget > 0;
         if (!shouldReply) {
           await supabase.from("engagement").insert(row).then(() => {}).catch(() => {});
           continue;
@@ -219,7 +224,13 @@ export async function runEngagementPass({ maxRepliesPerChannel = 8, maxCommentsP
             },
           });
           const replyId = posted?.id || null;
-          await supabase.from("engagement").insert({ ...row, status: "replied", reply_text: verdict.draft, reply_id: replyId, replied_at: new Date().toISOString() }).catch(() => {});
+          // If this ledger write fails while the reply above succeeded, the
+          // next pass would see an "unread" comment and reply AGAIN — surface
+          // it loudly instead of swallowing.
+          const { error: ledgerErr } = await supabase.from("engagement").insert({ ...row, status: "replied", reply_text: verdict.draft, reply_id: replyId, replied_at: new Date().toISOString() });
+          if (ledgerErr) {
+            await logEvent("Agent 7", `⚠ REPLY POSTED but ledger write failed (${ledgerErr.message}) — risk of duplicate reply to @${comment.author} next pass`, { jobId: job.id, level: "error" });
+          }
           replyBudget--;
           replied++;
           await logEvent("Agent 7", `Replied to @${comment.author} on "${job.niche}": "${verdict.draft.slice(0, 60)}…"`, { jobId: job.id });

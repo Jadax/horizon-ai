@@ -3,18 +3,10 @@ import { logEvent } from "../supabase.js";
 import { renderVideo, checkRenderEngine } from "../lib/freeVideoRender.js";
 import { pickSfx } from "./agent3_audio.js";
 
-const STYLE_FONTS = {
-  "heavy-sans": { family: "Montserrat ExtraBold", size: 46 },
-  minimal: { family: "Roboto", size: 34 },
-  warm: { family: "Poppins", size: 42 },
-  "word-clip": { family: "Montserrat ExtraBold", size: 96 },
-};
-
 export function captionClips(words, preset) {
   const chunkSize = preset.wordClipMode ? 1 : preset.transitions === "fast-cut" ? 2 : 3;
-  const font = preset.wordClipMode
-    ? STYLE_FONTS["word-clip"]
-    : STYLE_FONTS[preset.caption?.style] || STYLE_FONTS.minimal;
+  // Font family lives only in the renderer (ASS hardcodes its stack); the
+  // old STYLE_FONTS lookup here computed a `font` that nothing consumed.
   const clips = [];
   for (let i = 0; i < words.length; i += chunkSize) {
     const chunk = words.slice(i, i + chunkSize);

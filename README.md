@@ -18,14 +18,15 @@ with subtitle sync worse than 50ms are rejected before publish — see
 Everything runs in one Node process at **$0 marginal cost per video** — fully
 Gemini-only, no OpenAI dependency at all (the SDK isn't even in
 `package.json`):
-- **LLM**: Gemini free tier (`GEMINI_API_KEY`) for scripts, quality critic, cuts, format, topic ranking, comment replies. Two tiers only: `smart` (flash-latest) for creative generation, `fast` (flash-lite) for everything else — scoring/rubrics are calibrated against flash-lite specifically. System prompts are module-level constants sent first in every request so Gemini's implicit prompt caching never re-bills a static prefix; per-run context always goes in the user message.
+- **LLM**: Gemini free tier (`GEMINI_API_KEY`) for scripts, quality critic, cuts, format, topic curiosity ranking.
 - **TTS**: Gemini TTS free tier (12 natural voices) — chunked synthesis, `gtts` last-resort. ElevenLabs slot for cloned personal voices (Leo, paid/optional).
-- **Captions/alignment**: Gemini audio understanding (per-word timestamps), shared helper with backup-key rotation (`transcribeAudioWords`).
+- **Captions/alignment**: Gemini audio understanding (per-word timestamps).
 - **Vision**: Gemini (stock QA, Leo frame descriptions).
 - **Images**: Pollinations (free, no key) for illustrated frames.
 - **Render**: in-process `ffmpeg-static` — ken-burns, cross-dissolves, themed captions, hook overlays, ducked music, -14 LUFS.
-- **Music/SFX**: Supabase `music_library` (Jamendo sync `npm run music:sync`, multi-source brain `npm run music:brain`) with live fallback search when empty; `sfx_library` via `npm run sfx:sync` (Pixabay Sound Effects). Stock-footage searches are cached 7 days in `material_cache` (quota + latency win).
-- **Engagement**: Agent 7 reads and classifies every fresh YouTube comment (one batched Gemini call per video) and replies to questions/compliments in the channel's voice (`editing_style_preset.voiceBrief`). Replies are off by default — flip **AUTO-REPLY** on the dashboard or set `AUTO_ENGAGE=true`.
+- **Music**: Supabase `music_library`, auto-stockable from Jamendo's free API (`npm run music:sync`) or Pixabay/FMA/Incompetech (`npm run music:brain`); live multi-source fallback when the library has no match for an energy level.
+- **SFX**: one-shot stingers from Pixabay's SFX API into `sfx_library` (`npm run sfx:sync`) for hook/payoff accents.
+- **Engagement**: Agent 7 reads fresh comments on published videos twice daily, batch-classifies them (question/compliment/critique/spam), and replies to the good ones in the channel's own voice — ledger-deduped in Supabase, rate-capped, gated by the dashboard's AUTO-REPLY toggle.
 
 ### Niches
 - **Explained** (illustrated explainer shorts — flagship): question-driven sources, curiosity-ranked topics, consistent cartoon frames, comic hook text.
@@ -97,13 +98,7 @@ the live dashboard: job stream, per-engine diagnostics, cost tracking, niche
 management, and manual run/clip triggers.
 
 The pipeline itself runs on `PIPELINE_CRON` (default `0 3 * * *`, UTC) when
-`AUTOPILOT=true`; the engagement cron (Agent 7) runs at 02:00/14:00 UTC.
-`VIDEOS_PER_RUN` controls how many videos it attempts per run.
-
-**Runtime ops flags**: `AUTOPILOT` and `AUTO_ENGAGE` can be flipped live from
-the dashboard header (persisted in `settings.json`, hot-reloaded — no
-redeploy). Env vars are the durable defaults; the dashboard toggle wins until
-cleared.
+`AUTOPILOT=true`. `VIDEOS_PER_RUN` controls how many videos it attempts per run.
 
 ## Deploying (Google Cloud Run — free)
 
@@ -170,30 +165,33 @@ since Cloud Run scales to zero when idle, Cloud Scheduler is the trigger
 that's actually guaranteed to run — don't rely on the in-process cron alone
 on this host.
 
-### Alternative: Railway (legacy)
+### Alternative: Railway (still supported, costs money)
 
-`railway.json` + `nixpacks.toml` remain in the repo for reference but the
-project now deploys to Cloud Run exclusively.
+`railway.json` + `nixpacks.toml` are still in the repo and work as before —
+Nixpacks installs Node, Python 3, and `gTTS` during the build. Push to your
+connected repo/branch and set the same env vars in the Railway service's
+Variables tab if you'd rather pay for Railway's simplicity than manage
+Cloud Scheduler yourself.
 
 ## Project layout
 
 ```
 src/
-  index.js              Express app, cron schedules (pipeline/stats/weekly-learning/engagement), route mounting
+  index.js              Express app, cron schedules, route mounting
   config.js              env → config object
   pipeline/
-    agent1_harvester.js  topic sourcing + one-pass candidate re-rank + stock/AI footage sourcing (material-cached) + visual QA
-    agent2_scriptwriter.js  scriptwriting + critic-gated revisions + trim/cut calculation
-    agent3_audio.js       TTS + word alignment + music pick (library → live multi-source fallback)
-    agent4_shotstack.js   render payload assembly (+ SFX stingers from sfx_library)
+    agent1_harvester.js  topic sourcing + stock/AI footage sourcing + visual QA
+    agent2_scriptwriter.js  scriptwriting + trim/cut calculation
+    agent3_audio.js       TTS + music (live multi-source fallback)
+    agent4_shotstack.js   render payload assembly
     agent5_upload.js      YouTube (+ other platform package export) upload
-    agent6_clipper.js     long-form → clips (dialogue hook-scoring / audio-peak modes, natural-language describe filter)
-    agent7_engage.js      comment read → classify → reply engine (Agent 7)
-    formatDecision.js     per-topic format decision (word-clip vs narrated, duration, music register)
-    leo.js                local cat-niche engine (`npm run leo:sync`)
+    agent6_clipper.js     long-form → clips (describe-based search, real QC)
+    agent7_engage.js      comment reading/classification/replies
+    leo.js                local cat-channel inbox processor (clip library)
+    formatDecision.js     word-clip vs. sentence-clip caption format decision
     run.js                orchestrates the full pipeline per job
-  lib/                    TTS, FFmpeg rendering, LLM router, scoring, learning, etc.
-  routes/                 dashboard API endpoints (incl. /api/ops runtime flags, /api/engage)
+  lib/                    TTS, FFmpeg rendering, scoring, retry, learning, etc.
+  routes/                 dashboard API endpoints
   dashboard/dashboard.html  the dashboard UI itself
 supabase/COMPLETE_SETUP.sql  the entire DB schema (one file, by design)
 ```

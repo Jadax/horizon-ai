@@ -1,23 +1,19 @@
 /**
- * LEO v2 — the cat channel. Multi-clip compilation engine.
+ * LEO v3 — the cat channel. Clip-library engine.
  *
- * Scans leo_inbox/ and builds the best pet social video possible from
- * YOUR footage. What the top pet accounts do, automated:
- *
- *   1. Analyze all inbox videos → score clips for "cute factor" via vision AI
- *   2. Select the best moments → stitch into narrative arc compilation
- *   3. Add warm color grade, auto-zoom, smooth transitions
- *   4. Layer music + SFX at action peaks (voiceover optional)
- *   5. Dynamic text overlays (hook → POV captions → emoji payoff)
- *   6. Export: YouTube Shorts direct upload, IG Reels + TikTok packages
+ * Scans leo_inbox/, deep-analyzes each video ONCE via Gemini Vision (frames
+ * sampled every ~3s across the full runtime) to find ALL clippable moments,
+ * persists them to leo_video_library, and renders ONE standalone short per
+ * run from the best unused clip. Subsequent runs drain the same video's
+ * remaining clips; cooldown + consecutive-source rules keep the feed organic.
  *
  * Cadence: `npm run leo:sync` via Windows Task Scheduler (daily).
- * Leo niche row: active=false (cron must not harvest it).
+ * Leo niche row: active=true but editing_style_preset.localFolder=true —
+ * run.js skips it (zero topic sources by design); only this script drives Leo.
  */
-import { readdir, readFile, rename, stat, unlink, writeFile, mkdir } from "node:fs/promises";
+import { readdir, readFile, stat, unlink, writeFile, mkdir } from "node:fs/promises";
 import path from "node:path";
-import { execFile } from "node:child_process";
-import { promisify } from "node:util";
+import os from "node:os";
 import ffmpeg from "ffmpeg-static";
 import { config } from "../config.js";
 import { supabase, logEvent, updateJob } from "../supabase.js";
@@ -27,15 +23,11 @@ import { llmJson, llmVision } from "../lib/llm.js";
 import { uploadScheduled } from "./agent5_upload.js";
 import { notifyAwaitingApproval } from "../lib/telegram.js";
 import { buildPublishPackage, createPublishTargets } from "../lib/platformAdapter.js";
-import {
-  buildLeoCompilation,
-  petHashtags,
-  analyzeReferenceChannel,
-} from "../lib/leoComposer.js";
+import { petHashtags } from "../lib/leoComposer.js";
+import { execFileAsync as sharedExec } from "../lib/utils.js";
 
-const execFileAsync = promisify(execFile);
+const execFileAsync = sharedExec;
 const VIDEO_EXT = /\.(mp4|mov|m4v|webm)$/i;
-const MAX_COMPILATION_SECONDS = 55;
 
 async function probeVideo(file) {
   const res = await execFileAsync(ffmpeg, ["-i", file], { timeout: 30000 })
@@ -47,11 +39,6 @@ async function probeVideo(file) {
   return { duration, hasAudio };
 }
 
-function extractBestFrame(file, duration) {
-  const frameFile = file + ".midframe.jpg";
-  return extractFrame(file, Math.max(0.5, duration / 3), frameFile).then(() => frameFile);
-}
-
 async function extractFrame(file, timeSec, outFile) {
   await execFileAsync(ffmpeg, [
     "-y", "-ss", String(timeSec), "-i", file,
@@ -60,7 +47,10 @@ async function extractFrame(file, timeSec, outFile) {
 }
 
 async function leoQualityCheck(renderUrl, expectedDuration) {
-  const tmpFile = path.join(config.leoInboxDir, `.qc-${Date.now()}.mp4`);
+  // Temp lands in the OS tmpdir, NOT the inbox: the old inbox-path temp
+  // matched VIDEO_EXT, so a failed unlink or overlapping run turned the QC
+  // artifact into a phantom "inbox video" that got re-analyzed forever.
+  const tmpFile = path.join(os.tmpdir(), `leo-qc-${Date.now()}.mp4`);
   try {
     const res = await fetch(renderUrl);
     if (!res.ok) throw new Error(`rendered file not fetchable (HTTP ${res.status})`);
@@ -75,284 +65,6 @@ async function leoQualityCheck(renderUrl, expectedDuration) {
   } finally {
     await unlink(tmpFile).catch(() => {});
   }
-}
-
-async function describeCompilation(videos, persona, referenceBrief, sceneBriefs = []) {
-  const sketch = videos.map((v) => v.replace(VIDEO_EXT, "").replace(/[-_]/g, " ").slice(0, 30));
-  const res = await llmJson({
-    tier: "fast",
-    temperature: 0.8,
-    label: "leoCompilationCopy",
-    messages: [
-      {
-        role: "system",
-        content: `You write copy for a warm, beloved pet social channel. PERSONA: ${persona}.
-VIBE: Fun, cute, warm — like a hug in video form. The kind of content that makes you smile and feel like you're part of a little family. Not dramatic, not clickbaity — just genuine warmth and joy.
-Given the source clips and an optional reference strategy from top pet accounts, return JSON:
-{
-  "narration": "1-2 warm, affectionate sentences a loving cat parent would say — like you're sharing a cozy moment with someone who just needs to smile (max 22 words, natural rhythm, no emoji, no hashtags)",
-  "hook": "2-4 word warm overlay for the first seconds (cute, cozy, belonging — e.g. YOU'RE HOME, COZY TOGETHER, MORNING Cuddles, PURE JOY, STAY AWHILE)",
-  "title": "warm, inviting title under 55 chars, one cat or heart emoji",
-  "description": "1 warm sentence then newline then #cat #catsofyoutube #kitten #catlover #shorts"
-}
-${referenceBrief?.strategy ? `TOP PET STRATEGY HINT: ${JSON.stringify(referenceBrief.strategy)}` : ""}
-ACTUAL SCENE NOTES (use these, not filenames, and never invent an action): ${JSON.stringify(sceneBriefs)}`,
-      },
-      { role: "user", content: JSON.stringify({ CLIPS: sketch, COUNT: videos.length }) },
-    ],
-  });
-  return JSON.parse(res.content);
-}
-
-async function processCompilation(videos, nicheRow) {
-  const persona = nicheRow?.editing_style_preset?.persona ||
-    "Leo: a warm, playful house cat who makes everyone feel like they belong. Think cozy blanket energy — soft, affectionate, with just enough mischief to keep things fun";
-  const targetChannel = nicheRow?.target_channel || "primary";
-  const batchLabel = videos.map((f) => path.basename(f)).join(", ");
-  const frameFile = await extractBestFrame(videos[0], 2).catch(() => null);
-
-  // Build clip compilation via Leo Composer
-  const compilation = await buildLeoCompilation(videos, {
-    persona,
-    maxDuration: MAX_COMPILATION_SECONDS,
-    includeVoiceover: true,
-    warmGrade: true,
-  });
-
-  if (!compilation.backgroundClips.length) {
-    throw new Error("No usable clips found — all videos scored below the quality threshold");
-  }
-
-  // Create pipeline job
-  const { data: job, error } = await supabase.from("pipeline_logs").insert({
-    niche: "Leo",
-    status: "Scripting",
-    target_channel: targetChannel,
-    topic: `Compilation: ${compilation.backgroundClips.length} clips from ${videos.length} videos`,
-    duration_seconds: compilation.duration,
-  }).select().single();
-  if (error) throw new Error(`pipeline_logs insert failed: ${error.message}`);
-  const jobId = job.id;
-
-  try {
-    await logEvent("Leo", `Compiling ${compilation.backgroundClips.length} clips across ${videos.length} videos (avg score: ${compilation.metadata.avgScore.toFixed(1)}) → ${compilation.duration.toFixed(1)}s`, { jobId });
-
-    // Reference analysis from top accounts (optional, non-blocking)
-    let referenceBrief = null;
-    try {
-      if (config.leoReferenceChannel) {
-        referenceBrief = await analyzeReferenceChannel(config.leoReferenceChannel, { maxVideos: 6 });
-        if (referenceBrief) {
-          await logEvent("Leo", `Reference analysis: ${referenceBrief.strategy.titlePattern}, ~${referenceBrief.strategy.durationOptimal}s optimal`, { jobId });
-        }
-      }
-    } catch { /* non-blocking */ }
-
-    // Generate copy optimized for this compilation
-    const scene = frameFile
-      ? await llmVision({
-          label: "leoFrame",
-          prompt: "Describe what this cat is doing in one concrete, specific sentence (posture, action, setting, expression). No preamble.",
-          images: [{ mimeType: "image/jpeg", base64: (await readFile(frameFile)).toString("base64") }],
-          maxTokens: 120,
-        }).then((r) => r?.trim() || null).catch(() => null)
-      : null;
-
-    const sceneBriefs = (compilation.clipData || []).map((clip) => ({
-      action: clip.description || "Leo moment",
-      mood: clip.mood || "warm",
-      overlay: clip.overlay || null,
-    }));
-    const copy = await describeCompilation(videos, persona, referenceBrief, sceneBriefs);
-
-    // Determine hook overlay text (adds POV text at start like top accounts)
-    const hookText = compilation.backgroundClips.length > 2
-      ? copy.hook
-      : copy.hook || "LEO COMPILATION";
-    const finalOverlays = compilation.overlays;
-    if (hookText && finalOverlays[0]?.start < 0.3) {
-      finalOverlays[0] = { text: hookText.toUpperCase(), start: 0.1, end: 2.2 };
-    }
-
-    await logEvent("Leo", `"${batchLabel}" → ${compilation.backgroundClips.length} clips | hook: "${hookText}"`, { jobId });
-
-    // Voiceover (optional — can run music-only for vibes-first content)
-    let voiceoverUrl = null;
-    let words = [];
-    let voDuration = 0;
-    if (copy.narration && copy.narration.trim()) {
-      const voiceId = config.leoVoiceId || "Kore";
-      const engine = config.leoVoiceId && config.elevenlabsKey ? "elevenlabs" : undefined;
-      const voResult = await synthesizeVoiceover(
-        copy.narration, voiceId, jobId, compilation.duration, engine ? { engine } : undefined
-      );
-      voiceoverUrl = voResult.voiceoverUrl;
-      words = voResult.words || [];
-      voDuration = voResult.duration || 0;
-    }
-
-    // Music: Chill/cozy for pet content
-    const musicTrack = await pickMusic(
-      nicheRow?.editing_style_preset?.musicEnergy || "Chill",
-      jobId,
-      { moods: ["warm", "cozy", "lounge", "soft"] }
-    );
-
-    // Build render payload — multi-clip compilation with effects
-    const payload = {
-      backgroundClips: compilation.backgroundClips,
-      duration: compilation.duration,
-      audioUrl: voiceoverUrl,
-      musicUrl: musicTrack?.track_url || null,
-      keepSourceAudio: true, // Meows preserved under everything
-      captions: words.length
-        ? buildCaptionChunks(words, compilation.duration)
-        : buildAutoCaptions(compilation),
-      overlays: finalOverlays,
-      captionStyle: nicheRow?.editing_style_preset?.caption || { color: "cream", fontsize: 72 },
-      warmAudio: true,
-    };
-
-    const renderResult = await renderVideo(payload, jobId);
-    const qc = await leoQualityCheck(renderResult.url, compilation.duration);
-    await logEvent("Leo", `QC pass: ${qc.duration.toFixed(1)}s, audio present, ${compilation.backgroundClips.length} clips`, { jobId });
-
-    // Platform-specific hashtags
-    const tags = petHashtags("youtube");
-    const allTags = [...new Set([...tags, ...petHashtags("tiktok"), ...petHashtags("instagram")])];
-
-    // Build publish packages for YouTube + Instagram + TikTok
-    const publishPackage = buildPublishPackage({
-      jobId,
-      niche: "Leo",
-      videoUrl: renderResult.url,
-      subtitleUrl: renderResult.subtitleUrl,
-      syncPrecisionMs: config.subtitleSyncPrecisionMs,
-      duration: compilation.duration,
-      title: copy.title || "Leo being Leo 🐱",
-      description: copy.description || `The king of cozy ${petHashtags("youtube").join(" ")}`,
-      tags: allTags,
-      thumbnailUrl: renderResult.thumbnailUrl,
-      coverVariants: renderResult.coverVariants,
-      qualityReport: {
-        overall_score: Math.round(compilation.metadata.avgScore * 9) || 85,
-        hook_score: 85,
-        technical_pass: true,
-        retention_prediction: `${Math.min(95, Math.round(compilation.metadata.avgScore * 9.5))}%`,
-        issues: [],
-      },
-      platforms: ["youtube", "tiktok", "instagram"],
-      monetizationEnabled: false,
-    });
-
-    const platforms = ["youtube", "tiktok", "instagram"];
-    const targets = createPublishTargets(publishPackage, platforms);
-    await supabase.from("publish_targets").upsert(
-      targets.map((t) => ({ pipeline_log_id: jobId, ...t })),
-      { onConflict: "pipeline_log_id,platform" }
-    );
-
-    await updateJob(jobId, {
-      title: copy.title || "Leo Compilation",
-      description: copy.description || "",
-      tags: allTags,
-      script: copy.narration || "(music-only compilation)",
-      rendered_video_url: renderResult.url,
-      duration_seconds: compilation.duration,
-      publish_package: publishPackage,
-      content_quality_score: 85,
-      quality_report: {
-        overall_score: 85,
-        hook_score: 85,
-        technical_pass: true,
-        retention_prediction: "85%",
-        issues: [],
-        breakdown: null,
-      },
-      voiceover_words: words.length ? words : null,
-      voiceover_url: voiceoverUrl,
-      subtitle_sync_precision_ms: config.subtitleSyncPrecisionMs,
-      thumbnail_url: renderResult.thumbnailUrl,
-      cover_variants: renderResult.coverVariants,
-      status: config.autopilot ? "Rendered" : "Awaiting Approval",
-    });
-
-    if (config.autopilot) {
-      const uploadResult = await uploadScheduled({
-        videoUrl: renderResult.url,
-        title: copy.title || "Leo Compilation",
-        description: copy.description || "",
-        tags: allTags,
-        jobId,
-        targetChannel,
-        niche: "Leo",
-        publishPackage,
-      });
-      await updateJob(jobId, {
-        youtube_video_id: uploadResult.videoId,
-        publish_schedule: uploadResult.publishAt.toISOString(),
-        status: uploadResult.success ? "Scheduled" : "Rendered",
-      });
-    } else {
-      await notifyAwaitingApproval({
-        jobId,
-        title: copy.title || "Leo Compilation",
-        score: 85,
-        duration: compilation.duration,
-        videoUrl: renderResult.url,
-      });
-    }
-
-    // Move processed files
-    const processedDir = path.join(path.dirname(videos[0]), "processed");
-    for (const file of videos) {
-      await rename(file, path.join(processedDir, path.basename(file)));
-      const notePath = file.replace(VIDEO_EXT, ".txt");
-      await rename(notePath, path.join(processedDir, path.basename(notePath))).catch(() => {});
-    }
-    await logEvent("Leo", `Compilation "${batchLabel}" done → ${config.autopilot ? "scheduled" : "awaiting approval"} (${platforms.join(", ")})`, { jobId });
-    return jobId;
-  } catch (err) {
-    await logEvent("Leo", `Compilation failed: ${err.message}`, { jobId, level: "error" });
-    await updateJob(jobId, { status: "Failed", error: err.message });
-    throw err;
-  } finally {
-    if (frameFile) await unlink(frameFile).catch(() => {});
-  }
-}
-
-function buildCaptionChunks(words, maxDuration) {
-  return words
-    .filter((w) => w.start < maxDuration)
-    .reduce((chunks, w, i, arr) => {
-      const groupStart = Math.floor(i / 3);
-      if (!chunks[groupStart]) {
-        const group = arr.slice(groupStart * 3, groupStart * 3 + 3);
-        chunks[groupStart] = {
-          text: group.map((c) => c.word).join(" "),
-          start: group[0].start,
-          end: group[group.length - 1].end,
-        };
-      }
-      return chunks;
-    }, []);
-}
-
-function buildAutoCaptions(compilation) {
-  return compilation.backgroundClips.map((clip, i) => {
-    const startTime = compilation.backgroundClips.slice(0, i).reduce((s, c) => s + c.duration, 0);
-    const moods = [
-      { high: "look at this distinguished gentleman", low: "*purring intensifies*" },
-      { high: "royalty in motion", low: "peak cozy energy" },
-      { high: "his royal highness", low: "the drama is real" },
-    ];
-    const mood = moods[i % moods.length];
-    return {
-      text: clip.score >= 7 ? mood.high : mood.low,
-      start: startTime + 0.5,
-      end: startTime + clip.duration - 0.2,
-    };
-  });
 }
 
 /**
@@ -395,7 +107,10 @@ async function analyzeVideoDeeply(file) {
     }
     if (!validFrames.length) continue;
 
-    const batchTimeOffset = (batchStart / sampleCount) * duration;
+    // Batch time ranges must match where the frames were actually sampled:
+    // frame i sits at ((i + 0.5) / sampleCount) * duration, so a batch
+    // starting at index B covers from ((B + 0.5) / sampleCount) * duration.
+    const batchTimeOffset = ((batchStart + 0.5) / sampleCount) * duration;
     const batchDuration = (batch.length / sampleCount) * duration;
 
     try {
@@ -452,7 +167,7 @@ Rules:
   await Promise.all(frameFiles.map((f) => unlink(f).catch(() => {})));
 
   // Merge overlapping segments and deduplicate
-  const merged = mergeOverlappingClips(allSegments, duration);
+  const merged = mergeOverlappingClips(allSegments);
   // Clamp all timestamps to valid range
   return merged.map((c) => ({
     ...c,
@@ -467,7 +182,7 @@ Rules:
  * overlap significantly, keep the higher-scored one and extend its
  * boundaries to cover the other.
  */
-function mergeOverlappingClips(clips, videoDuration) {
+function mergeOverlappingClips(clips) {
   if (!clips.length) return [];
   const sorted = [...clips].sort((a, b) => a.start - b.start);
   const merged = [sorted[0]];
@@ -660,18 +375,23 @@ async function getOrCreateLibraryEntry(file) {
  * Mark a clip as used in the library after successful render.
  */
 async function markClipUsed(libraryId, clipIndex) {
-  const { data: entry } = await supabase
+  // Read-modify-write with error surfacing: a silently-failed mark here used
+  // to leave the clip "unused", so the next leo:sync re-picked and double-
+  // posted the same moment that was already live on YouTube.
+  const { data: entry, error: fetchErr } = await supabase
     .from("leo_video_library")
     .select("used_clip_indices, shorts_made")
     .eq("id", libraryId)
     .single();
+  if (fetchErr) throw new Error(`markClipUsed read failed: ${fetchErr.message}`);
   const used = [...(entry?.used_clip_indices || []), clipIndex];
-  await supabase.from("leo_video_library").update({
+  const { error: updErr } = await supabase.from("leo_video_library").update({
     used_clip_indices: used,
     shorts_made: (entry?.shorts_made || 0) + 1,
     last_posted_at: new Date().toISOString(),
     updated_at: new Date().toISOString(),
   }).eq("id", libraryId);
+  if (updErr) throw new Error(`markClipUsed write failed: ${updErr.message}`);
 }
 
 /**
@@ -703,7 +423,7 @@ async function processClipFromVideo(file, clip, libraryEntry, nicheRow) {
 
     // Extract a representative frame from this clip for copy generation
     const frameFile = file + `.clip-${Date.now()}.jpg`;
-    const scene = await extractFrame(file, clipStart + clipDuration / 2, frameFile, 512)
+    const scene = await extractFrame(file, clipStart + clipDuration / 2, frameFile)
       .then(async () => {
         const b64 = (await readFile(frameFile)).toString("base64");
         const res = await llmVision({
@@ -789,9 +509,11 @@ Return JSON:
       copy.narration, voiceId, jobId, clipDuration, engine ? { engine } : undefined
     );
 
-    // Music — upbeat and playful, NOT sleepy
+    // Music — upbeat and playful, NOT sleepy. "Medium" was never a valid
+    // energy_level (library keys are High/Chill/Wonder/Suspense), so this
+    // query used to always miss and render silent.
     const musicTrack = await pickMusic(
-      "Medium",
+      nicheRow?.editing_style_preset?.musicEnergy || "High",
       jobId,
       { moods: ["upbeat", "playful", "fun", "happy", "bouncy", "quirky"] }
     );
@@ -820,12 +542,19 @@ Return JSON:
       keepSourceAudio: hasAudio,
       // Bright, saturated, high-contrast — top pet account aesthetic
       colorFilter: "eq=contrast=1.12:brightness=0.05:saturation=1.25,unsharp=5:5:0.6",
-      captions: words.filter((w) => w.start < outDuration).map((w, i) => {
-        const chunk = words.slice(Math.floor(i / 3) * 3, Math.floor(i / 3) * 3 + 3);
-        return i % 3 === 0
-          ? { text: chunk.map((c) => c.word).join(" "), start: chunk[0].start, end: chunk[chunk.length - 1].end }
-          : null;
-      }).filter(Boolean),
+      // Chunk the capped word list itself: the old code filtered words to
+      // outDuration but then sliced the UNFILTERED array with the filtered
+      // index — every group drifted/mixed text whenever narration overran
+      // the clip (the common case, since outDuration = voDuration + 1.5).
+      captions: (() => {
+        const capped = words.filter((w) => w.start < outDuration);
+        const chunks = [];
+        for (let i = 0; i < capped.length; i += 3) {
+          const chunk = capped.slice(i, i + 3);
+          chunks.push({ text: chunk.map((c) => c.word).join(" "), start: chunk[0].start, end: chunk[chunk.length - 1].end });
+        }
+        return chunks;
+      })(),
       overlays: [
         // Primary hook — big, animated, scroll-stopping
         { text: copy.hook, start: 0.15, end: 2.8, style: "Hook" },
@@ -834,7 +563,6 @@ Return JSON:
         // Emoji pop-ins
         ...emojiOverlays,
       ],
-      sparkleOverlays: false,
       warmAudio: true,
       captionStyle: { color: "white", fontsize: 96 },
     };
@@ -904,12 +632,23 @@ Return JSON:
       await notifyAwaitingApproval({ jobId, title: copy.title, score: Math.round(clip.score * 9) || 85, duration: outDuration, videoUrl: renderResult.url });
     }
 
-    // Mark clip as used in library
+    // Mark the clip used IMMEDIATELY after a successful schedule — before
+    // any other bookkeeping — so a crash later in this block can never cause
+    // the same moment to be re-picked and double-posted next run.
     if (libraryEntry) {
       const clipIdx = (libraryEntry.clips_analysis || []).findIndex(
-        (c) => c.start === clip.start && c.end === clip.end
+        (c) => Math.abs(c.start - clip.start) < 0.01 && Math.abs(c.end - clip.end) < 0.01
       );
-      if (clipIdx >= 0) await markClipUsed(libraryEntry.id, clipIdx);
+      if (clipIdx >= 0) {
+        try {
+          await markClipUsed(libraryEntry.id, clipIdx);
+        } catch (markErr) {
+          // Video is already live/scheduled; failing the job now would lie
+          // about it. Surface loudly instead — an unmarked clip risks a
+          // duplicate post on the next run.
+          await logEvent("Leo", `⚠ clip marked-used FAILED: ${markErr.message} — watch for a duplicate post of "${base}"`, { jobId, level: "error" });
+        }
+      }
     }
 
     await logEvent("Leo", `"${base}" clip done → ${config.autopilot ? "scheduled" : "awaiting approval"} (${platforms.join(", ")})`, { jobId });
@@ -976,10 +715,21 @@ export async function syncLeoInbox() {
 
   // If this video hasn't been analyzed yet, do deep analysis now
   if (!entry || !entry.clips_analysis?.length) {
+    // An entry whose analysis already ran and came back EMPTY carries an
+    // exhausted marker below — without it, a boring video was deep-analyzed
+    // again on every single run (60 frame extracts + several Gemini batches).
+    if (entry?.analysis_meta?.exhausted) return;
     await logEvent("Leo", `analyzing "${path.basename(file)}" for clippable moments...`);
     const analysis = await analyzeVideoDeeply(file);
     if (!analysis.length) {
-      await logEvent("Leo", `no clippable moments found in "${path.basename(file)}" — skipping`);
+      await logEvent("Leo", `no clippable moments found in "${path.basename(file)}" — marking exhausted, will not re-analyze`);
+      if (!entry) entry = await getOrCreateLibraryEntry(file);
+      await supabase.from("leo_video_library").update({
+        clips_analysis: [],
+        total_clips: 0,
+        analysis_meta: { analyzed_at: new Date().toISOString(), exhausted: true },
+        updated_at: new Date().toISOString(),
+      }).eq("id", entry.id);
       return;
     }
     await logEvent("Leo", `found ${analysis.length} clippable moment(s) in "${path.basename(file)}"`);

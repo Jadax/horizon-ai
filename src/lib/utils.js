@@ -10,6 +10,16 @@ import { supabase } from "../supabase.js";
 /** Promisified ffmpeg exec — use everywhere instead of re-defining. */
 export const execFileAsync = promisify(execFile);
 
+/** Parse "Duration: HH:MM:SS.ms" out of ffmpeg metadata output (ffmpeg -i
+ * prints to stderr and exits non-zero with no output file — callers pass
+ * whichever stream they captured). Returns seconds or null. */
+export function parseFfmpegDuration(text) {
+  const m = /Duration:\s*(\d+):(\d+):(\d+(?:\.\d+)?)/.exec(String(text || ""));
+  if (!m) return null;
+  const seconds = Number(m[1]) * 3600 + Number(m[2]) * 60 + Number(m[3]);
+  return Number.isFinite(seconds) && seconds > 0 ? seconds : null;
+}
+
 /** Normalize a topic title into a canonical dedup/grouping key (also used by
  * trend velocity history — keep the algorithm byte-identical across callers). */
 export function topicKey(title) {

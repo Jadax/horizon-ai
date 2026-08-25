@@ -1,26 +1,27 @@
 import { config } from "../config.js";
+import { execFileAsync as sharedExec, parseFfmpegDuration } from "../lib/utils.js";
 import { supabase, logEvent } from "../supabase.js";
 import { synthesizeSpeech } from "../lib/freeTTS.js";
 import { verifyContentIdSafety, pickCopyrightFreeMusic } from "../lib/musicBrain.js";
-import { transcribeAudioWords } from "../lib/llm.js";
-import { execFile } from "node:child_process";
-import { promisify } from "node:util";
+import { transcribeWords } from "../lib/geminiTranscribe.js";
 import { readFile, writeFile, unlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 import ffmpeg from "ffmpeg-static";
 
-const execFileAsync = promisify(execFile);
+const execFileAsync = sharedExec;
 
 // Gemini TTS has a per-request character ceiling well below a whole script,
 // and a truncated synthesis used to burn whole-script retries. Chunking by
 // sentence keeps every request comfortably inside the reliable range, and
-// the chunks are concatenated into one voiceover track afterwards.
+// the chunks are concatenated into one voiceover track afterwards. The
+// Devanagari danda (।) is a sentence terminator too — without it a whole
+// Hindi script became one >280-char chunk and defeated the ceiling.
 const TTS_CHUNK_MAX_CHARS = 280;
 
 function splitScriptForTTS(script) {
-    const sentences = String(script).match(/[^.!?]+[.!?]*\s*/g) || [String(script)];
+    const sentences = String(script).match(/[^.!?।]+[.!?।]*\s*/g) || [String(script)];
     const chunks = [];
     let current = "";
     for (const sentence of sentences) {
@@ -80,36 +81,41 @@ async function removeSilence(audioBuffer) {
 }
 
 export async function synthesizeVoiceover(script, voiceId, jobId, expectedMaxSeconds = 58, options = {}) {
-    await logEvent("Agent 3", `Synthesizing voiceover using free TTS (${config.ttsEngine || 'chatterbox'})...`, { jobId });
+    const lang = options.lang || "en";
+    await logEvent("Agent 3", `Synthesizing voiceover using free TTS (${config.ttsEngine})...`, { jobId });
 
     try {
         // Escalation ladder: chunked synthesis twice (chunking alone removes
         // the early-stop failure mode on long inputs), then gTTS for the
         // whole script as the engine of last resort — robotic beats a dead
-        // run, and the alignment gate still verifies whatever comes out.
+        // run. Attempts 1-2 align STRICTLY (no proportional-timing rescue):
+        // if the primary engine truncated the audio, strict alignment is
+        // what notices, and the old code's retry condition matched an error
+        // string nothing ever threw, so attempts 2-3 were unreachable dead
+        // code and truncated audio sailed through with fake even timing.
         const chunks = splitScriptForTTS(script);
         let audioBuffer, words;
         for (let attempt = 1; ; attempt++) {
             if (attempt >= 3) {
-                await logEvent("Agent 3", `Falling back to gtts for this run (primary engine kept returning incomplete audio)`, { jobId, level: "warn" });
-                audioBuffer = await synthesizeSpeech(script, voiceId, { speed: 1.0, lang: 'en', engine: 'gtts' });
+                await logEvent("Agent 3", `Falling back to gtts for this run (primary engine kept failing alignment)`, { jobId, level: "warn" });
+                audioBuffer = await synthesizeSpeech(script, voiceId, { speed: 1.0, lang, engine: 'gtts' });
             } else {
                 const parts = [];
                 for (const chunk of chunks) {
                     // options.engine lets a caller pin a specific engine (e.g.
                     // Leo pinning the cloned ElevenLabs voice) without
                     // changing the global TTS_ENGINE default.
-                    parts.push(await synthesizeSpeech(chunk, voiceId, { speed: 1.0, lang: 'en', engine: options.engine }));
+                    parts.push(await synthesizeSpeech(chunk, voiceId, { speed: 1.0, lang, engine: options.engine }));
                 }
                 audioBuffer = await concatAudioBuffers(parts);
                 audioBuffer = await removeSilence(audioBuffer);
             }
             try {
-                words = await alignGeneratedSpeech(audioBuffer, script, jobId);
+                words = await alignGeneratedSpeech(audioBuffer, script, jobId, { strict: attempt < 3 });
                 break;
             } catch (err) {
-                if (!/audio incomplete/i.test(err.message) || attempt >= 3) throw err;
-                await logEvent("Agent 3", `TTS returned incomplete audio (attempt ${attempt}/3, ${chunks.length} chunk(s)) — retrying`, { jobId, level: "warn" });
+                if (attempt >= 3) throw err;
+                await logEvent("Agent 3", `TTS output failed verification (attempt ${attempt}/3, ${chunks.length} chunk(s)): ${err.message} — retrying`, { jobId, level: "warn" });
             }
         }
         if (!words.length) throw new Error("TTS alignment produced no word timestamps");
@@ -130,11 +136,11 @@ export async function synthesizeVoiceover(script, voiceId, jobId, expectedMaxSec
             );
         }
 
-        await logEvent(
-            "Agent 3",
-            `Voiceover ready: ${Math.round(duration)}s, ${words.length} word timestamps (FREE: ${config.ttsEngine || 'chatterbox'})`,
-            { jobId }
-        );
+    await logEvent(
+        "Agent 3",
+        `Voiceover ready: ${Math.round(duration)}s, ${words.length} word timestamps (FREE: ${config.ttsEngine})`,
+        { jobId }
+    );
         return { voiceoverUrl: data.publicUrl, words, duration, syncPrecisionMs: config.subtitleSyncPrecisionMs };
     } catch (error) {
         await logEvent("Agent 3", `TTS failed: ${error.message}`, { jobId, level: "error" });
@@ -144,13 +150,12 @@ export async function synthesizeVoiceover(script, voiceId, jobId, expectedMaxSec
 
 /**
  * Word-level alignment via Gemini's native audio understanding.
- * Gemini-only — no Whisper/OpenAI fallback. Uses the shared
- * transcribeAudioWords helper (key rotation across all configured keys —
- * the old hand-rolled fetch died entirely when the primary key throttled,
- * even with backups configured).
+ * Gemini-only — no Whisper/OpenAI fallback. Routes through the shared
+ * lib/geminiTranscribe.js (key rotation + one prompt definition) instead of
+ * its own hand-rolled fetch.
  */
 async function alignWithGemini(audioBuffer, script) {
-    const words = await transcribeAudioWords(audioBuffer, { scriptHint: script, label: "Gemini align" });
+    const words = await transcribeWords(audioBuffer, { referenceScript: script });
     for (let i = 1; i < words.length; i++) {
         if (words[i].start < words[i - 1].start - 0.05) throw new Error("Gemini align: non-monotonic timestamps");
     }
@@ -177,12 +182,7 @@ async function probeAudioDuration(audioBuffer) {
   }
 }
 
-function parseDuration(stderr) {
-  const m = /Duration:\s*(\d+):(\d+):(\d+\.\d+)/.exec(stderr);
-  if (!m) return null;
-  const seconds = Number(m[1]) * 3600 + Number(m[2]) * 60 + Number(m[3]);
-  return Number.isFinite(seconds) && seconds > 0 ? seconds : null;
-}
+const parseDuration = parseFfmpegDuration;
 
 /**
  * Evenly-paced word timing fallback (stolen from Fully-Automated-YouTube-Channel
@@ -204,10 +204,15 @@ async function proportionalFallback(script, audioBuffer) {
   }));
 }
 
-export async function alignGeneratedSpeech(audioBuffer, script, jobId) {
+export async function alignGeneratedSpeech(audioBuffer, script, jobId, { strict = false } = {}) {
   try {
     return await alignWithGemini(audioBuffer, script);
   } catch (err) {
+    // strict mode (TTS escalation ladder): never rescue with evenly-spread
+    // fake timing — the ladder needs the failure to escalate to gTTS.
+    // Proportional timing is only acceptable as a last resort AFTER the
+    // final engine attempt.
+    if (strict) throw err;
     const fallback = await proportionalFallback(script, audioBuffer).catch(() => null);
     if (fallback) {
       await logEvent("Agent 3", `Audio alignment failed (${err.message}) — using proportional word timing`, { jobId, level: "warn" });

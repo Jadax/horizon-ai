@@ -73,6 +73,13 @@ function clampReplyLimit(value, fallback = 8) {
   return Number.isFinite(n) ? Math.max(1, Math.min(50, Math.round(n))) : fallback;
 }
 
+// Pristine copy of the deploy-env credential values, captured at module load
+// — BEFORE any dashboard save can overwrite process.env. Without this,
+// "clearing" a saved key fell back to `process.env[env]`, which still held
+// the previously-saved value: a bad key stuck until restart even after the
+// operator cleared the field.
+const BOOT_ENV = Object.fromEntries(CREDENTIALS.map(({ env }) => [env, env ? process.env[env] ?? null : null]));
+
 export function applySettingsToConfig(stored) {
   if (stored === undefined) {
     try { stored = JSON.parse(readFileSync(SETTINGS_PATH, "utf8").replace(/^\uFEFF/, "")); }
@@ -85,15 +92,15 @@ export function applySettingsToConfig(stored) {
       if (path) setNested(config, path, value);
       if (env) process.env[env] = value;
     } else {
-      // Empty stored value = the dashboard has NO override for this key →
-      // fall back to the environment (Cloud Run/Railway env vars, .env),
-      // which are the durable source of truth. We must NOT delete
-      // process.env here: settings.json is a per-instance file (ephemeral on
-      // Cloud Run), and an empty field after a dashboard save used to wipe a
-      // correctly-configured env var for the whole process — the running
-      // service then reported "GEMINI_API_KEY not set" even though the deploy
-      // had it set.
-      if (path) setNested(config, path, env ? (process.env[env] || null) : null);
+      // Empty stored value = the dashboard has NO override → restore the
+      // PRISTINE deploy-env value (not the current process.env, which a
+      // previous save may have overwritten). We must NOT delete process.env
+      // outright either: settings.json is per-instance/ephemeral on Cloud
+      // Run, and an empty field after a save used to wipe a correctly-
+      // configured env var for the whole process.
+      const envValue = env ? (BOOT_ENV[env] ?? process.env[env] ?? null) : null;
+      if (path) setNested(config, path, envValue);
+      if (env && envValue) process.env[env] = envValue;
     }
   }
   // ── Runtime OPS flags ────────────────────────────────────────────────

@@ -22,9 +22,14 @@ const RATES = {
 };
 
 costsRouter.get("/costs", async (_req, res) => {
+  // Bounded to the last 90 days: this used to scan EVERY pipeline_logs row
+  // ever written and grew linearly forever.
+  const since = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString();
   const { data, error } = await supabase
     .from("pipeline_logs")
-    .select("niche, openai_tokens, elevenlabs_characters, shotstack_render_seconds, created_at");
+    .select("niche, openai_tokens, elevenlabs_characters, shotstack_render_seconds, created_at")
+    .gte("created_at", since)
+    .limit(5000);
   if (error) return res.status(500).json({ error: error.message });
 
   const totals = { openai_tokens: 0, elevenlabs_characters: 0, shotstack_render_seconds: 0 };

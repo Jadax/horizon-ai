@@ -99,7 +99,9 @@ export async function learnedUploadHour(nicheName, { minSamples = 3 } = {}) {
   const byHour = new Map();
   for (const job of data) {
     const dt = new Date(job.publish_schedule);
-    const hour = dt.getUTCHours() + dt.getUTCMinutes() / 60;
+    // Integer-hour buckets: fractional buckets (14.0 vs 14.5) fragmented
+    // small samples below minSamples and starved the learner.
+    const hour = Math.floor(dt.getTime() / 3600000) % 24;
     const views = Number(job.yt_views) || 0;
     const entry = byHour.get(hour) || { sum: 0, n: 0 };
     entry.sum += views;

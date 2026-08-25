@@ -89,7 +89,7 @@ const COLOR_PRESETS = {
   },
 };
 
-function buildAssSubtitles(captions, overlays = [], style = {}, sparkleOverlays = false) {
+function buildAssSubtitles(captions, overlays = [], style = {}) {
   // Per-niche caption color: supports both named presets (cream/yellow/...)
   // and raw hex like "#10B981" / "10B981" — converted to ASS &HAABBGGRR so
   // dashboard-set caption colors actually reach the render.
@@ -473,7 +473,7 @@ async function renderWithFFmpeg(payload, jobId) {
       assFile = path.join(tmpDir, `horizon-captions-${randomUUID()}.ass`);
       // Pass color_preset through to buildAssSubtitles for niche-specific overlay styles
       const styleWithPreset = { ...payload.captionStyle, color_preset: payload.color_preset };
-      await writeFile(assFile, buildAssSubtitles(payload.captions || [], payload.overlays || [], styleWithPreset, payload.sparkleOverlays));
+      await writeFile(assFile, buildAssSubtitles(payload.captions || [], payload.overlays || [], styleWithPreset));
       const assPath = assFile.replace(/\\/g, '/').replace(/:/g, '\\:').replace(/'/g, '\u2019');
       // Warm color grading (payload.colorFilter) is applied before subtitles
       // so the grade affects the video but not the text rendering.
