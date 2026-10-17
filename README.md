@@ -165,13 +165,14 @@ since Cloud Run scales to zero when idle, Cloud Scheduler is the trigger
 that's actually guaranteed to run — don't rely on the in-process cron alone
 on this host.
 
-### Alternative: Railway (still supported, costs money)
+### Alternative: Railway (not used; files kept for reference)
 
-`railway.json` + `nixpacks.toml` are still in the repo and work as before —
-Nixpacks installs Node, Python 3, and `gTTS` during the build. Push to your
-connected repo/branch and set the same env vars in the Railway service's
-Variables tab if you'd rather pay for Railway's simplicity than manage
-Cloud Scheduler yourself.
+The live deployment targets **Cloud Run only** (the Railway service was
+deleted). `railway.json` + `nixpacks.toml` remain in the repo in case you
+prefer Railway's push-to-deploy simplicity across a fleet of repositories —
+push to a connected repo/branch and set the same env vars in the service's
+Variables tab. Nothing in the testing/verification loop covers Railway, so
+treat it as untested territory.
 
 ## Project layout
 

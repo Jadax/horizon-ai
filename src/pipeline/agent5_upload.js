@@ -1,8 +1,9 @@
 /**
- * AGENT 5 — YOUTUBE UPLOADER
- * 
- * Focused on YouTube only - the platform with real implementation.
- * Other platforms (Instagram, Facebook, TikTok) are stubs for future.
+ * AGENT 5 — PUBLISHER
+ *
+ * YouTube upload/schedule (private + publishAt) plus Instagram Reels and
+ * TikTok posting when their tokens exist; unroutable platforms export as
+ * publish_targets packages for manual posting.
  */
 import { Readable } from "node:stream";
 import { config } from "../config.js";
@@ -109,6 +110,20 @@ async function addAffiliateLinks(description, title, niche, jobId) {
   affiliateText += "\n*As an affiliate, I earn from qualifying purchases.*";
 
   return { description: description + affiliateText, products };
+}
+
+// IG/TikTok post once per job: approve re-fires uploadScheduled per YT channel,
+// and an operator retry after a YT failure must not double-post the platforms
+// that already went live.
+async function platformAlreadyPublished(jobId, platform) {
+  const { data } = await supabase
+    .from("publish_targets")
+    .select("id")
+    .eq("pipeline_log_id", jobId)
+    .eq("platform", platform)
+    .eq("status", "published")
+    .limit(1);
+  return Boolean(data?.length);
 }
 
 export async function uploadScheduled({ videoUrl, title, description, tags, commentCta, jobId, targetChannel, niche, publishPackage }) {
@@ -228,20 +243,38 @@ export async function uploadScheduled({ videoUrl, title, description, tags, comm
         await logEvent("Agent 5", `Comment CTA failed (non-fatal): ${commentErr.message}`, { jobId, level: "warn" });
       }
       publishedTo.push({ platform: 'youtube', videoId: data.id, status: 'scheduled' });
+      // Multi-channel fan-out: (pipeline_log_id, platform) is the upsert key,
+      // so a second channel's upload would silently overwrite the first
+      // channel's external_id. Preserve every channel's record in
+      // package.youtube_targets and keep the row's external_id pinned to the
+      // first scheduled video.
+      const { data: existingYt } = await supabase
+        .from("publish_targets")
+        .select("external_id, scheduled_at, package")
+        .eq("pipeline_log_id", jobId)
+        .eq("platform", "youtube")
+        .maybeSingle();
+      const ytTargetRecord = { channel: channelKey, videoId: data.id, scheduled_at: publishAt.toISOString() };
+      const prevTargets = (existingYt?.package?.youtube_targets || []).filter((t) => t.channel !== channelKey);
+      const keptExternalId = existingYt?.external_id || data.id;
+      const keptScheduledAt = existingYt?.external_id ? existingYt.scheduled_at : publishAt.toISOString();
       await supabase.from("publish_targets").upsert({
         pipeline_log_id: jobId,
         platform: "youtube",
         mode: "direct",
         status: "scheduled",
-        package: publishPackage ? {
-          video: publishPackage.video,
-          subtitles: publishPackage.subtitles,
-          metadata: publishPackage.metadata,
-          variant: publishPackage.platform_variants?.youtube || {},
-          monetization: publishPackage.monetization,
-        } : {},
-        external_id: data.id,
-        scheduled_at: publishAt.toISOString(),
+        package: {
+          ...(publishPackage ? {
+            video: publishPackage.video,
+            subtitles: publishPackage.subtitles,
+            metadata: publishPackage.metadata,
+            variant: publishPackage.platform_variants?.youtube || {},
+            monetization: publishPackage.monetization,
+          } : {}),
+          youtube_targets: [...prevTargets, ytTargetRecord],
+        },
+        external_id: keptExternalId,
+        scheduled_at: keptScheduledAt,
       }, { onConflict: "pipeline_log_id,platform" });
       uploadSuccess = true;
       await logEvent("Agent 5", `✓ YouTube scheduled: ${data.id} → ${region}`, { jobId });
@@ -255,7 +288,11 @@ export async function uploadScheduled({ videoUrl, title, description, tags, comm
   // or legacy env), falling back to the single global account ──
   const igChannelKey = nicheRow?.editing_style_preset?.targetInstagramChannels?.[0] || null;
   const igCreds = await resolveInstagramCreds(igChannelKey);
-  if (igCreds?.accessToken && igCreds?.businessId) {
+  const igAlreadyLive = await platformAlreadyPublished(jobId, "instagram");
+  if (igAlreadyLive) {
+    await logEvent("Agent 5", "Instagram already published for this job — skipping duplicate re-post", { jobId });
+  }
+  if (igCreds?.accessToken && igCreds?.businessId && !igAlreadyLive) {
     try {
       await logEvent("Agent 5", `Uploading to Instagram Reels (channel: ${igChannelKey || "primary"})...`, { jobId });
       const igVariant = publishPackage?.platform_variants?.instagram || {};
@@ -293,7 +330,11 @@ export async function uploadScheduled({ videoUrl, title, description, tags, comm
   // single global account. Still requires an approved TikTok app either way. ──
   const ttChannelKey = nicheRow?.editing_style_preset?.targetTiktokChannels?.[0] || null;
   const ttCreds = await resolveTiktokCreds(ttChannelKey);
-  if (ttCreds?.accessToken) {
+  const ttAlreadyLive = await platformAlreadyPublished(jobId, "tiktok");
+  if (ttAlreadyLive) {
+    await logEvent("Agent 5", "TikTok already published for this job — skipping duplicate re-post", { jobId });
+  }
+  if (ttCreds?.accessToken && !ttAlreadyLive) {
     try {
       await logEvent("Agent 5", `Uploading to TikTok (channel: ${ttChannelKey || "primary"})...`, { jobId });
       const ttVariant = publishPackage?.platform_variants?.tiktok || {};
@@ -327,13 +368,13 @@ export async function uploadScheduled({ videoUrl, title, description, tags, comm
 
   // Update job - status reflects REAL uploads only
   const status = uploadSuccess ? "Scheduled" : "Rendered";
-  
+
   await supabase
     .from('pipeline_logs')
     .update({
       youtube_video_id: videoId,
       target_region: region,
-      publish_schedule: publishAt.toISOString(),
+      publish_schedule: uploadSuccess ? publishAt.toISOString() : null,
       published_to: publishedTo,
       affiliate_products: products,
       status: status,

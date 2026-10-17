@@ -12,8 +12,8 @@
  *     links are in the description.
  *
  * Everything else (false urgency, absolute superlatives, unsourced
- * "studies show") is SOFT: it feeds rewrite notes back to the scriptwriter
- * instead of killing the video, so a legitimately strong short isn't
+ * "studies show") is SOFT: logged as warnings in pipeline_logs for operator
+ * review instead of killing the video, so a legitimately strong short isn't
  * rejected over a common faceless-title phrase ("last chance", "best ever").
  */
 export const COMPLIANCE_RULES = [

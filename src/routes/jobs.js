@@ -42,8 +42,8 @@ jobsRouter.get("/jobs/published", async (_req, res) => {
 // Valid pipeline_logs.status values — an arbitrary status string used to be
 // writable via PATCH, corrupting niche stats and learner cohorts.
 const VALID_STATUSES = new Set([
-  "Queued", "Scripting", "Rendering", "Rendered", "Awaiting Approval",
-  "Scheduled", "Published", "Failed",
+  "Queued", "Sourcing", "Scripting", "Synthesizing", "Rendering", "Rendered",
+  "Awaiting Approval", "Scheduled", "Published", "Failed",
 ]);
 
 jobsRouter.patch("/jobs/:id", async (req, res) => {
@@ -96,6 +96,20 @@ async function approveJobHandler(req, res) {
   }
   try {
     assertPublishableQuality(job);
+
+    // Atomic claim: flip Rendered/Awaiting Approval → Uploading in one
+    // conditional update, so a dashboard click racing the Telegram one-tap
+    // (or two rapid clicks) cannot both pass the read-only status check and
+    // double-upload the video.
+    const { data: claimed, error: claimError } = await supabase
+      .from("pipeline_logs")
+      .update({ status: "Uploading" })
+      .eq("id", req.params.id)
+      .in("status", ["Rendered", "Awaiting Approval"])
+      .select("id");
+    if (claimError) return res.status(500).json({ error: claimError.message });
+    if (!claimed?.length)
+      return res.status(409).json({ error: "This job is already being uploaded by another request." });
 
     const { data: nicheRow } = await supabase
       .from("niche_configurations")
@@ -152,6 +166,12 @@ async function approveJobHandler(req, res) {
     });
     res.json({ ok: true, channels: results.length, primary: primary?.result });
   } catch (err) {
+    // Release the claim so the operator can retry from the dashboard.
+    await supabase
+      .from("pipeline_logs")
+      .update({ status: "Awaiting Approval" })
+      .eq("id", req.params.id)
+      .eq("status", "Uploading");
     res.status(500).json({ error: err.message });
   }
 }

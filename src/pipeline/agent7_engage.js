@@ -64,6 +64,7 @@ async function classifyComments(comments, voiceBrief, nicheName) {
   const res = await llmJson({
     tier: "fast",
     temperature: 0.4,
+    maxTokens: 1600,
     label: "engageClassify",
     messages: [
       { role: "system", content: `${CLASSIFY_SYSTEM}\n\nCHANNEL VOICE:\n${voiceBrief || `A casual, friendly ${nicheName || "creator"} who knows their niche well and talks like a real person.`}` },

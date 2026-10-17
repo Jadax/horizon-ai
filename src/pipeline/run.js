@@ -158,7 +158,7 @@ export async function runPipelineForNiche(niche) {
     // medical/financial claim check runs BEFORE we spend a single render/upload
     // second — a hard-flag (e.g. "cures", "guaranteed income") would get the
     // video demonetized or struck. Hard flags kill the topic; soft flags are
-    // logged for the next rewrite.
+    // log-only (no rewrite loop consumes them).
     const compliance = complianceScan(scriptOut.title || "", scriptOut.description || "", scriptOut.script || "");
     if (compliance.blocking.length) {
       throw new Error(`Compliance gate blocked script (${compliance.blocking.map((b) => `${b.label}:"${b.match}"`).join(", ")})`);
@@ -396,7 +396,23 @@ export async function retryJob(jobId) {
   return runPipelineForNiche(niche);
 }
 
+// In-process guard against overlapping daily loops: Cloud Scheduler hitting
+// /api/run/scheduled and node-cron (same container) can fire at 03:00 together.
+let pipelineInFlight = false;
 export async function runFullPipeline() {
+  if (pipelineInFlight) {
+    await logEvent("Pipeline", "Daily loop already in progress — overlapping trigger skipped");
+    return { skipped: true, reason: "already_running" };
+  }
+  pipelineInFlight = true;
+  try {
+    return await runFullPipelineBody();
+  } finally {
+    pipelineInFlight = false;
+  }
+}
+
+async function runFullPipelineBody() {
   await logEvent("Pipeline", "═══ Daily loop started ═══");
   const { data: niches, error } = await supabase
     .from("niche_configurations")
