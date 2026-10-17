@@ -502,10 +502,14 @@ async function cachedMaterialSearch(provider, keyword, fetcher) {
     } catch { /* cache miss → fresh fetch below */ }
     const fresh = await fetcher();
     if (fresh?.length) {
-        await supabase
-            .from("material_cache")
-            .upsert({ cache_key: cacheKey, provider, keyword, payload: fresh }, { onConflict: "cache_key" })
-            .catch(() => {});
+        // No .catch() on the supabase builder — postgrest-js builders expose
+        // .then but NOT .catch; chaining it throws "catch is not a function"
+        // and the throw propagates up into the topic run (live-verified).
+        try {
+            await supabase
+                .from("material_cache")
+                .upsert({ cache_key: cacheKey, provider, keyword, payload: fresh }, { onConflict: "cache_key" });
+        } catch { /* cache write is best-effort */ }
     }
     return fresh;
 }

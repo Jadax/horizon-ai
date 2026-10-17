@@ -213,7 +213,7 @@ export async function runEngagementPass({ maxRepliesPerChannel = 8, maxCommentsP
 
         const shouldReply = config.autoEngage && verdict?.should_reply && verdict?.draft && replyBudget > 0;
         if (!shouldReply) {
-          await supabase.from("engagement").insert(row).then(() => {}).catch(() => {});
+          try { await supabase.from("engagement").insert(row); } catch { /* ledger write is best-effort */ }
           continue;
         }
 
@@ -236,7 +236,9 @@ export async function runEngagementPass({ maxRepliesPerChannel = 8, maxCommentsP
           replied++;
           await logEvent("Agent 7", `Replied to @${comment.author} on "${job.niche}": "${verdict.draft.slice(0, 60)}…"`, { jobId: job.id });
         } catch (err) {
-          await supabase.from("engagement").insert({ ...row, status: "failed", reply_text: verdict.draft }).catch(() => {});
+          try {
+            await supabase.from("engagement").insert({ ...row, status: "failed", reply_text: verdict.draft });
+          } catch { /* ledger write is best-effort */ }
           await logEvent("Agent 7", `Reply to @${comment.author} failed (${err.message})`, { jobId: job.id, level: "warn" });
         }
         // Space replies out so a burst of comments never gets machine-gunned.
