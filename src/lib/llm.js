@@ -117,6 +117,11 @@ export async function llmVision({ prompt, images, label = "vision", maxTokens = 
   if (!resolved.length) throw new Error("no fetchable images");
   const keys = apiKeys();
   let lastErr;
+  // Two rounds over all keys: Gemini occasionally returns an empty
+  // candidate (throttle blip) — a single round made one flaky response
+  // fatal to the whole footage harvest (live-verified).
+  for (let round = 0; round < 2; round++) {
+    if (round) await new Promise((r) => setTimeout(r, 4000));
   for (let i = 0; i < keys.length; i++) {
     try {
       const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODELS.fast}:generateContent?key=${keys[i]}`, {
@@ -137,6 +142,7 @@ export async function llmVision({ prompt, images, label = "vision", maxTokens = 
       lastErr = err;
       console.warn(`[${label}] key ${i + 1}/${keys.length}: ${err.message} — trying next`);
     }
+  }
   }
   throw new Error(`[${label}] ${lastErr?.message || "all keys failed"}`);
 }
