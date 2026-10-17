@@ -535,7 +535,10 @@ async function renderWithFFmpeg(payload, jobId) {
     if (payload.audioUrl || payload.musicUrl) {
       args.push('-map', '[aout]');
     }
-    args.push('-c:v', 'libx264', '-preset', 'fast', '-crf', '18', '-c:a', 'aac', '-b:a', '128k', '-t', String(totalDuration), '-pix_fmt', 'yuv420p', outputFile);
+    // CRF 18 was blowing past Supabase Storage's 50MB per-object cap on
+  // longer shorts (live-verified). CRF 23 + a hard 4Mbps ceiling keeps even
+  // a 60s 1080x1920 short well under the cap; platforms re-encode anyway.
+  args.push('-c:v', 'libx264', '-preset', 'fast', '-crf', '23', '-maxrate', '4M', '-bufsize', '8M', '-c:a', 'aac', '-b:a', '128k', '-t', String(totalDuration), '-pix_fmt', 'yuv420p', outputFile);
 
     await execFileAsync(ffmpeg, args, { timeout: 300000 });
     await execFileAsync(ffmpeg, ['-v', 'error', '-i', outputFile, '-f', 'null', '-'], { timeout: 300000 });

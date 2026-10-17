@@ -97,7 +97,7 @@ export async function renderSourceClip({ sourceBuffer, clip, words = [], clipJob
         // on a missing audio map (browser-use discipline).
         args.push("-map", "0:a?:0");
       }
-      args.push("-c:v", "libx264", "-preset", "fast", "-crf", "21", "-c:a", "aac", "-b:a", "160k",
+      args.push("-c:v", "libx264", "-preset", "fast", "-crf", "23", "-maxrate", "4M", "-bufsize", "8M", "-c:a", "aac", "-b:a", "160k",
         "-pix_fmt", "yuv420p", "-movflags", "+faststart", output);
       return args;
     };
