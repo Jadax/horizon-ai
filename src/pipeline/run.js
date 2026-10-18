@@ -152,7 +152,10 @@ export async function runPipelineForNiche(niche) {
     };
     const nicheThreshold = Number(niche.editing_style_preset?.qualityThreshold) || config.contentQualityThreshold;
     if (!qualityResult?.passed || qualityResult.score < nicheThreshold) {
-      throw new Error(`Mandatory quality gate rejected script (${qualityResult?.score || 0}/100)`);
+      const blockers = Array.isArray(qualityResult?.issues) && qualityResult.issues.length
+        ? `; blocking: ${qualityResult.issues.join(" | ").slice(0, 300)}`
+        : "";
+      throw new Error(`Mandatory quality gate rejected script (${qualityResult?.score || 0}/100${blockers})`);
     }
     // Compliance gate (stolen from clipforge ad-law scanner): deterministic
     // medical/financial claim check runs BEFORE we spend a single render/upload

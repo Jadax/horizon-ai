@@ -312,11 +312,24 @@ export async function writeScript(niche, topic, loreContext, jobId) {
       const weakest = review?.breakdown
         ? Object.entries(review.breakdown).sort((a, b) => a[1] - b[1]).slice(0, 2).map(([k, v]) => `${k} (${v}/100)`)
         : [];
+      // Blocking issues outrank score polish: a draft can score 82+ and still
+      // be rejected because the gate hard-fails on any blocking issue, and
+      // revision_notes carry the critic's per-line required_change targets —
+      // a rewrite that only chased weak dimensions looped forever without
+      // clearing the blocker.
+      const blockers = Array.isArray(review?.issues) && review.issues.length
+        ? review.issues.map(String).slice(0, 5)
+        : [];
+      const revisionNotes = Array.isArray(review?.revision_notes) && review.revision_notes.length
+        ? review.revision_notes.slice(0, 6).map((n) => `line: "${String(n.line).slice(0, 120)}" → required change: ${String(n.required_change).slice(0, 160)}`)
+        : [];
       messages.push({
         role: "user",
         content: [
           `The critic rejected the previous draft (score ${review?.score ?? "n/a"}/100).`,
-          weakest.length ? `Its weakest dimensions were: ${weakest.join(", ")} — focus the rewrite on raising THOSE. Keep the lines and structure that scored well; this is a targeted revision, not a from-scratch rewrite.` : "",
+          blockers.length ? `BLOCKING ISSUES that MUST be cleared in this revision (a video with any of these can never publish): ${blockers.join(" | ")}` : "",
+          revisionNotes.length ? `Per-line required changes from the critic: ${revisionNotes.join(" ## ")}` : "",
+          weakest.length ? `Weakest scoring dimensions: ${weakest.join(", ")} — raise THOSE without dropping the strong lines.` : "",
           `Apply every critic note without inventing facts.`,
           // Script + title + hook only — the full draft JSON re-sent the
           // entire visual_plan every revision round for zero benefit; the
