@@ -45,7 +45,29 @@ function applyNicheDefaults(basePreset, nicheName) {
   return out;
 }
 
+// Per-niche overlap guard — a dashboard double-click (or retryJob while the
+// same niche is mid-run) would otherwise spawn two parallel runs that race
+// on the same sources cache and publish targets. Throwing lets the routes
+// return an honest 409 instead of pretending a skipped run started.
+const nicheRunsInFlight = new Set();
+export function isNicheRunning(name) {
+  return nicheRunsInFlight.has(name);
+}
+
 export async function runPipelineForNiche(niche) {
+  const key = String(niche?.niche_name || "unknown");
+  if (nicheRunsInFlight.has(key)) {
+    throw new Error(`Niche "${key}" already has a run in flight — duplicate trigger skipped`);
+  }
+  nicheRunsInFlight.add(key);
+  try {
+    return await runPipelineForNicheBody(niche);
+  } finally {
+    nicheRunsInFlight.delete(key);
+  }
+}
+
+async function runPipelineForNicheBody(niche) {
   const { data: job, error } = await supabase
     .from("pipeline_logs")
     .insert({ 
@@ -466,7 +488,17 @@ async function runFullPipelineBody() {
         continue;
       }
     }
-    await runPipelineForNiche(niche);
+    // One busy niche (e.g. a manual trigger racing the cron) must not kill
+    // the rest of the daily loop — skip it and move on.
+    try {
+      await runPipelineForNiche(niche);
+    } catch (e) {
+      if ((e.message || "").includes("in flight")) {
+        await logEvent("Pipeline", `${niche.niche_name}: run already in flight — skipped duplicate trigger`);
+        continue;
+      }
+      throw e;
+    }
   }
   await logEvent("Pipeline", "═══ Daily loop finished ═══");
 }

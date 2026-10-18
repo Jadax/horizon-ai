@@ -5,7 +5,7 @@
  */
 import express from "express";
 import { supabase, logEvent } from "../supabase.js";
-import { runFullPipeline, runPipelineForNiche } from "../pipeline/run.js";
+import { runFullPipeline, runPipelineForNiche, isNicheRunning } from "../pipeline/run.js";
 import { syncLeoInbox } from "../pipeline/leo.js";
 
 export const runRouter = express.Router();
@@ -77,6 +77,10 @@ runRouter.post("/run-niche", async (req, res) => {
   if (error || !niche) {
     return res.status(404).json({ error: `Unknown niche: "${nicheName}"` });
   }
+  // Honest rejection of a duplicate trigger (double-click on the run button).
+  if (isNicheRunning(nicheName)) {
+    return res.status(409).json({ ok: false, error: `Niche "${nicheName}" already has a run in flight` });
+  }
   let configured;
   try {
     configured = applyRunOverrides(niche, req.body || {});
@@ -101,6 +105,9 @@ runRouter.post("/run/:niche", async (req, res) => {
     .eq("niche_name", req.params.niche)
     .single();
   if (!niche) return res.status(404).json({ error: "Unknown niche" });
+  if (isNicheRunning(req.params.niche)) {
+    return res.status(409).json({ ok: false, error: `Niche "${req.params.niche}" already has a run in flight` });
+  }
   if (req.params.niche === "Leo") {
     logEvent("Leo", "Leo run started — scanning inbox for next clip");
     syncLeoInbox().catch((e) => logEvent("Leo", `Leo run crashed: ${e.message}`, { level: "error" }));

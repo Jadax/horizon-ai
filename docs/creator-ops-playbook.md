@@ -245,6 +245,27 @@ Three rules that recur across all 17 creators:
 - WatchMojo/AI Uncovered subscriber numbers are recent-snapshot, not constant.
 - No confirmed word-for-word scripts or per-video budgets from MrBeast's team beyond FT Creative/Business Insider descriptions.
 
+## 10. System Mapping (as of v3.18.0 — how horizon-ai implements the above)
+
+This section pins the playbook's findings to the shipped system so the doc stays accurate; anything here is live-verified (see pipeline_logs).
+
+| Playbook finding | horizon-ai implementation |
+|---|---|
+| §0 manual approval gate = load-bearing | Default `AUTOPILOT=false` — every render lands in "Awaiting Approval"; dashboard approve → upload; one-tap Telegram pending bot token |
+| §1 outlier/topic scoring | `agent1_harvester` ranks all sources via `lib/trendScoring.js` (velocity) + ONE batched LLM rerank (curiosity × production-readiness); topic queue falls through on gate failures |
+| §1 "few understand it / unintuitive economics" | `run.js` topic-queue retry: quality-gate failure retries the next-ranked candidate, not the whole run |
+| §2 Zenn three-beat hook | `agent2_scriptwriter` hook + revision loop targets the weakest critic dimension and HARD-blocking issues; gate = `lib/contentQuality.js` (~25-45 filler, ~78-90 strong, threshold from preset) |
+| §2 borrowed authority | Compliance gates: `lib/compliance.js` deterministic scan twice — pre-render (hard medical/financial claims kill the topic; soft flags log-only) and again at publish time on FINAL title/description (affiliate text included) |
+| §3 audio layers | TTS ladder (Gemini TTS → gTTS letzte), strict→proportional alignment ladder, ducked music, loudnorm -14 LUFS |
+| §4 three layers fire at once | `buildAssSubtitles`: caption cards pop in sequence + LLM keyword-emphasis repaint (highlight yellow) + numeric emphasis + hook overlays |
+| §5 voice consistency | Per-niche pinned `editing_style_preset.geminiVoice` → research table → legacy voice_profile_id; Agent 7 replies in `preset.voiceBrief` channel voice |
+| §6 multi-channel distribution | `buildPublishPackage` + `createPublishTargets` fan-out: per-niche `targetChannels`, IG/TikTok auto-post when tokens exist, publish_targets ledger with duplicate-post guards |
+| §6 volume is the moat | Daily 03:00 UTC cron over active niches with cadence windows (`cadenceDays`, `uploadHourUtc` learned by `performanceTracker`); overlap guards at full-run and per-niche level |
+| §6 feedback loops | `closedLoopLearner` (weekly title-pattern + source-weight feedback) and Agent 7 comment classification feeding `preset.voiceBrief` |
+| §7 #6 encode the style | `editing_style_preset` jsonb is the extension point (no new columns); Leo persona, caption colors, transitions, variants, music energy all live there |
+
+Current cycle: cadence windows mean each active niche posts only when its window opens; render → Awaiting Approval → approve → publish is the operator loop. Deploy target is Cloud Run only. Free-tier Gemini quota is the binding constraint — `geminiKey2` rotation is the known lever (see CLAUDE.md).
+
 ## Source Index
 - MrBeast: businessinsider.com (2025-8, production team), ftcreative.co/blog/mrbeasts-editing-style
 - Zenn: fableclip.com/blog/youtube-automation-faceless-channels (full teardown), outlierkit.com/channel/zenn0009

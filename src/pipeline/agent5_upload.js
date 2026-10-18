@@ -11,6 +11,7 @@ import { supabase, logEvent } from "../supabase.js";
 import { youtubeClient } from "../lib/youtubeClient.js";
 import { learnedUploadHour } from "../lib/performanceTracker.js";
 import { matchAffiliateProducts } from "../lib/monetization.js";
+import { complianceScan } from "../lib/compliance.js";
 import { resolveYoutubeToken, resolveInstagramCreds, resolveTiktokCreds } from "../lib/linkedChannels.js";
 
 const REGIONS = [
@@ -149,6 +150,19 @@ export async function uploadScheduled({ videoUrl, title, description, tags, comm
       .from('pipeline_logs')
       .update({ affiliate_products: products })
       .eq('id', jobId);
+  }
+
+  // Publish-time compliance re-scan (double gate): agent2 scans the raw
+  // script before render, but by upload time the metadata has grown affiliate
+  // wording and operator edits — re-scan the FINAL title/description so a
+  // hard-flag blocks every platform call here instead of failing one
+  // channel after another has already posted.
+  const finalCompliance = complianceScan(title, finalDescription, "");
+  if (finalCompliance.blocking.length) {
+    throw new Error(`Compliance gate blocked final metadata (${finalCompliance.blocking.map((b) => `${b.label}:"${b.match}"`).join(", ")})`);
+  }
+  if (finalCompliance.warnings.length) {
+    await logEvent("Agent 5", `Compliance soft-flags (publish-time): ${finalCompliance.warnings.map((w) => `${w.label}:"${w.match}"`).join(", ")}`, { jobId, level: "warn" });
   }
 
   const publishedTo = [];
