@@ -343,7 +343,7 @@ export async function writeScript(niche, topic, loreContext, jobId) {
     usedTokens += res.tokens;
     out = JSON.parse(res.content);
     if (!out.script || out.script.split(/\s+/).length < minWords) {
-      review = { revisionNotes: [{ line: "script", required_change: `Reach at least ${minWords} words without repetition` }] };
+      review = { revision_notes: [{ line: "script", required_change: `Reach at least ${minWords} words without repetition` }] };
     } else {
       review = await gradeContent({
         script: out.script,

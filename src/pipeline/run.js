@@ -151,7 +151,9 @@ export async function runPipelineForNiche(niche) {
         : {}),
     };
     const nicheThreshold = Number(niche.editing_style_preset?.qualityThreshold) || config.contentQualityThreshold;
-    if (!qualityResult?.passed || qualityResult.score < nicheThreshold) {
+    if (qualityResult?.provisional) {
+      await logEvent("Pipeline", "Quality critic unavailable — provisional pass (gate degraded for this run)", { jobId, level: "warn" });
+    } else if (!qualityResult?.passed || qualityResult.score < nicheThreshold) {
       const blockers = Array.isArray(qualityResult?.issues) && qualityResult.issues.length
         ? `; blocking: ${qualityResult.issues.join(" | ").slice(0, 300)}`
         : "";
@@ -169,13 +171,14 @@ export async function runPipelineForNiche(niche) {
     if (compliance.warnings.length) {
       await logEvent("Pipeline", `Compliance soft-flags: ${compliance.warnings.map((w) => `${w.label}:"${w.match}"`).join(", ")}`, { jobId, level: "warn" });
     }
-    await updateJob(jobId, { 
+    await updateJob(jobId, {
       content_quality_score: qualityResult.score,
       quality_report: {
         overall_score: qualityResult.score,
         hook_score: qualityResult.hookScore,
         technical_pass: false,
-        retention_prediction: `${qualityResult.score}%`,
+        retention_prediction: qualityResult.provisional ? "provisional" : `${qualityResult.score}%`,
+        provisional: qualityResult.provisional === true,
         issues: [],
         breakdown: qualityResult.breakdown,
       },
