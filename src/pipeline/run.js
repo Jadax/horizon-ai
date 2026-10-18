@@ -129,7 +129,7 @@ export async function runPipelineForNiche(niche) {
         // Retryable = topic-level failures where the NEXT candidate can do
         // better. Visual-plan errors from writeScript belong in this class —
         // they used to abort the whole run instead of advancing the queue.
-        const retryable = /quality gate|visually verified footage|visual QA|footage coverage|visual plan coverage|no usable visual plan|did not contain four valid beats/i.test(err.message);
+        const retryable = /quality gate|visually verified footage|visual QA|footage coverage|visual plan coverage|no usable visual plan|did not contain four valid beats|all gemini models\/keys failed|quota|resource.?exhausted/i.test(err.message);
         if (!retryable || i === topicQueue.length - 1) throw err;
         await logEvent(
           "Pipeline",
