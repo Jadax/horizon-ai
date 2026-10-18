@@ -437,7 +437,26 @@ WHY: ${brief.intent || "The image must directly prove the narration."}
 The previews are supplied in exact Candidate order: 0 through ${resolved.length - 1}. Accept only footage that visibly depicts the literal subject, action, setting, or truthful visual metaphor for this exact line. Reject broad mood matches, generic lifestyle, dancing, phones, scenery, candles, or clips that only match a country or broad topic. Do not infer unseen facts.
 
 Return JSON only: {"accepted":[{"index":0,"score":0,"reason":"..."}]}. Include only scores 8-10.`;
-    const visionRes = await llmVision({ prompt, images: resolved.map((entry) => entry.image), label: "visualQA", maxTokens: 600 });
+    let visionRes;
+    try {
+        visionRes = await llmVision({ prompt, images: resolved.map((entry) => entry.image), label: "visualQA", maxTokens: 600 });
+    } catch (qaErr) {
+        // Degradation, not death: an outage in the vision tier (quota,
+        // throttle) used to throw and kill the whole harvest — every scripted
+        // beat then failed coverage and 6/6 daily jobs died like on Oct 15-17.
+        // Ship the top keyword-matched candidates flagged unverified; the QA
+        // verdict returns on the next run.
+        await logEvent("Agent 1", `visual QA unavailable (${String(qaErr.message).slice(0, 120)}) — accepting unverified keyword matches`, { level: "warn" });
+        const degraded = Math.min(resolved.length, 2);
+        return {
+            clips: resolved.slice(0, degraded || 1).map((entry) => ({
+                ...entry.clip,
+                visualScore: null,
+                visualReview: "vision QA unavailable — accepted by degrade path",
+            })),
+            tokens: 0,
+        };
+    }
     const jsonText = String(visionRes.content || "{}").replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "");
     const result = JSON.parse(jsonText);
     const accepted = (result.accepted || [])

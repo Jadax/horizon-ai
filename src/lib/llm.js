@@ -143,6 +143,9 @@ export async function llmVision({ prompt, images, label = "vision", maxTokens = 
       console.warn(`[${label}] key ${i + 1}/${keys.length}: ${err.message} — trying next`);
     }
   }
+    // A quota/429 error survives all keys; a second round would only burn
+    // 4s of needless delay (caller has its own degrade path now).
+    if (lastErr && /quota|exceeded|429|resource.?exhausted/i.test(String(lastErr.message))) break;
   }
   throw new Error(`[${label}] ${lastErr?.message || "all keys failed"}`);
 }
